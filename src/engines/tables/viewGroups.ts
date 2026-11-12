@@ -1,12 +1,12 @@
 import type { DataColumn, TableGroupingView, TableGroupRule, TableViewSettings } from './types';
 import { CONDITION_OPS } from './tableEdits.ts';
 
-export const tableViewParts = ['rules', 'sorts', 'conditions'] as const;
+export const tableViewParts = ['rules', 'sorts', 'conditions', 'subtotalColumns'] as const;
 
 export type StoredTableView = TableViewSettings & { conditionsRevision: number };
 
 export function storedTableView(views: readonly TableGroupingView[] | undefined, tableId: string, eraId?: string): StoredTableView {
-  if (!Array.isArray(views)) return { rules: [], sorts: [], conditions: [], conditionsRevision: 0 };
+  if (!Array.isArray(views)) return { rules: [], sorts: [], conditions: [], subtotalColumns: [], conditionsRevision: 0 };
   const own = views.find(view => view?.tableId === tableId && view.eraId === eraId);
   const base = eraId ? views.find(view => view?.tableId === tableId && view.eraId === undefined) : undefined;
   const read = <K extends keyof TableViewSettings>(key: K): TableViewSettings[K] => {
@@ -14,7 +14,7 @@ export function storedTableView(views: readonly TableGroupingView[] | undefined,
     return Array.isArray(part) ? part : [];
   };
   const revision = (Array.isArray(own?.conditions) ? own : base)?.conditionsRevision;
-  return { rules: read('rules'), sorts: read('sorts'), conditions: read('conditions'), conditionsRevision: Number.isSafeInteger(revision) ? Math.max(0, revision!) : 0 };
+  return { rules: read('rules'), sorts: read('sorts'), conditions: read('conditions'), subtotalColumns: read('subtotalColumns'), conditionsRevision: Number.isSafeInteger(revision) ? Math.max(0, revision!) : 0 };
 }
 
 export const filterStamp = (revision: number, conditions: readonly TableViewSettings['conditions'][number][]) => JSON.stringify([revision, conditions]);
@@ -41,7 +41,9 @@ export function effectiveTableView(view: Partial<TableViewSettings>, columns: re
     if (!item || !ids.has(item.columnId) || !CONDITION_OPS.includes(item.op) || (item.value !== undefined && typeof item.value !== 'string')) return [];
     return [{ columnId: item.columnId, op: item.op, ...(item.value === undefined ? {} : { value: item.value }) }];
   });
-  return { rules: effectiveTableGrouping(view.rules, columns), sorts, conditions };
+  const numericIds = new Set(columns.filter(isTableSubtotalColumn).map(column => column.id));
+  const subtotalColumns = Array.isArray(view.subtotalColumns) ? view.subtotalColumns.filter(id => numericIds.delete(id)) : [];
+  return { rules: effectiveTableGrouping(view.rules, columns), sorts, conditions, subtotalColumns };
 }
 
 /** Project and workbook copies retain view rules against the new column identities. */
@@ -55,6 +57,10 @@ export function remapTableView(view: Partial<TableViewSettings>, column: (id: st
     ...(Array.isArray(view.rules) ? { rules: remap(view.rules, 'columnId') } : {}),
     ...(Array.isArray(view.sorts) ? { sorts: remap(view.sorts, 'id') } : {}),
     ...(Array.isArray(view.conditions) ? { conditions: remap(view.conditions, 'columnId') } : {}),
+    ...(Array.isArray(view.subtotalColumns) ? { subtotalColumns: view.subtotalColumns.flatMap(id => {
+      const target = typeof id === 'string' ? column(id) : undefined;
+      return target ? [target] : [];
+    }) } : {}),
   };
 }
 
@@ -73,8 +79,40 @@ export function effectiveTableGrouping(rules: unknown, columns: readonly DataCol
   return result;
 }
 
+export function isTableSubtotalColumn(column: DataColumn): boolean {
+  return column.kind === 'number' && column.calculation?.resultType !== 'text';
+}
+
+export type TableGroupSubtotal = { value: number | '#NUM!' | null; count: number };
+
+export function sumTableGroup<T>(rows: readonly T[], read: (row: T) => string): TableGroupSubtotal {
+  let coefficient = 0n, scale = 0, count = 0;
+  for (const row of rows) {
+    const raw = read(row).trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+
+    // Stay in the table's finite Number domain, but add decimal coefficients
+    // at a common scale so view order cannot change cancellation or rounding.
+    const [mantissa, exponent = '0'] = value.toString().split('e');
+    const dot = mantissa.indexOf('.');
+    const decimals = dot === -1 ? 0 : mantissa.length - dot - 1;
+    const shift = Number(exponent) - decimals;
+    if (shift < scale) {
+      coefficient *= 10n ** BigInt(scale - shift);
+      scale = shift;
+    }
+    coefficient += BigInt(mantissa.replace('.', '')) * 10n ** BigInt(shift - scale);
+    count++;
+  }
+  if (!count) return { value: null, count };
+  const sum = Number(`${coefficient}e${scale}`);
+  return { value: Number.isFinite(sum) ? sum : '#NUM!', count };
+}
+
 type GroupValue = { identity: string; label: string; number?: number };
-type GroupHeader = { kind: 'group'; key: string; label: string; depth: number; count: number; expanded: boolean; hidden: boolean };
+type GroupHeader = { kind: 'group'; key: string; columnId: string; value: string; label: string; depth: number; count: number; expanded: boolean; hidden: boolean; subtotal?: TableGroupSubtotal };
 type RowItem<T> = { kind: 'row'; row: T; hidden: boolean };
 type GroupPath = { key: string; parent?: GroupPath };
 
@@ -89,6 +127,7 @@ export function projectTableGroups<T extends { id: string }>(
   read: (row: T, columnId: string) => GroupValue,
   collapsed: ReadonlySet<string>,
   locale: string,
+  subtotal?: (rows: readonly T[]) => TableGroupSubtotal,
 ) {
   const orderedRows: T[] = [], expandedRows: T[] = [];
   const items: (GroupHeader | RowItem<T>)[] = [];
@@ -136,7 +175,8 @@ export function projectTableGroups<T extends { id: string }>(
       const expanded = !collapsed.has(key);
       stack.push({
         branch: group.rows, depth: depth + 1, path: { key, parent: path }, visible: visible && expanded,
-        header: { kind: 'group', key, label: group.value.label, depth, count: group.rows.length, expanded, hidden: !visible },
+        header: { kind: 'group', key, columnId: rule.columnId, value: group.value.identity, label: group.value.label,
+          depth, count: group.rows.length, expanded, hidden: !visible, ...(subtotal ? { subtotal: subtotal(group.rows) } : {}) },
       });
     }
   }

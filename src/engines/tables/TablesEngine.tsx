@@ -5,7 +5,7 @@ import { bindEraOperation, useWorldEraScope, useEraProject, useEraRows } from '@
 import {projectWorldTable,columnCalculation,displayTableFormula,liveTableEntries} from './projection';
 import {createTypeTable,saveTableCalculation,removeTableColumn,updateTableColumn,type SaveTableCalculation} from './calculations';
 import TableCalculationEditor from './TableCalculationEditor';
-import { projectCodexEntry } from '@/engines/codex/properties';
+import { formatCalculationValue, projectCodexEntry } from '@/engines/codex/properties';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useDeepLinkParam } from '@/engines/_shared';
 import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, GripVertical, Maximize2, Minimize2, Pencil, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
@@ -36,7 +36,7 @@ import { cellKey, validateCell, type DataColumn, type DataRow, type TableViewSet
 import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, saveTableView } from './operations';
 import { sheetColumnTotals, sheetValues } from './formulas';
 import { tableCopy } from './copy';
-import { confirmedTableFilters, effectiveTableView, filterStamp, projectTableGroups, storedTableView, tableViewParts } from './viewGroups';
+import { confirmedTableFilters, effectiveTableView, filterStamp, isTableSubtotalColumn, projectTableGroups, storedTableView, sumTableGroup, tableViewParts } from './viewGroups';
 import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
 
 const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
@@ -260,7 +260,13 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const columnById = (id: string) => table?.columns.find(column => column.id === id);
   const savedView = storedTableView(project?.tableGroupingViews, storedTable?.id ?? '', scope.eraId);
   const view = effectiveTableView(savedView, table?.columns ?? []);
-  const { conditions, sorts, rules: groupRules } = view;
+  const { conditions, sorts, rules: groupRules, subtotalColumns } = view;
+  const numericGroupColumns = table?.mode === 'table' && groupRules.length ? table.columns.filter(isTableSubtotalColumn) : [];
+  const subtotalColumn = numericGroupColumns.find(column => column.id === subtotalColumns[0]);
+  const subtotalType = table && subtotalColumn ? columnCalculation(table, subtotalColumn, project?.codexTemplates ?? [])?.resultType : undefined;
+  const subtotalNumber = subtotalColumn ? new Intl.NumberFormat(locale, { maximumSignificantDigits: 21 }) : undefined;
+  const subtotalText = (value: number | '#NUM!' | null) => value === null ? copy.emptyGroup :
+    typeof value !== 'number' ? value : subtotalType ? formatCalculationValue(String(value), subtotalType) : subtotalNumber!.format(value);
   const groupedColumns = new Set(groupRules.map(rule => rule.columnId));
   const groupControlCount = Math.min(table?.columns.length ?? 0, groupRules.length + 1);
   const candidates = filterRows(rows, conditions, (row, id) => { const column = columnById(id); return column ? displayValue(row, column) : undefined; });
@@ -309,7 +315,8 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     return { identity, label: identity ? title ?? shownValue(row, column) : '', number: Number.isFinite(number) ? number : undefined };
   };
   const { orderedRows: visible, expandedRows, items: groupItems, pathsByRow } =
-    projectTableGroups(filteredRows, groupRules, groupValue, foldedGroups, locale);
+    projectTableGroups(filteredRows, groupRules, groupValue, foldedGroups, locale,
+      subtotalColumn ? branch => sumTableGroup(branch, row => rowValue(row, subtotalColumn)) : undefined);
   const selectRow = (rowId: string, checked: boolean, extend: boolean) => setRowSelection(current => {
     const previous = current?.epoch === selectionEpoch ? current : undefined;
     const rows = new Set(previous?.rows);
@@ -517,7 +524,16 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
                 saveView({ rules: groupRules.map((current, index) => index === depth ? { ...current, direction } : current) });
               }}><option value="asc">{copy.ascending}</option><option value="desc">{copy.descending}</option></select>}
             </div>;
-          })}<span className="text-sm tabular-nums text-text-muted">{visible.length} {copy.count}</span></div>
+          })}
+          {numericGroupColumns.length > 0 && <label className="flex flex-wrap items-center gap-2 text-sm text-text-muted">
+            {copy.groupSubtotalColumn}
+            <select className={control} value={subtotalColumn?.id ?? ''} disabled={busy}
+              onChange={event => saveView({ subtotalColumns: event.target.value ? [event.target.value] : [] })}>
+              <option value="">{copy.none}</option>
+              {numericGroupColumns.map(column => <option key={column.id} value={column.id}>{column.name}</option>)}
+            </select>
+          </label>}
+          <span className="text-sm tabular-nums text-text-muted">{visible.length} {copy.count}</span></div>
         <TableFilters key={JSON.stringify([rowKey, filterEpoch])} columns={table.columns} conditions={conditions} stored={savedView.conditions} revision={savedView.conditionsRevision} busy={busy} copy={copy} registerFlush={registerFilterFlush}
           onDiscard={() => { setError(''); setFilterEpoch(value => value + 1); }}
           save={(next, expected) => saveTableView(projectId, table.id, { conditions: next }, { conditions: expected }, scope.eraId)} />
@@ -576,7 +592,11 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
                   <button type="button" aria-expanded={item.expanded} className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent-gold" style={{ paddingInlineStart: item.depth ? 'min(' + (0.5 + item.depth * 1.25) + 'rem, 35%)' : undefined }} onClick={() => updateFolded(folded => {
                     if (folded.has(item.key)) folded.delete(item.key);
                     else folded.add(item.key);
-                  })}>{item.expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}<span className="break-words">{item.label || copy.emptyGroup}</span><span className="text-xs text-text-muted">{item.count} {item.count === 1 ? copy.oneRow : copy.count}</span></button>
+                  })}>{item.expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}<span className="break-words">{item.label || copy.emptyGroup}</span><span className="text-xs text-text-muted">{item.count} {item.count === 1 ? copy.oneRow : copy.count}</span>
+                    {subtotalColumn && item.subtotal && <span className="min-w-0 break-words text-xs tabular-nums text-text-muted" data-table-group-subtotal>
+                      {copy.groupSubtotal.replace('{value}', () => subtotalText(item.subtotal!.value)).replace('{column}', () => subtotalColumn.name)}
+                    </span>}
+                  </button>
                 </th>
               </tr>;
               const row = item.row, index = visiblePosition.get(row.id)!;

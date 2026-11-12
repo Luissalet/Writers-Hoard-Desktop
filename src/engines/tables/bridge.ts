@@ -1,4 +1,6 @@
 import { db } from '@/db';
+import { t } from '@/i18n/useTranslation';
+import { useLocaleStore } from '@/stores/localeStore';
 import { getEraProject, listEraRows, readWorldDocument } from '@/services/worldEras/store';
 import { resolveProjectForEngine, requireString, optString, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
 import { editTableRows, type TableRowAction } from './rowActions';
@@ -10,6 +12,7 @@ import { exportXlsxReport, importXlsx, sheetsToTables } from './xlsx';
 import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
 import { sheetColumnTotals, sheetValues } from './formulas';
+import { effectiveTableGrouping, isTableSubtotalColumn, projectTableGroups, sumTableGroup } from './viewGroups';
 import { cellKey, tableCsv, validateCell, type ColumnKind, type WorldTable } from './types';
 import { changeTableColumnKind, CONDITION_OPS, duplicateColumn, duplicateRow, duplicateRows, filterRows, insertColumn, isLiveTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, type TableCondition, type TableSort } from './tableEdits';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'tables'), eraId: optString(args, 'eraId') });
@@ -138,7 +141,7 @@ export const TABLE_HANDLERS = {
     return { table };
   },
   async wh_table_query(args: ToolArgs) {
-    const { table, rows, displayRows } = await read(args);
+    const { table, rows, displayRows, target } = await read(args);
     const shown = new Map(displayRows.map(row => [row.id, row]));
     const value = (row: { id: string; cells: Record<string, string> }, columnId: string) => table.columns.some(column => column.id === columnId) ? (shown.get(row.id)?.cells[columnId] ?? row.cells[columnId] ?? '') : undefined;
     const given = Array.isArray(args.conditions) ? args.conditions as Partial<TableCondition>[] : [];
@@ -148,7 +151,42 @@ export const TABLE_HANDLERS = {
     if (sortArgs.some(sort => !sort || typeof sort !== 'object' || typeof sort.id !== 'string')) throw Error('table_sort_invalid');
     const sorts = sortArgs.map(sort => ({ id: sort.id!, descending: !!sort.descending }));
     const result = sortRows(filterRows(rows, conditions, value), sorts, (row, id) => value(row, id) ?? '', id => table.columns.find(column => column.id === id)?.kind === 'number');
-    return { columns: table.columns.map(column => ({ id: column.id, name: column.name, kind: column.kind })), total: rows.length, matched: result.length, rows: result.slice(0, 500).map(row => ({ id: row.id, cells: Object.fromEntries(table.columns.map(column => [column.name, value(row, column.id) ?? ''])) })) };
+    const groupBy = args.groupBy;
+    const subtotalId = optString(args, 'subtotalColumnId');
+    if (args.subtotalColumnId !== undefined && subtotalId === undefined) throw Error('table_group_subtotal_invalid');
+    let grouped: ReturnType<typeof projectTableGroups<(typeof rows)[number]>> | undefined;
+    if (groupBy !== undefined || subtotalId !== undefined) {
+      if (table.mode !== 'table' || !Array.isArray(groupBy)) throw Error('table_group_invalid');
+      const rules = effectiveTableGrouping(groupBy, table.columns);
+      if (rules.length !== groupBy.length) throw Error('table_group_invalid');
+      const numeric = subtotalId === undefined ? undefined : table.columns.find(column => column.id === subtotalId && isTableSubtotalColumn(column));
+      if (subtotalId !== undefined && (!numeric || !rules.length)) throw Error('table_group_subtotal_invalid');
+      const columns = new Map(table.columns.map(column => [column.id, column]));
+      const groupReferences = rules.some(rule => columns.get(rule.columnId)?.kind === 'reference');
+      const entries = groupReferences ? await listEraRows<CodexEntry>(target, 'codexEntries') : [];
+      const titles = new Map(entries.map(entry => [entry.id, entry.title]));
+      const locale = useLocaleStore.getState().locale;
+      grouped = projectTableGroups(result, rules, (row, id) => {
+        const raw = row.cells[id] ?? '', identity = raw.trim() ? raw : '';
+        const column = columns.get(id);
+        const number = identity && column?.kind === 'number' ? Number(identity) : undefined;
+        const label = column?.field === '__type' ? t(`codex.types.${raw}`) :
+          (column?.kind === 'reference' ? titles.get(raw) : undefined) ?? value(row, id) ?? identity;
+        return { identity, label: identity ? label : '', number: Number.isFinite(number) ? number : undefined };
+      }, new Set(), locale, numeric ? branch => sumTableGroup(branch, row => row.cells[numeric.id] ?? '') : undefined);
+    }
+    return {
+      columns: table.columns.map(column => ({ id: column.id, name: column.name, kind: column.kind })),
+      total: rows.length,
+      matched: result.length,
+      rows: (grouped?.orderedRows ?? result).slice(0, 500).map(row => ({
+        id: row.id, cells: Object.fromEntries(table.columns.map(column => [column.name, value(row, column.id) ?? ''])),
+      })),
+      ...(grouped ? { groups: grouped.items.flatMap(item => item.kind === 'group' ? [{
+        key: item.key, columnId: item.columnId, value: item.value, label: item.label, depth: item.depth, count: item.count,
+        ...(item.subtotal ? { subtotal: { columnId: subtotalId, ...item.subtotal } } : {}),
+      }] : []) } : {}),
+    };
   },
   async wh_table_save_cell(args: ToolArgs) {
     const { table, target } = await read(args);

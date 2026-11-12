@@ -8,7 +8,7 @@ export interface TableCalculation { formula:string; rowBindings:Record<string,st
 export interface DataColumn { id: string; name: string; kind: ColumnKind; width?: number; field?: string; propertyId?:string; calculation?:TableCalculation }
 export interface DataRow { id: string; cells: Record<string, string> }
 export type TableGroupRule = { columnId: string; direction: 'asc' | 'desc' };
-export interface TableViewSettings { rules: TableGroupRule[]; sorts: TableSort[]; conditions: TableCondition[] }
+export interface TableViewSettings { rules: TableGroupRule[]; sorts: TableSort[]; conditions: TableCondition[]; subtotalColumns: string[] }
 export interface TableGroupingView extends Partial<TableViewSettings> { tableId: string; eraId?: string; conditionsRevision?: number }
 export interface TableViewCopy { tableId: string; columnIds: ReadonlyMap<string, string> }
 export interface WorldTable {
