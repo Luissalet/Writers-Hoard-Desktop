@@ -410,6 +410,8 @@ project ambience has a soundscape mixer; the icon picker has categories,
 genres and recent icons. Bridge tools: docs/AI-BRIDGE.md, section 30; matrix:
 tasks/vvd1095/D1-tools.md.
 
+**Daggerheart adversaries.** In Character Sheets, open a Daggerheart adversary and select **Play**. Choose Tier 1–4 to see the corresponding party level, select an adversary type, and edit difficulty, damage thresholds, attack, range and tactics. Existing custom types stay selected until you choose a replacement. Add experiences with a signed whole-number modifier and features with a name, Passive/Action/Reaction and text. Save the sheet to retain the changes in the current Base or era. Existing free rows and resource marks remain available. Paper and portable sheet JSON retain the added data. [Use, MCP and verification](tasks/vvd1095/verification-daggerheart-adversary2985.md).
+
 **Workspace themes.** Appearance (Base or an era) has eight built-in styles
 (Parchment, Midnight, Forest, Ember, Ocean, Slate, Dusty rose, High contrast) and
 an accent-hue slider. "Save as theme" names the look you see, including its
