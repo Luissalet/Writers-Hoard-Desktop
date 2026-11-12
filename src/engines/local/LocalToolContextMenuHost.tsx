@@ -5,16 +5,18 @@ import {useEnginePane} from '@/engines/_shared/EnginePaneContext';
 import {useTranslation,t as translate} from '@/i18n/useTranslation';
 import {toast} from '@/components/common/toast';
 import {copyLocalToolMenuEntries,type LocalToolContextMenuPort,type LocalToolMenuEntry} from './contextMenus';
+import {LocalToolIcon,type LocalToolIconProps} from './LocalToolIcon';
 import type {LocalToolHostContext} from './sdk';
 
 type CloseReason='escape'|'tab'|'selection'|'outside'|'replaced'|'revoked';
+type IconClient=LocalToolIconProps['client'];
 type Item=Extract<LocalToolMenuEntry,{kind:'item'}>;
 interface Presentation {id:number;token:object;label:string;entries:readonly LocalToolMenuEntry[];x:number;y:number;document:Document;close:(reason:CloseReason)=>void;select:(entry:Item)=>void}
 interface Level {id:number;label:string;entries:readonly LocalToolMenuEntry[];opener?:HTMLButtonElement;entryIndex?:number}
 let sequence=0;
 const presented=new WeakMap<Document,Presentation>();
 /** Internal browser presenter, deliberately outside the public SDK graph. */
-export default function LocalToolContextMenuHost({context,releaseHash,identity,visible=true,children}:{context:LocalToolHostContext;releaseHash:string|null;identity:unknown;visible?:boolean;children:(context:LocalToolHostContext)=>ReactNode}){
+export default function LocalToolContextMenuHost({context,releaseHash,identity,client,visible=true,children}:{context:LocalToolHostContext;releaseHash:string|null;identity:unknown;client?:IconClient;visible?:boolean;children:(context:LocalToolHostContext)=>ReactNode}){
  const pane=useEnginePane(),{locale}=useTranslation(),root=useRef<HTMLDivElement>(null),[port,setPort]=useState<LocalToolContextMenuPort>(),[menu,setMenu]=useState<Presentation>();
  const {projectId,eraId}=context.scope,documentId=context.document?.id,namespace=context.document?.namespace;
  const enabled=visible&&(pane?.visible??true)&&context.canEdit&&context.view==='editor';
@@ -53,10 +55,10 @@ export default function LocalToolContextMenuHost({context,releaseHash,identity,v
   return()=>{live=false;close('revoked');};
  },[enabled,projectId,eraId,documentId,namespace,releaseHash,identity,locale]);
  const nextContext=useMemo(()=>({...context,contextMenu:enabled?port:undefined}),[context,enabled,port]);
- return <div ref={root} className="min-w-0" data-local-tool-menu-root>{children(nextContext)}{menu&&<MenuTree key={menu.id} menu={menu} paneId={pane?.instanceId}/>}</div>;
+ return <div ref={root} className="min-w-0" data-local-tool-menu-root>{children(nextContext)}{menu&&<MenuTree key={menu.id} menu={menu} client={client} paneId={pane?.instanceId}/>}</div>;
 }
 const triggers=new WeakMap<object,HTMLElement>();
-function MenuTree({menu,paneId}:{menu:Presentation;paneId?:string}){
+function MenuTree({menu,client,paneId}:{menu:Presentation;client?:IconClient;paneId?:string}){
  const [levels,setLevels]=useState<Level[]>(()=>[{id:0,label:menu.label,entries:menu.entries}]);
  const active=useRef(levels),nodes=useRef(new Map<Level,HTMLDivElement>()),nextId=useRef(0),alive=useRef(true);
  const replace=useCallback((next:Level[])=>{active.current=next;setLevels(next);},[]);
@@ -88,11 +90,11 @@ function MenuTree({menu,paneId}:{menu:Presentation;paneId?:string}){
   doc.addEventListener('pointerdown',outside,true);doc.addEventListener('focusin',outside,true);doc.addEventListener('scroll',scroll,true);win.addEventListener('resize',resize);
   return()=>{alive.current=false;doc.removeEventListener('pointerdown',outside,true);doc.removeEventListener('focusin',outside,true);doc.removeEventListener('scroll',scroll,true);win.removeEventListener('resize',resize);};
  },[menu,back]);
- return createPortal(<>{levels.map((level,depth)=><MenuLevel key={level.id} menu={menu} level={level} child={levels[depth+1]} paneId={paneId} node={node=>{if(node)nodes.current.set(level,node);else nodes.current.delete(level);}} invoke={invoke} back={back} trim={trim}/>)}</>,menu.document.body);
+ return createPortal(<>{levels.map((level,depth)=><MenuLevel key={level.id} menu={menu} level={level} child={levels[depth+1]} client={client} paneId={paneId} node={node=>{if(node)nodes.current.set(level,node);else nodes.current.delete(level);}} invoke={invoke} back={back} trim={trim}/>)}</>,menu.document.body);
 }
 
 const itemClass='flex min-h-9 w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm [overflow-wrap:anywhere] hover:bg-elevated focus:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/60 disabled:cursor-default disabled:opacity-50';
-function MenuLevel({menu,level,child,paneId,node,invoke,back,trim}:{menu:Presentation;level:Level;child?:Level;paneId?:string;node:(value:HTMLDivElement|null)=>void;invoke:(level:Level,index:number,opener:HTMLButtonElement)=>void;back:(level:Level)=>void;trim:(level:Level,index?:number)=>void}){
+function MenuLevel({menu,level,child,client,paneId,node,invoke,back,trim}:{menu:Presentation;level:Level;child?:Level;client?:IconClient;paneId?:string;node:(value:HTMLDivElement|null)=>void;invoke:(level:Level,index:number,opener:HTMLButtonElement)=>void;back:(level:Level)=>void;trim:(level:Level,index?:number)=>void}){
  const box=useRef<HTMLDivElement>(null),[position,setPosition]=useState({left:menu.x,top:menu.y}),{t}=useTranslation();
  useLayoutEffect(()=>{
   const element=box.current,win=menu.document.defaultView;if(!element||!win)return;
@@ -113,6 +115,8 @@ function MenuLevel({menu,level,child,paneId,node,invoke,back,trim}:{menu:Present
   const index=items.indexOf(menu.document.activeElement as HTMLButtonElement),next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next].focus();
  }}>
   {level.opener&&<button data-menu-back type="button" role="menuitem" tabIndex={-1} onFocus={()=>trim(level)} onClick={()=>back(level)} className={itemClass+' text-text-secondary hover:text-text-primary'}><ChevronLeft size={14} aria-hidden="true"/>{t('common.back')}</button>}
-  {level.entries.map((entry,index)=>entry.kind==='separator'?<div key={index} role="separator" className="my-1 border-t border-border"/>:entry.kind==='label'?<div key={index} className="break-words px-2.5 py-1.5 text-sm text-text-muted">{entry.label}</div>:<button key={entry.id} id={`sdk-menu-item-${menu.id}-${level.id}-${index}`} data-menu-index={index} type="button" role="menuitem" tabIndex={-1} disabled={entry.disabled} aria-haspopup={entry.kind==='submenu'?'menu':undefined} aria-expanded={entry.kind==='submenu'?child?.entryIndex===index:undefined} aria-controls={entry.kind==='submenu'&&child?.entryIndex===index?`sdk-menu-${menu.id}-${child.id}`:undefined} onFocus={()=>trim(level,index)} onClick={event=>invoke(level,index,event.currentTarget)} className={itemClass+' '+(entry.kind==='item'&&entry.variant==='destructive'?'text-danger enabled:text-[color:color-mix(in_srgb,var(--color-danger)_60%,var(--color-text-primary))]':'text-text-secondary hover:text-text-primary')}><span className="min-w-0 flex-1">{entry.label}</span>{entry.kind==='submenu'&&<ChevronRight size={14} className="shrink-0" aria-hidden="true"/>}</button>)}
+  {level.entries.map((entry,index)=>entry.kind==='separator'?<div key={index} role="separator" className="my-1 border-t border-border"/>:entry.kind==='label'?<div key={index} className="break-words px-2.5 py-1.5 text-sm text-text-muted">{entry.label}</div>:<button key={entry.id} id={`sdk-menu-item-${menu.id}-${level.id}-${index}`} data-menu-index={index} type="button" role="menuitem" tabIndex={-1} disabled={entry.disabled} aria-haspopup={entry.kind==='submenu'?'menu':undefined} aria-expanded={entry.kind==='submenu'?child?.entryIndex===index:undefined} aria-controls={entry.kind==='submenu'&&child?.entryIndex===index?`sdk-menu-${menu.id}-${child.id}`:undefined} onFocus={()=>trim(level,index)} onClick={event=>invoke(level,index,event.currentTarget)} className={itemClass+' '+(entry.kind==='item'&&entry.variant==='destructive'?'text-danger enabled:text-[color:color-mix(in_srgb,var(--color-danger)_60%,var(--color-text-primary))]':'text-text-secondary hover:text-text-primary')}>
+   {entry.kind==='item'&&entry.icon&&client?.icons&&<LocalToolIcon client={client} icon={entry.icon} fallback={null} size={14}/>}
+   <span className="min-w-0 flex-1">{entry.label}</span>{entry.kind==='submenu'&&<ChevronRight size={14} className="shrink-0" aria-hidden="true"/>}</button>)}
  </div>;
 }

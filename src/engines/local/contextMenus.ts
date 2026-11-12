@@ -1,6 +1,6 @@
 /** Ephemeral host requests. This public module has no DOM/app imports. */
 export type LocalToolMenuEntry =
- | {kind:'item';id:string;label:string;disabled?:boolean;variant?:'default'|'destructive';onSelect:()=>void|Promise<void>}
+ | {kind:'item';id:string;label:string;icon?:string;disabled?:boolean;variant?:'default'|'destructive';onSelect:()=>void|Promise<void>}
  | {kind:'submenu';id:string;label:string;disabled?:boolean;entries:readonly LocalToolMenuEntry[]}
  | {kind:'separator'}
  | {kind:'label';label:string};
@@ -43,17 +43,18 @@ export function copyLocalToolMenuEntries(entries:readonly LocalToolMenuEntry[]):
    ancestors.add(row.entries);stack.push({source:row.entries,result:[],index:0,items:0,branch});continue;
   }
   if(typeof row.onSelect!=='function'||row.variant!==undefined&&!['default','destructive'].includes(row.variant))return null;
-  frame.items++;frame.result.push(Object.freeze({kind:'item',id:row.id,label:row.label,onSelect:row.onSelect,...(row.disabled!==undefined?{disabled:row.disabled}:{}),...(row.variant!==undefined?{variant:row.variant}:{})}));
+  const icon=typeof row.icon==='string'&&row.icon.trim()?row.icon:undefined;
+  frame.items++;frame.result.push(Object.freeze({kind:'item',id:row.id,label:row.label,onSelect:row.onSelect,...(icon!==undefined?{icon}:{}),...(row.disabled!==undefined?{disabled:row.disabled}:{}),...(row.variant!==undefined?{variant:row.variant}:{})}));
  }
  return null;
 }
-type RecordedEntry={kind:'item';id:string;label:string;disabled?:boolean;variant?:'default'|'destructive'}|{kind:'submenu';id:string;label:string;disabled?:boolean;entries:RecordedEntry[]}|{kind:'separator'}|{kind:'label';label:string};
+type RecordedEntry={kind:'item';id:string;label:string;icon?:string;disabled?:boolean;variant?:'default'|'destructive'}|{kind:'submenu';id:string;label:string;disabled?:boolean;entries:RecordedEntry[]}|{kind:'separator'}|{kind:'label';label:string};
 export interface LocalToolRecordedMenuRequest {label:string;entries:readonly RecordedEntry[]}
 function recordEntries(entries:readonly LocalToolMenuEntry[]):RecordedEntry[]{
  const result:RecordedEntry[]=[],stack=[{source:entries,result}];
  while(stack.length){const frame=stack.pop()!;for(const row of frame.source){
   if(row.kind==='submenu'){const entry:Extract<RecordedEntry,{kind:'submenu'}>={kind:'submenu',id:row.id,label:row.label,...(row.disabled!==undefined?{disabled:row.disabled}:{}),entries:[]};frame.result.push(entry);stack.push({source:row.entries,result:entry.entries});}
-  else frame.result.push(row.kind==='item'?{kind:'item',id:row.id,label:row.label,...(row.disabled!==undefined?{disabled:row.disabled}:{}),...(row.variant!==undefined?{variant:row.variant}:{})}:row.kind==='label'?{kind:'label',label:row.label}:{kind:'separator'});
+  else frame.result.push(row.kind==='item'?{kind:'item',id:row.id,label:row.label,...(row.icon!==undefined?{icon:row.icon}:{}),...(row.disabled!==undefined?{disabled:row.disabled}:{}),...(row.variant!==undefined?{variant:row.variant}:{})}:row.kind==='label'?{kind:'label',label:row.label}:{kind:'separator'});
  }}return result;
 }
 /** Records only detached metadata. No event access, callbacks or presentation. */
