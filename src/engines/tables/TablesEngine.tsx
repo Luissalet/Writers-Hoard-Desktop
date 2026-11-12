@@ -6,7 +6,7 @@ import {projectWorldTable,columnCalculation,displayTableFormula,liveTableEntries
 import {createTypeTable,saveTableCalculation,removeTableColumn,updateTableColumn,type SaveTableCalculation} from './calculations';
 import TableCalculationEditor from './TableCalculationEditor';
 import { formatCalculationValue, projectCodexEntry } from '@/engines/codex/properties';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useDeepLinkParam } from '@/engines/_shared';
 import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, GripVertical, Maximize2, Minimize2, Pencil, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
 import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
@@ -42,6 +42,7 @@ import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
 const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
 const button = `${control} inline-flex items-center justify-center gap-2 hover:bg-elevated disabled:cursor-not-allowed`;
 const codexTypes: CodexEntryType[] = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
+const emptyTableEntries: readonly CodexEntry[] = [];
 const emptyFolds: ReadonlySet<string> = new Set();
 const emptyRowSelection: ReadonlySet<string> = new Set();
 type RowSelection = { epoch: number; rows: ReadonlySet<string>; anchor?: string };
@@ -185,15 +186,22 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const target = pointerRowTarget(event, dragged);
     if (target) void changeRows({ action: 'move-row', rowId: dragged.id, beforeRowId: target.id }, dragged.version);
   };
-  const projected=storedTable?projectWorldTable(storedTable,entries,project?.codexTemplates??[]):undefined;
-  const table=storedTable?{...storedTable,columns:projected!.columns}:undefined;
+  const templates = project?.codexTemplates;
+  const tableEntries = storedTable && isLiveTable(storedTable) ? entries : emptyTableEntries;
+  const projected = useMemo(() => storedTable
+    ? projectWorldTable(storedTable, tableEntries, templates ?? [])
+    : undefined, [storedTable, tableEntries, templates]);
+  const table = useMemo(() => storedTable && projected ? { ...storedTable, columns: projected.columns } : undefined,
+    [storedTable, projected]);
   const editedColumnWidth = table?.columns.find(column => column.id === columnDraft?.id)?.width;
   const editedWidthLimits = tableColumnWidthLimits(editedColumnWidth);
   const run = async (work: () => Promise<void>, done?: () => void) => { if (busy) return; setBusy(true); setError(''); try { await work(); done?.(); } catch (reason) { setError(`${copy.error} ${reason instanceof Error?reason.message:''}`); } finally { setBusy(false); } };
   const change = (update: (table: WorldTable) => void) => { if (table) void run(() => changeTable(projectId, table.id, update)); };
   // All-type views still edit card values on the Codex entry.
   const live = Boolean(table && isLiveTable(table)), allTypes = Boolean(table?.codexAllTypes);
-  const projectedEntries = new Map(table && live ? liveTableEntries(table, entries).map(entry => [entry.id, projectCodexEntry(entry, project?.codexTemplates ?? [])]) : []);
+  const projectedEntries = useMemo(() => new Map(table && live
+    ? liveTableEntries(table, tableEntries).map(entry => [entry.id, projectCodexEntry(entry, templates ?? [])])
+    : []), [table, live, tableEntries, templates]);
   const canResizeColumns = table !== undefined && isNormalTable(table);
   const columnsBusy = busy || rowWorking || Boolean(columnDraft || formulaDraft || inlineRename);
   const columnDragEnabled = Boolean(canResizeColumns && table.columns.length > 1 && !columnsBusy);
@@ -244,7 +252,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     }, () => closeInlineRename(edit));
   };
   const rows:DataRow[]=projected?.rows??[];
-  const values = table?.mode === 'sheet' ? sheetValues(table) : null;
+  const values = useMemo(() => table?.mode === 'sheet' ? sheetValues(table) : null, [table]);
   const columnTotals = table && values ? sheetColumnTotals(table, values) : undefined;
   const displayById = new Map(projected?.displayRows.map(row => [row.id, row]) ?? []);
   const entryTitles = new Map(entries.map(entry => [entry.id, entry.title]));
