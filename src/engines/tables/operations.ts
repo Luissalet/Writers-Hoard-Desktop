@@ -7,10 +7,10 @@ import Dexie from 'dexie';
 import { archiveMetadataWithMutation } from '@/services/documentArchive/metadata';
 import { notifyProjectsChanged } from '@/db/operations';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
-import { validateCell, type DataColumn, type DataRow, type TableGroupingView, type TableViewCopy, type TableViewSettings, type WorldTable } from './types';
+import { validateCell, type DataColumn, type DataRow, type SavedTableView, type TableGroupingView, type TableViewCopy, type TableViewSettings, type WorldTable } from './types';
 import type { Project } from '@/types';
 import { effectiveTableColumns } from './projection';
-import { effectiveTableView, filterStamp, remapTableView, storedTableView, tableViewParts } from './viewGroups';
+import { effectiveTableView, filterStamp, listSavedTableViews, remapTableView, savedViewReferenceColumns, storedTableView, tableViewParts } from './viewGroups';
 
 async function mutate(projectId: string, change: (tables: WorldTable[], project: Project) => void|Promise<void>, eraId?: string): Promise<void> {
   await db.transaction('rw', eraId ? db.tables : [db.projects,db.codexEntries,db.worldEraVariants,db.worldEraAssets], async () => {
@@ -75,10 +75,76 @@ async function writeTableView(project: Project, table: WorldTable, patch: Partia
     own.conditionsRevision = latest + 1;
   }
   const next = views.filter(view => !matches(view));
-  if (tableViewParts.some(key => own[key] !== undefined)) next.push(own);
+  if (own.savedViews?.length || tableViewParts.some(key => own[key] !== undefined)) next.push(own);
   await db.projects.update(project.id, { tableGroupingViews: next });
   return own.conditionsRevision ?? 0;
 }
+export type SavedTableViewAction =
+  | { action: 'save'; name: string }
+  | { action: 'apply' | 'delete'; viewId: string }
+  | { action: 'rename'; viewId: string; name: string };
+
+async function readTableViewScope(scope: WorldEraScope, tableId: string) {
+  const project = await assertWorldEra(scope);
+  const table = scope.eraId
+    ? (await readWorldDocument(scope, 'tables', tableId))?.document.root as WorldTable | undefined
+    : project.dataTables?.find(item => item.id === tableId);
+  if (!table || table.mode !== 'table') throw Error('Saved views require a table.');
+  return { project, table, columns: effectiveTableColumns(table, project.codexTemplates ?? []) };
+}
+
+export function readSavedTableViews(scope: WorldEraScope, tableId: string) {
+  return db.transaction('r', scope.eraId ? db.tables : [db.projects], async () => {
+    const { project, columns } = await readTableViewScope(scope, tableId);
+    return listSavedTableViews(project.tableGroupingViews, tableId, scope.eraId, columns);
+  });
+}
+
+export function editSavedTableView(scope: WorldEraScope, tableId: string, command: SavedTableViewAction): Promise<{ viewId: string }> {
+  return db.transaction('rw', scope.eraId ? db.tables : [db.projects], async () => {
+    const { project, table, columns } = await readTableViewScope(scope, tableId);
+    const { eraId } = scope;
+    const views = Array.isArray(project.tableGroupingViews) ? project.tableGroupingViews : [];
+    const matches = (view: TableGroupingView) => view?.tableId === tableId && view.eraId === eraId;
+    const record = views.find(matches);
+    const catalog = listSavedTableViews(views, tableId, eraId, columns);
+    if (command.action === 'apply') {
+      const view = catalog.find(item => item.id === command.viewId);
+      if (!view) throw Error('Saved view not found.');
+      if (!view.available) throw Error('The view columns are no longer available.');
+      await writeTableView(project, table, view.settings, eraId);
+      return { viewId: view.id };
+    }
+
+    const own = Array.isArray(record?.savedViews) ? record.savedViews : [];
+    const id = command.action === 'save' ? crypto.randomUUID() : command.viewId;
+    const current = own.find(view => view?.id === id);
+    if (command.action !== 'save' && !current) throw Error('Saved view not found in this scope.');
+    let savedViews: SavedTableView[];
+    if (command.action === 'delete') {
+      savedViews = own.filter(view => view?.id !== id);
+    } else {
+      const name = 'name' in command ? command.name.trim() : '';
+      if (!name) throw Error('Enter a view name.');
+      if (own.some(view => view?.id !== id && typeof view?.name === 'string' && view.name.normalize().toLowerCase() === name.normalize().toLowerCase())) {
+        throw Error('A view with that name already exists.');
+      }
+      if (current?.name === name) return { viewId: id };
+      const settings = current?.settings ?? effectiveTableView(storedTableView(views, tableId, eraId), columns);
+      // Keep column semantics with the snapshot, including for tables that only exist in an era.
+      const referenceConditionColumns = current ? current.referenceConditionColumns : savedViewReferenceColumns(settings, columns);
+      const saved: SavedTableView = { id, name, settings, ...(referenceConditionColumns?.length ? { referenceConditionColumns } : {}) };
+      savedViews = current ? own.map(view => view?.id === id ? saved : view) : [...own, saved];
+    }
+    const next = views.filter(view => !matches(view));
+    if (savedViews.length || record && tableViewParts.some(key => record[key] !== undefined)) {
+      next.push({ ...record, tableId, ...(eraId ? { eraId } : {}), savedViews });
+    }
+    await db.projects.update(project.id, { tableGroupingViews: next });
+    return { viewId: id };
+  });
+}
+
 function editableCell(table: WorldTable, rowId: string, columnId: string) {
   const row = table.rows.find(item => item.id === rowId), column = table.columns.find(item => item.id === columnId);
   if (!row || !column) throw Error('Cell not found.');

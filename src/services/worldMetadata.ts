@@ -17,7 +17,7 @@ import { remapPublishedEditions, validatePublishedEditionsProject } from '@/serv
 import { remapPublishedEditionContent } from '@/services/publishedEditions/portability';
 import type { Project } from '@/types';
 import { safeDictionaryFont } from '@/engines/dictionary/fonts';
-import { remapTableView } from '@/engines/tables/viewGroups';
+import { remapTableView, savedViewUsesReferenceOperand } from '@/engines/tables/viewGroups';
 import type { ReaderAudioTrack } from '@/engines/writings/readerPresentationTypes';
 import { remapWorkspaceLibrary } from '@/components/project/workspace/library/portability';
 import {cloneLocalToolStates,validateLocalToolProjectStates} from '@/engines/local/stateTypes';
@@ -102,6 +102,26 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
   validateProjectArchiveMetadata(project);
   validateLocalToolProjectStates(project);validateWorkspaceAppearanceProject(project);validatePublishedEditionsProject(project);validateCodexOptionLists(project.codexOptionLists);
   const entry = (id: string | undefined) => id && codexIds.has(id) ? remap(id, 'codex') : undefined;
+  const tableColumn = (id: string) => id.startsWith('property:') ? id : remap(id, 'column');
+  // Equality on table cells folds case and trims, and compares finite numeric operands as numbers.
+  const filterKey = (value: string) => {
+    const trimmed = value.trim();
+    const number = Number(trimmed);
+    return trimmed && Number.isFinite(number) ? 'n:' + number : 's:' + trimmed.toLocaleLowerCase();
+  };
+  let referenceFilterIds: Map<string, string | null> | undefined;
+  const tableFilterEntry = (value: string | undefined) => {
+    if (typeof value !== 'string') return undefined;
+    if (!referenceFilterIds) {
+      referenceFilterIds = new Map();
+      for (const id of codexIds) {
+        const key = filterKey(id);
+        referenceFilterIds.set(key, referenceFilterIds.has(key) ? null : id);
+      }
+    }
+    const id = referenceFilterIds.get(filterKey(value));
+    return id ? entry(id) : undefined;
+  };
   const templateIds = new Set(project.codexTemplates?.map(template => template.id));
   const templateLink = (id: string | undefined) => id && templateIds.has(id) ? remap(id, 'template') : undefined;
   const track = (audio: ReaderAudioTrack | undefined): ReaderAudioTrack | undefined => audio && mediaIds.has(audio.assetId) ? { ...audio, assetId: remap(audio.assetId, 'media') } : undefined;
@@ -166,7 +186,24 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
       tableGroupingViews: project.tableGroupingViews.filter(view => typeof view?.tableId === 'string').map(view => ({
         tableId: remap(view.tableId, 'table'),
         ...(typeof view.eraId === 'string' ? { eraId: remap(view.eraId, 'era') } : {}),
-        ...remapTableView(view, id => id.startsWith('property:') ? id : remap(id, 'column')),
+        ...remapTableView(view, tableColumn),
+        ...(Array.isArray(view.savedViews) ? {
+          savedViews: view.savedViews.flatMap(saved => {
+            if (typeof saved?.id !== 'string' || typeof saved.name !== 'string' || !saved.settings) return [];
+            const references = Array.isArray(saved.referenceConditionColumns)
+              ? saved.referenceConditionColumns.filter(id => typeof id === 'string') : [];
+            const conditions = Array.isArray(saved.settings.conditions) ? saved.settings.conditions.map(condition => {
+              if (!condition || !references.includes(condition.columnId) || !savedViewUsesReferenceOperand(condition)) return condition;
+              const value = tableFilterEntry(condition.value);
+              return value ? { ...condition, value } : condition;
+            }) : [];
+            return [{ id: remap(saved.id, 'table-view'), name: saved.name,
+              settings: { rules: [], sorts: [], conditions: [], subtotalColumns: [],
+                ...remapTableView({ ...saved.settings, conditions }, tableColumn) },
+              ...(references.length ? { referenceConditionColumns: references.map(tableColumn) } : {}),
+            }];
+          }),
+        } : {}),
       })),
     } : {}),
     relationTrees: project.relationTrees?.map(tree => ({

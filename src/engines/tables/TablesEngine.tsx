@@ -32,11 +32,12 @@ import Modal from '@/components/common/Modal';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import { createCodexEntry } from '@/db/operations';
+import { TableSavedViews } from './TableSavedViews';
 import { cellKey, validateCell, type DataColumn, type DataRow, type TableViewSettings, type WorldTable } from './types';
-import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, saveTableView } from './operations';
+import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, editSavedTableView, saveTableView, type SavedTableViewAction } from './operations';
 import { sheetColumnTotals, sheetValues } from './formulas';
 import { tableCopy } from './copy';
-import { confirmedTableFilters, effectiveTableView, filterStamp, isTableSubtotalColumn, projectTableGroups, storedTableView, sumTableGroup, tableViewParts } from './viewGroups';
+import { confirmedTableFilters, effectiveTableView, filterStamp, isTableSubtotalColumn, listSavedTableViews, projectTableGroups, storedTableView, sumTableGroup, tableViewParts } from './viewGroups';
 import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
 
 const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
@@ -269,6 +270,9 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const savedView = storedTableView(project?.tableGroupingViews, storedTable?.id ?? '', scope.eraId);
   const view = effectiveTableView(savedView, table?.columns ?? []);
   const { conditions, sorts, rules: groupRules, subtotalColumns } = view;
+  const savedViews = useMemo(() => table?.mode === 'table'
+    ? listSavedTableViews(project?.tableGroupingViews, table.id, scope.eraId, table.columns) : [],
+  [project?.tableGroupingViews, scope.eraId, table]);
   const numericGroupColumns = table?.mode === 'table' && groupRules.length ? table.columns.filter(isTableSubtotalColumn) : [];
   const subtotalColumn = numericGroupColumns.find(column => column.id === subtotalColumns[0]);
   const subtotalType = table && subtotalColumn ? columnCalculation(table, subtotalColumn, project?.codexTemplates ?? [])?.resultType : undefined;
@@ -307,6 +311,17 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const expected = Object.fromEntries(tableViewParts.filter(key => patch[key] !== undefined).map(key => [key, JSON.stringify(savedView[key])]));
     void run(async () => { await saveTableView(projectId, storedTable.id, patch, expected, scope.eraId); }, () => {
       if (rowOwner.current.mounted && rowOwner.current.epoch === epoch) done?.();
+    });
+  };
+  const editView = (action: SavedTableViewAction, done?: (id: string) => void) => {
+    if (!storedTable) return;
+    const epoch = rowOwner.current.epoch;
+    void run(async () => {
+      if (action.action === 'save' || action.action === 'apply') await flushFilters();
+      const { viewId } = await editSavedTableView(scope, storedTable.id, action);
+      if (!rowOwner.current.mounted || rowOwner.current.epoch !== epoch) return;
+      if (action.action === 'apply') resetFolds();
+      done?.(viewId);
     });
   };
   const setGroupColumn = (depth: number, columnId: string) => {
@@ -542,6 +557,9 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
             </select>
           </label>}
           <span className="text-sm tabular-nums text-text-muted">{visible.length} {copy.count}</span></div>
+        {table.mode === 'table' && <div className="px-4 pb-3"><TableSavedViews key={rowKey} views={savedViews} locale={locale}
+          busy={busy} button={button} control={control} edit={editView}
+          confirmDelete={(message, viewId) => requestDelete(message, async () => { await editSavedTableView(scope, table.id, { action: 'delete', viewId }); })} /></div>}
         <TableFilters key={JSON.stringify([rowKey, filterEpoch])} columns={table.columns} conditions={conditions} stored={savedView.conditions} revision={savedView.conditionsRevision} busy={busy} copy={copy} registerFlush={registerFilterFlush}
           onDiscard={() => { setError(''); setFilterEpoch(value => value + 1); }}
           save={(next, expected) => saveTableView(projectId, table.id, { conditions: next }, { conditions: expected }, scope.eraId)} />
