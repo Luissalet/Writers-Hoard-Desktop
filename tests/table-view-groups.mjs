@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { effectiveTableGrouping, projectTableGroups } from '../src/engines/tables/viewGroups.ts';
+import { effectiveTableGrouping, effectiveTableView, projectTableGroups, remapTableView, storedTableView, sumTableGroup } from '../src/engines/tables/viewGroups.ts';
 import { findMatches } from '../src/engines/tables/tableEdits.ts';
 
 const group = (columnId, direction = 'asc') => ({ columnId, direction });
@@ -103,4 +103,51 @@ test('a deep grouping imported with a wide table does not use the JavaScript cal
   assert.equal(open.items.length, 6001);
   assert.equal(open.pathsByRow.get('only row').length, 6000);
   assert.equal(open.expandedRows[0], rows[0]);
+});
+
+test('group subtotals use the full filtered branch and survive folding', () => {
+  const rows = [
+    { id: 'wall', district: 'North', house: 'Marrow', souls: '2450' },
+    { id: 'hold', district: 'North', house: 'Marrow', souls: '1750' },
+    { id: 'fern', district: 'North', house: 'Fern', souls: '0' },
+    { id: 'empty', district: 'South', house: 'Reed', souls: ' ' },
+    { id: 'error', district: 'South', house: 'Reed', souls: '#DIV/0!' },
+  ];
+  const rules = [group('district'), group('house')];
+  const subtotal = branch => sumTableGroup(branch, item => item.souls);
+  const summarize = (source, collapsed = new Set()) => projectTableGroups(source, rules, read, collapsed, 'en', subtotal);
+  const full = summarize(rows);
+  const north = headers(full).find(item => item.value === 'North');
+  const marrow = headers(full).find(item => item.value === 'Marrow');
+  assert.deepEqual(north.subtotal, { value: 4200, count: 3 });
+  assert.deepEqual(marrow.subtotal, { value: 4200, count: 2 });
+  assert.deepEqual(headers(full).find(item => item.value === 'Fern').subtotal, { value: 0, count: 1 });
+  assert.deepEqual(headers(full).find(item => item.value === 'Reed').subtotal, { value: null, count: 0 });
+  const folded = summarize(rows, new Set([marrow.key]));
+  assert.deepEqual(headers(folded).find(item => item.key === marrow.key).subtotal, marrow.subtotal);
+  assert.equal(folded.expandedRows.some(item => item.id === 'wall'), false);
+  assert.deepEqual(headers(summarize(rows.slice(0, 1)))[0].subtotal, { value: 2450, count: 1 });
+  assert.deepEqual(sumTableGroup(['1e308', '1e308'], value => value), { value: '#NUM!', count: 2 });
+  for (const values of [
+    ['1000000000000000', '0.01', '-1000000000000000'],
+    ['-1000000000000000', '1000000000000000', '0.01'],
+    ['0.01', '-1000000000000000', '1000000000000000'],
+  ]) assert.deepEqual(sumTableGroup(values, value => value), { value: 0.01, count: 3 });
+  assert.deepEqual(sumTableGroup(['1e308', '1e308', '-1e308'], value => value), { value: 1e308, count: 3 });
+  assert.deepEqual(sumTableGroup(['9007199254740991'], value => value), { value: 9007199254740991, count: 1 });
+});
+
+test('subtotal choices inherit and remap by numeric column identity', () => {
+  const columns = [
+    { id: 'house', kind: 'text' },
+    { id: 'souls', kind: 'number' },
+    { id: 'ratio', kind: 'number', calculation: { resultType: 'percent' } },
+  ];
+  const views = [{ tableId: 'ledger', subtotalColumns: ['souls'] }, { tableId: 'ledger', eraId: 'quiet', subtotalColumns: [] }];
+  assert.deepEqual(storedTableView(views, 'ledger', 'later').subtotalColumns, ['souls']);
+  assert.deepEqual(storedTableView(views, 'ledger', 'quiet').subtotalColumns, []);
+  const view = { subtotalColumns: ['house', 'ratio', 'ratio', 'souls', 'unknown'] };
+  assert.deepEqual(effectiveTableView(view, columns).subtotalColumns, ['ratio', 'souls']);
+  assert.deepEqual(remapTableView({ subtotalColumns: ['souls', 'unknown'] }, id => id === 'souls' ? 'new-souls' : undefined), { subtotalColumns: ['new-souls'] });
+  assert.deepEqual(remapTableView(views[1], () => undefined), { subtotalColumns: [] });
 });
