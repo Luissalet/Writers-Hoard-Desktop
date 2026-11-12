@@ -44,11 +44,11 @@ function ContextCounter({client,context}:LocalToolProps<Count>){
  const open=(event:LocalToolMenuTrigger)=>{
   const entries:LocalToolMenuEntry[]=[
    {kind:'label',label:messages('counter.count')},
-   {kind:'item',id:'increment',label:messages('counter.increment'),disabled:busy||count===null,onSelect:()=>act('increment')},
+   {kind:'item',id:'increment',label:messages('counter.increment'),icon:'Plus',disabled:busy||count===null,onSelect:()=>act('increment')},
    {kind:'separator'},
    {kind:'item',id:'reset',label:messages('counter.reset'),variant:'destructive',disabled:busy||count===null||count===0,onSelect:()=>act('reset')},
    {kind:'submenu',id:'more',label:messages('counter.more'),entries:[
-    {kind:'item',id:'more-increment',label:messages('counter.increment'),disabled:busy||count===null,onSelect:()=>act('increment')},
+    {kind:'item',id:'more-increment',label:messages('counter.increment'),icon:'Plus',disabled:busy||count===null,onSelect:()=>act('increment')},
     {kind:'submenu',id:'count',label:messages('counter.count'),entries:[{kind:'item',id:'count-reset',label:messages('counter.reset'),variant:'destructive',disabled:busy||count===null||count===0,onSelect:()=>act('reset')}]},
    ]},
   ];

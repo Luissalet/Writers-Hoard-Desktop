@@ -18,22 +18,27 @@ async function main(){
  loaded.filename=filename;loaded.paths=Module._nodeModulePaths(root);loaded._compile(result.outputFiles[0].text,filename);const api=loaded.exports;
  let prevented=0,stopped=0,selected=0;
  const trigger={currentTarget:null,type:'contextmenu',clientX:1,clientY:2,preventDefault(){prevented++;},stopPropagation(){stopped++;}};
- const entries=[{kind:'label',label:'Own count'},{kind:'item',id:'increment',label:'Increment',onSelect(){selected++;}},{kind:'separator'},{kind:'item',id:'reset',label:'Reset',disabled:true,variant:'destructive',onSelect(){selected++;}}];
+ const entries=[{kind:'label',label:'Own count'},{kind:'item',id:'increment',label:'Increment',icon:'MapPin',onSelect(){selected++;}},{kind:'separator'},{kind:'item',id:'reset',label:'Reset',disabled:true,variant:'destructive',onSelect(){selected++;}}];
  const fallback=api.useLocalToolContextMenu();assert.equal(fallback.open(trigger,entries,{label:'Actions'}),false);fallback.close();
  assert.deepEqual([prevented,stopped,selected],[0,0,0]);
  const recording=api.createRecordingLocalToolContextMenu();assert.equal(recording.port.open(trigger,entries,{label:'Actions'}),false);
  assert.equal(recording.requests.length,1);const captured=JSON.stringify(recording.requests);
- entries[0].label='Mutated';entries[1].id='changed';entries[1].label='Changed';entries[3].disabled=false;entries.push({kind:'separator'});
+ entries[0].label='Mutated';entries[1].id='changed';entries[1].label='Changed';entries[1].icon='Plus';entries[3].disabled=false;entries.push({kind:'separator'});
  assert.equal(JSON.stringify(recording.requests),captured,'Recording retained mutable author entries');
- const request=recording.requests[0];assert.equal(request.label,'Actions');assert.equal(request.entries[1].id,'increment');assert.equal(request.entries[3].disabled,true);
+ const request=recording.requests[0];assert.equal(request.label,'Actions');assert.equal(request.entries[1].id,'increment');assert.equal(request.entries[1].icon,'MapPin');assert.equal(request.entries[3].disabled,true);
+ for(const icon of [null,{},'', '  ']){
+  recording.port.open(trigger,[{kind:'item',id:'optional',label:'Optional',icon,onSelect(){selected++;}}],{label:'Actions'});
+  assert.deepEqual(recording.requests.at(-1).entries,[{kind:'item',id:'optional',label:'Optional'}]);
+ }
  function noLive(value){assert.notEqual(typeof value,'function','Recording retained a callback');if(value&&typeof value==='object')for(const [key,child]of Object.entries(value)){assert(!['event','currentTarget','onSelect','target','ownerDocument'].includes(key),'Recording retained live data: '+key);noLive(child);}}
  noLive(recording.requests);recording.port.close();assert.deepEqual([prevented,stopped,selected],[0,0,0]);
  console.log('PASS Public SDK/fallback imports without DOM, DB, presenter or network; unavailable port leaves events and actions untouched');
  console.log('PASS Recorder retains detached menu metadata without callbacks, event or DOM; requests do not claim presentation');
- const nestedRecorder=api.createRecordingLocalToolContextMenu(),nested=[{kind:'item',id:'flat',label:'Flat',onSelect(){selected++;}},{kind:'submenu',id:'more',label:'More',entries:[{kind:'label',label:'Own count'},{kind:'item',id:'more-increment',label:'Increment',onSelect(){selected++;}},{kind:'submenu',id:'count',label:'Count',disabled:false,entries:[{kind:'item',id:'count-reset',label:'Reset',disabled:true,variant:'destructive',onSelect(){selected++;}}]}]}];
+ const nestedRecorder=api.createRecordingLocalToolContextMenu(),nested=[{kind:'item',id:'flat',label:'Flat',onSelect(){selected++;}},{kind:'submenu',id:'more',label:'More',entries:[{kind:'label',label:'Own count'},{kind:'item',id:'more-increment',label:'Increment',icon:'Plus',onSelect(){selected++;}},{kind:'submenu',id:'count',label:'Count',disabled:false,entries:[{kind:'item',id:'count-reset',label:'Reset',disabled:true,variant:'destructive',onSelect(){selected++;}}]}]}];
  assert.equal(nestedRecorder.port.open(trigger,nested,{label:'Nested actions'}),false);assert.equal(nestedRecorder.requests.length,1);
  const nestedRecorded=JSON.stringify(nestedRecorder.requests);noLive(nestedRecorder.requests);
  assert.equal(nestedRecorder.requests[0].entries[1].entries[2].entries[0].id,'count-reset');
+ assert.equal(nestedRecorder.requests[0].entries[1].entries[1].icon,'Plus');
  assert(!Object.isFrozen(nested)&&!Object.isFrozen(nested[1])&&!Object.isFrozen(nested[1].entries),'Host froze author input');
  nested[1].label='Changed';nested[1].entries[2].entries[0].label='Changed leaf';nested[1].entries.push({kind:'separator'});
  assert.equal(JSON.stringify(nestedRecorder.requests),nestedRecorded,'Recursive recorder retained an author alias');
