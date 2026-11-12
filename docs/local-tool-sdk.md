@@ -889,6 +889,31 @@ Read the full current snapshot. `client.convergence.start(snapshot, { migrate: t
 
 [Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#migrar-un-escalar-a-un-nombre-nuevo).
 
+## Transform Source state with a migration callback
+
+Declare `sourceMigration: { from, migrate }` when a Source release changes the shape of a record codec. Both releases use codec 1 and convergence engine 1. Declare the exact predecessor namespace, codec, validationId and schemaEpoch in `from`. A document without a checkpoint identifies its predecessor by the stored codec. Use one migration declaration per release. `sourceMigration` cannot be combined with `sourceScalarRename`, `sourceAdditive` or `richAdoption`.
+
+The callback receives a detached copy of the previous JSON. Return JSON accepted by the selected release's validator and codec. Keep the transform synchronous and deterministic. Pinning and reading can evaluate it, and the host checks the projected output against the exact snapshot before saving.
+
+For example, a release can replace a map of numbers with an ordered list of objects carrying the old keys as stable IDs.
+
+```ts
+sourceMigration: {
+  from,
+  migrate(previous) {
+    const { stats, ...remaining } = previous as { stats: Record<string, number>; keep: string };
+    return {
+      ...remaining,
+      stats: Object.keys(stats).sort().map(id => ({ id, value: stats[id] })),
+    };
+  },
+},
+```
+
+Read the current document, then call `client.convergence.start(snapshot, { migrate: true })`. MCP accepts `migrate: true` in `wh_local_tool_convergence_start`. `wh_local_tool_describe` reports `sourceMigration.from`. The operation writes one revision with the same document ID, a new causal genesis, and the previous root in history. To migrate an inherited era, first create its variant with the predecessor state. A generic era save can copy that state, while the explicit operation applies the transformation.
+
+[Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#transformar-el-estado-source-con-un-callback).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
