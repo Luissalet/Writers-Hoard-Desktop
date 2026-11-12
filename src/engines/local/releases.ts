@@ -12,7 +12,7 @@ import {validateLocalToolInstallations,type LocalToolInstallation} from './insta
 import {localToolContentHash} from './releaseFormat.mjs';
 import {parseLocalToolState} from './clientContract';
 import {parseSourceToolDocumentState} from './documents/additive';
-import {isSourceScalarRenamePending} from './documents/scalarRename';
+import {isSourceMigrationPending} from './documents/migration';
 import {validateSourceDocumentCheckpoint} from './documents/portability';
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {localToolNamespace} from './stateTypes';
@@ -29,9 +29,9 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
   if(row.namespace!==namespace)return;
   if(!definition.document)throw Error('local_tool_document_host_required');
   const source=row as Partial<SourceToolDocument>;
-  if(definition.sourceScalarRename||definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){
+  if(definition.sourceScalarRename||definition.sourceMigration||definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){
    validateSourceToolDocument(document);
-   if(active&&document.convergence?.conflict&&isSourceScalarRenamePending(document,definition.sourceScalarRename,definition.codec))throw Error('local_tool_source_migration_conflict');
+   if(active&&document.convergence?.conflict&&isSourceMigrationPending(document,definition))throw Error('local_tool_source_migration_conflict');
    parseSourceToolDocumentState(definition,document);
    if(sourceDefaultHash(definition.sourceAdditive?.from.codec))validateSourceDocumentCheckpoint(document);
   }else parseLocalToolState(definition,row.data);

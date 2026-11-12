@@ -16,7 +16,8 @@ import {createLocalToolOpenDocumentRegistry,normalizeLocalToolOpenDocumentQuery,
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {forkSourceToolDocument} from './documents/portability';
 import {assertSourceToolActionsAs,parseSourceToolDocumentState,projectSourceToolAs,sourceToolActionBaselineData} from './documents/additive';
-import {assertSourceScalarRenameBaseline,isSourceScalarRenamePending,migratedSourceScalarRoot} from './documents/scalarRename';
+import {assertSourceMigrationBaseline,isSourceMigrationPending,migratedSourceRoot} from './documents/migration';
+import {sourceMigrationVariantConvergence,sourceMigrationOrigin} from './documents/migrationOrigin';
 import {createLocalToolStateActions,prepareLocalToolConvergenceBranch,prepareLocalToolStateAdoption} from './stateRuntime';
 import {localToolConvergenceContext} from './convergence/context';
 import {assertTableAxesOrigin,validateLocalToolConvergenceUpdate,convergenceCodecHash,convergenceClone,convergenceHash,convergenceIdentity,convergenceIdentityOf} from './convergence/format';
@@ -104,7 +105,7 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
  };
  const documentContext=(scope:WorldEraScope,read:LocalToolWorldRead,original:SourceToolDocument,adopting=false)=>{
   if(!original.convergence)throw Error('local_tool_convergence_not_started');
-  if(isSourceScalarRenamePending(original,definition.sourceScalarRename,definition.codec))throw Error('local_tool_source_migration_required');
+  if(isSourceMigrationPending(original,definition))throw Error('local_tool_source_migration_required');
   const contract=documentContract(original,adopting),stored=original.convergence.checkpoint,knownAdoption=adopting&&!!contract.richAdoption&&stored.engine.version==='3';if(knownAdoption)effectiveRichAdoptionContract(stored,contract);const epochChanged=!knownAdoption&&(stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec)),inherited=!!scope.eraId&&read.provenance==='base';
   let document=original;
   if(epochChanged)document={...original,generation:crypto.randomUUID(),codec:structuredClone(contract.codec),convergence:{checkpoint:createLocalToolGenesis(original.data as T,contract)}};
@@ -119,28 +120,31 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
   else{const owner=project(scope,working);working.projects.set(scope.projectId,{...owner,sourceToolDocuments:[...(owner.sourceToolDocuments??[]).filter(row=>row.id!==id),next]});}
  };
  const touchDocument=(document:SourceToolDocument):SourceToolDocument=>({...document,revision:document.revision+1,updatedAt:Math.max(Date.now(),document.updatedAt+1)});
- const documentBaseline=(scope:WorldEraScope,working:Memory,id:string,baseline:LocalToolSnapshot<T>,strict:boolean)=>{
-  const actual=documentSnapshot(scope,working,id);if(!baseline.document||baseline.document.id!==id||baseline.document.namespace!==definition.namespace||baseline.document.lineage!==actual.document!.lineage)throw Error('source_tool_document_lineage_conflict');
+ const documentBaseline=(scope:WorldEraScope,working:Memory,id:string,baseline:LocalToolSnapshot<T>,strict:boolean,validate=true)=>{
+  const actual=documentSnapshot(scope,working,id,validate);if(!baseline.document||baseline.document.id!==id||baseline.document.namespace!==definition.namespace||baseline.document.lineage!==actual.document!.lineage)throw Error('source_tool_document_lineage_conflict');
   if(baseline.revision===null||!Number.isSafeInteger(baseline.revision)||baseline.revision<0||baseline.revision>actual.revision!)throw Error('local_tool_actions_baseline_invalid');
   if(strict&&(baseline.revision!==actual.revision||baseline.document.version!==actual.document!.version))throw Error('conflict');return actual;
  };
  const memoryStart=(scope:WorldEraScope,working:Memory,id:string,baseline:LocalToolSnapshot<T>,migrate=false)=>{
-  const current=documentBaseline(scope,working,id,baseline,true),{read,document}=documentRead(scope,working,id),rename=definition.sourceScalarRename;
-  if(migrate&&!rename)throw Error('local_tool_source_migration_unavailable');
+  documentBaseline(scope,working,id,baseline,true,false);
+  const {read,document}=documentRead(scope,working,id);
+  if(migrate&&!definition.sourceScalarRename&&!definition.sourceMigration)throw Error('local_tool_source_migration_unavailable');
   if(migrate&&scope.eraId&&read.provenance==='base')throw Error('local_tool_source_migration_era_required');
-  if(isSourceScalarRenamePending(document,rename,definition.codec)){
+  if(isSourceMigrationPending(document,definition)){
    if(!migrate){
     if(!document.convergence)throw Error('local_tool_source_migration_required');
-    return{snapshot:current,checkpoint:document.convergence.checkpoint,changed:false};
+    return{snapshot:documentSnapshot(scope,working,id),checkpoint:document.convergence.checkpoint,changed:false};
    }
    if(document.convergence?.conflict)throw Error('local_tool_source_migration_conflict');
-   assertSourceScalarRenameBaseline(document,current.data,baseline);
+   const current=documentSnapshot(scope,working,id);
+   assertSourceMigrationBaseline(document,current.data,baseline);
    const contract=documentContract(document),checkpoint=createLocalToolGenesis(current.data,contract);
-   const next=migratedSourceScalarRoot(touchDocument(document),current.data,contract.codec,checkpoint,definition);
+   const next=migratedSourceRoot(touchDocument(document),current.data,contract.codec,checkpoint,definition);
    saveDocument(working,scope,id,next,read);
    return{snapshot:documentSnapshot(scope,working,id),checkpoint,changed:true};
   }
-  if(document.convergence){const context=documentContext(scope,read,document);if(migrate){if(context.reset)throw Error('local_tool_source_migration_unavailable');assertSourceScalarRenameBaseline(document,current.data,baseline);}if(context.reset)saveDocument(working,scope,id,touchDocument(context.document),read);return{snapshot:documentSnapshot(scope,working,id),checkpoint:context.checkpoint,changed:context.reset};}
+  const current=documentSnapshot(scope,working,id);
+  if(document.convergence){const context=documentContext(scope,read,document);if(migrate){if(context.reset)throw Error('local_tool_source_migration_unavailable');assertSourceMigrationBaseline(document,current.data,baseline);}if(context.reset)saveDocument(working,scope,id,touchDocument(context.document),read);return{snapshot:documentSnapshot(scope,working,id),checkpoint:context.checkpoint,changed:context.reset};}
   if(migrate)throw Error('local_tool_source_migration_unavailable');
   const contract=documentContract(document),checkpoint=createLocalToolGenesis(document.data as T,contract);saveDocument(working,scope,id,{...touchDocument(document),generation:crypto.randomUUID(),codec:structuredClone(contract.codec),convergence:{checkpoint}},read);return{snapshot:documentSnapshot(scope,working,id),checkpoint,changed:true};
  };
@@ -191,7 +195,7 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
   const base={locale:localeSource,...(overrides.theme?{theme:overrides.theme}:{}),projectId:scope.projectId,eraId:scope.eraId,documentId,namespace:definition.namespace,icons:createLocalToolIcons(overrides.iconSvg),
    subscribe:(changed:()=>void)=>{const listener={projectId:scope.projectId,changed};listeners.add(listener);return()=>{listeners.delete(listener);};},
    read:async()=>{if(documentId)return documentSnapshot(scope,state(),documentId);return readLocalToolState(project(scope,state()),definition,scope.eraId);},
-   save:(data,expected,expectedDocumentVersion)=>write(async working=>{if(documentId){const read=effective(scope,'local-tool',working).find(read=>read.document.root.id===documentId),current=read?.document.root as unknown as SourceToolDocument|undefined;if(!current||current.namespace!==definition.namespace)throw Error('source_tool_document_missing');const observed=await createClient(scope,readOnly,working,documentId).read();if(current.revision!==expected||!expectedDocumentVersion||observed.document?.version!==expectedDocumentVersion)throw Error('conflict');if(isSourceScalarRenamePending(current,definition.sourceScalarRename,definition.codec))throw Error('local_tool_source_migration_required');if(current.convergence){
+   save:(data,expected,expectedDocumentVersion)=>write(async working=>{if(documentId){const read=effective(scope,'local-tool',working).find(read=>read.document.root.id===documentId),current=read?.document.root as unknown as SourceToolDocument|undefined;if(!current||current.namespace!==definition.namespace)throw Error('source_tool_document_missing');const observed=await createClient(scope,readOnly,working,documentId).read();if(current.revision!==expected||!expectedDocumentVersion||observed.document?.version!==expectedDocumentVersion)throw Error('conflict');if(isSourceMigrationPending(current,definition))throw Error('local_tool_source_migration_required');if(current.convergence){
     const context=documentContext(scope,read!,current),prepared=prepareLocalToolReplacement(context.checkpoint,context.replicaOptions,data);
     if(prepared.beforeFingerprint!==convergenceHash(context.checkpoint))throw Error('conflict');
     const next={...touchDocument(context.document),data:prepared.data,convergence:{checkpoint:prepared.checkpoint,...(prepared.conflict?{conflict:prepared.conflict}:{})},codec:structuredClone(context.replicaOptions.contract.codec),...(definition.index?{index:structuredClone(definition.index)}:{})};if(!definition.index)delete next.index;saveDocument(working,scope,documentId,next,read!);
@@ -221,14 +225,19 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
    queryCodex:async query=>projectLocalToolCodex(effective(scope,'codex',state()).map(row=>row.document.root as unknown as CodexEntry),project(scope,state()).codexTemplates,query),
    world:Object.freeze({list:async documentKind=>effective(scope,documentKind,state()),read:async(documentKind,id)=>effective(scope,documentKind,state()).find(row=>row.document.root.id===id),...(scope.eraId?{variants:Object.freeze({save:(documentKind:EraDocumentKind,document:EraDocument,expected:string|null)=>write(async working=>{project(scope,working);kind(documentKind);validateDocument(scope,document.root.id,document);const current=effective(scope,documentKind,working).find(row=>row.document.root.id===document.root.id);if((current?.version??null)!==expected)throw Error('world_era_conflict');let payload=document;
     if(documentKind==='local-tool'){
-     const old=current?.document.root as unknown as SourceToolDocument|undefined,root=document.root as unknown as SourceToolDocument,convergence=root.convergence??old?.convergence;
+     const old=current?.document.root as unknown as SourceToolDocument|undefined,root=document.root as unknown as SourceToolDocument;
+     const retained=working.documents.get(key(scope,'local-tool',root.id))?.document?.root;
+     const predecessor=old??(retained??effective({projectId:scope.projectId},'local-tool',working)
+       .find(row=>row.document.root.id===root.id)?.document.root) as unknown as SourceToolDocument|undefined;
+     const retainedConvergence=predecessor?.namespace===definition.namespace?sourceMigrationVariantConvergence(predecessor,root,sourceMigrationOrigin(definition)):undefined;
+     const convergence=root.convergence??old?.convergence??retainedConvergence;
      if(convergence){
       payload=structuredClone(document);const next=payload.root as unknown as SourceToolDocument;next.convergence=structuredClone(convergence);next.codec??=old?.codec;
       if(!old||current?.provenance==='base'||convergenceHash(next.data)!==convergenceHash(old.data)||convergenceHash(next.convergence)!==convergenceHash(old.convergence??null)||next.namespace!==old.namespace)Object.assign(next,forkSourceToolDocument(next),{generation:crypto.randomUUID()});
       validateSourceToolDocument(next);
      }
     }
-    const fixture={...scope,kind:documentKind,id:document.root.id,document:structuredClone(payload),version:`fixture:${++version}`,revision:(working.documents.get(key(scope,documentKind,document.root.id))?.revision??0)+1};working.documents.set(key(scope,documentKind,fixture.id),fixture);return effective(scope,documentKind,working).find(row=>row.document.root.id===fixture.id)!;}),hide:(documentKind:EraDocumentKind,id:string,expected:string)=>write(async working=>{const current=effective(scope,documentKind,working).find(row=>row.document.root.id===id);if(!current||current.version!==expected)throw Error('world_era_conflict');working.documents.set(key(scope,documentKind,id),{...scope,kind:documentKind,id,hidden:true,version:`fixture:${++version}`,revision:(working.documents.get(key(scope,documentKind,id))?.revision??0)+1});})})}:{})}),
+    const fixture={...scope,kind:documentKind,id:document.root.id,document:structuredClone(payload),version:`fixture:${++version}`,revision:(working.documents.get(key(scope,documentKind,document.root.id))?.revision??0)+1};working.documents.set(key(scope,documentKind,fixture.id),fixture);return effective(scope,documentKind,working).find(row=>row.document.root.id===fixture.id)!;}),hide:(documentKind:EraDocumentKind,id:string,expected:string)=>write(async working=>{const current=effective(scope,documentKind,working).find(row=>row.document.root.id===id);if(!current||current.version!==expected)throw Error('world_era_conflict');working.documents.set(key(scope,documentKind,id),{...scope,kind:documentKind,id,hidden:true,...(documentKind==='local-tool'?{document:current.document}:{}),version:`fixture:${++version}`,revision:(working.documents.get(key(scope,documentKind,id))?.revision??0)+1});})})}:{})}),
    queryDocuments:async(query:LocalToolDocumentQuery={})=>queryLocalToolIndexRows(effective(scope,'local-tool',state()).flatMap(read=>{const row=read.document.root as unknown as SourceToolDocument,index=row.namespace===definition.namespace?definition.index:row.index;return index?[{id:row.id,namespace:row.namespace,title:row.title,updatedAt:row.updatedAt,provenance:read.provenance,...evaluateLocalToolIndex(index,row.data)}]:[];}),query),
    tools:async()=>structuredClone(tools.map(item=>item.tool)),
    callTool:async(name,args={})=>{const handler=tools.find(item=>item.tool.name===name);if(!handler)throw Error('fake_host_tool_not_configured: '+name);if(handler.tool.writes)writable();const supplied={...args,projectId:scope.projectId,...(scope.eraId?{eraId:scope.eraId}:{})};delete supplied.eraId;if(scope.eraId)supplied.eraId=scope.eraId;const input=localOperationInput(handler.tool.schema,supplied);commands.push({kind:'tool',scope:{...scope},name,args:cloneLocalToolJson(input)});const run=async(working:Memory)=>cloneLocalToolJson(await handler.run(input,createClient(scope,readOnly,working,documentId)),Number.MAX_SAFE_INTEGER);return handler.tool.writes?write(run):run(state());},
