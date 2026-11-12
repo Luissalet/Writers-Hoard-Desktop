@@ -327,6 +327,12 @@ Desde la barra del documento, **Pantalla completa** amplía la cuadrícula dentr
 
 `wh_workspace_focus_get` y `wh_workspace_focus_set` usan el mismo estado de la interfaz para destinos montados y visibles con `namespace: 'tables'`. Los IDs de host son efímeros y se resuelven en el proyecto, la era y el documento efectivos. Un destino oculto o revocado no está disponible y la solicitud no queda en cola. Es un cambio de vista sin guardado implícito ni Deshacer de documento. La concentración del editor Source conserva su comportamiento. [Uso y evidencia de #2942](tasks/vvd1095/verification-table-fullscreen2942.md).
 
+## Pantalla completa del Grafo del Códice
+
+En **Códice → Grafo**, **Pantalla completa** amplía el panel del grafo dentro de Writer. Se conservan el lienzo, la cámara, la selección y los filtros. El panel vecino queda montado e inactivo mientras se amplía el grafo. **Controles del grafo** abre los mismos filtros y ajustes; desde ellos, Escape cierra los controles primero y devuelve el foco al botón. Otro Escape o **Salir de pantalla completa** recupera la disposición anterior. Ampliar o salir no guarda el proyecto; el espaciado, los ajustes y las posiciones fijadas siguen guardándose por proyecto.
+
+`wh_workspace_focus_get` y `wh_workspace_focus_set` usan el destino visible `world-graph` por proyecto y Base/era, sin `documentId`. Usa el `hostId` efímero observado en el mismo ámbito. Un panel oculto no admite acciones; volver a Fichas revoca el destino del grafo. [Uso, contrato y pruebas de #2991](tasks/vvd1095/verification-world-graph-fullscreen2991.md).
+
 ## Viajes desde lugares y decisiones duraderas de candidatos — corte1095
 
 El inspector Worldgen fija origen o destino desde el lugar efectivo; la selección normal completa el otro extremo y el guardado del itinerario usa el flujo existente. `wh_plan_journey` conserva su función de lectura. El lector común hace efectivo un projectId explícito en Base, sin exigirlo cuando se omite y manteniendo primero la guarda histórica de conversación. La regresión final independiente cubre13casos; Native final3 usa dos claves y el perfil LVXQWp, no la ejecución anterior2.
