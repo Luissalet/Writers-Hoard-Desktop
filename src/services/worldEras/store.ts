@@ -11,6 +11,7 @@ import { validateWorldCalendar } from '@/engines/timeline/worldCalendar';
 import { validateLocalToolProjectStates } from '@/engines/local/stateTypes';
 import {forkSourceToolDocument} from '@/engines/local/documents/portability';
 import {isSourceAdditivePredecessor,sourceAdditiveOriginFor} from '@/engines/local/documents/additiveOrigin';
+import {sourceMigrationVariantConvergence,sourceMigrationOriginFor} from '@/engines/local/documents/migrationOrigin';
 import {validateSourceToolDocument,type SourceToolDocument} from '@/engines/local/documents/types';
 import {convergenceHash} from '@/engines/local/convergence/format';
 import { validateWorkspaceAppearanceProject } from '@/services/workspaceAppearance/validation';
@@ -98,7 +99,16 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
     const history=options.checkpoint ? previous?.history ?? [] : variantHistory(previous);
     if(kind==='local-tool'){
       const root=nextDocument.root as unknown as SourceToolDocument,old=current?.document.root as unknown as SourceToolDocument|undefined;
-      const convergence=root.convergence??old?.convergence;
+      // A hidden root or a Base archive can still own this logical ID when the effective CAS is null.
+      let predecessor=old??previous?.document?.root as unknown as SourceToolDocument|undefined;
+      if(!predecessor){
+        const archives=await db.documentArchives.where('sourceId').equals(root.id)
+          .filter(row=>row.projectId===scope.projectId&&row.kind==='local-tool'&&!!row.metadata).sortBy('archivedAt');
+        predecessor=archives.at(-1)?.metadata?.item as unknown as SourceToolDocument|undefined;
+      }
+      const retainedConvergence=predecessor&&sourceMigrationVariantConvergence(predecessor,root,
+        sourceMigrationOriginFor(predecessor.namespace,project.localToolInstallations?.[predecessor.namespace]?.contentHash));
+      const convergence=root.convergence??old?.convergence??retainedConvergence;
       const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(convergence??null)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
       if(changed||convergenceHash(root.codec??null)!==convergenceHash(old?.codec??null)){
         const from=old&&sourceAdditiveOriginFor(old.namespace,project.localToolInstallations?.[old.namespace]?.contentHash);

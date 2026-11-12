@@ -11,7 +11,7 @@ import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformS
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 import {findSourceAdditivePredecessor} from './additiveOrigin';
 import {assertSourceToolActionsAs,parseSourceToolDocumentState,projectSourceToolAs,sourceToolActionBaselineData} from './additive';
-import {assertSourceScalarRenameBaseline,isSourceScalarRenamePending,migratedSourceScalarRoot} from './scalarRename';
+import {assertSourceMigrationBaseline,isSourceMigrationPending,migratedSourceRoot} from './migration';
 export type {SourceConvergenceOptions} from './store';
 export interface SourceConvergenceReadOptions {stateVectorBase64?:string}
 interface StoredPlan {
@@ -38,19 +38,20 @@ export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
  return db.transaction('rw',db.tables,async()=>{
   const plan=await transformSourceToolDocument<StoredPlan>(scope,id,read=>{
    const actual=source(read,id,definition.namespace);baseline(actual,value,id,definition.namespace,true);
-   const inherited=!!scope.eraId&&actual.provenance==='base',rename=definition.sourceScalarRename;
-   if(migrate&&!rename)throw Error('local_tool_source_migration_unavailable');
+   const inherited=!!scope.eraId&&actual.provenance==='base';
+   if(migrate&&!definition.sourceScalarRename&&!definition.sourceMigration)throw Error('local_tool_source_migration_unavailable');
    if(migrate&&inherited)throw Error('local_tool_source_migration_era_required');
-   if(isSourceScalarRenamePending(actual.document,rename,definition.codec)){
-    const data=parseSourceToolDocumentState(definition,actual.document),old=actual.document.convergence?.checkpoint;
+   if(isSourceMigrationPending(actual.document,definition)){
+    const old=actual.document.convergence?.checkpoint;
     if(!migrate){
      if(!old)throw Error('local_tool_source_migration_required');
      return{result:{checkpoint:old,update:null,changed:false,causalChanged:false,pending:false}};
     }
     if(actual.document.convergence?.conflict)throw Error('local_tool_source_migration_conflict');
-    assertSourceScalarRenameBaseline(actual.document,data,value);
-    const contract=sourceConvergenceContract(actual.document,definition,options),checkpoint=createLocalToolGenesis(data,contract);
-    const next=migratedSourceScalarRoot(touch(actual.document),data,contract.codec,checkpoint,definition);
+    const data=parseSourceToolDocumentState(definition,actual.document);
+    assertSourceMigrationBaseline(actual.document,data,value);
+    const contract=sourceConvergenceContract(actual.document,definition,options,false,false,true),checkpoint=createLocalToolGenesis(data,contract);
+    const next=migratedSourceRoot(touch(actual.document),data,contract.codec,checkpoint,definition);
     return{next,result:{checkpoint,update:null,changed:true,causalChanged:true,pending:false}};
    }
    if(findSourceAdditivePredecessor(actual.document,definition.sourceAdditive)){
@@ -63,7 +64,7 @@ export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
     const prepared=prepareSourceConvergenceContext(actual.document,definition,options,inherited);
     if(migrate){
      if(prepared.reset)throw Error('local_tool_source_migration_unavailable');
-     assertSourceScalarRenameBaseline(actual.document,sourceToolSnapshot(actual,definition).data,value);
+     assertSourceMigrationBaseline(actual.document,sourceToolSnapshot(actual,definition).data,value);
     }
     return{next:prepared.reset?touch(prepared.document):undefined,result:{checkpoint:prepared.checkpoint,update:null,changed:false,causalChanged:prepared.reset,pending:prepared.view.pending}};
    }

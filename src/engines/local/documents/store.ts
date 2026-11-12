@@ -16,7 +16,7 @@ import {validateLocalToolCodecState} from '../stateCodec';
 import {validateSourceToolDocument,type SourceToolDocument} from './types';
 import {forkSourceToolDocument} from './portability';
 import {assertSourceAdditiveTarget,parseSourceToolDocumentState} from './additive';
-import {isSourceScalarRenamePending} from './scalarRename';
+import {isSourceMigrationPending} from './migration';
 import {priorSourceCodec} from '../convergence/sourceAdditive';
 import type {LocalToolConvergenceContract} from '../convergence/types';
 import {isRichImageEngine} from '../convergence/imageFormat';
@@ -67,10 +67,10 @@ async function mutate(scope:WorldEraScope,id:string,expected:number|null,expecte
 }
 export interface SourceConvergenceOptions {authorId:string;validationId:string;schemaEpoch:string;/** Host-only local flag; not a commit notification. */onPrepared?:(causalChanged:boolean)=>void}
 /** Current executable validation comes from the selected host, never old persisted metadata. */
-export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false,promoting=false):LocalToolConvergenceContract<T>{
+export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false,promoting=false,migrating=false):LocalToolConvergenceContract<T>{
  const codec=definition.codec??document.codec;if(!codec)throw Error('local_tool_convergence_codec_required');
  if(!promoting&&(definition.sourceAdditive||sourceDefaultHash(document.codec)||document.convergence?.checkpoint.engine.version==='8'))assertSourceAdditiveTarget(document,definition);
- if(document.convergence?.checkpoint.engine.version==='1'&&document.codec&&!promoting&&convergenceEngine(codec).version==='1'){
+ if(document.convergence?.checkpoint.engine.version==='1'&&document.codec&&!promoting&&!migrating&&convergenceEngine(codec).version==='1'){
   const added=Object.keys(codec.fields).filter(field=>!Object.hasOwn(document.codec!.fields,field));
   if(added.length===1&&codec.fields[added[0]].kind==='scalar'&&convergenceCanonical(priorSourceCodec(codec,added))===convergenceCanonical(document.codec))throw Error('local_tool_source_additive_required');
  }
@@ -81,7 +81,7 @@ export function sourceConvergenceContract<T extends LocalToolJson>(document:Sour
 /** Pure preparation: no DB/history/receipt consumption. The caller commits its final intent once. */
 export function prepareSourceConvergenceContext<T extends LocalToolJson>(original:SourceToolDocument,definition:LocalToolDefinition<T>,options:SourceConvergenceOptions,inherited=false,adopting=false){
  if(!original.convergence)throw Error('local_tool_convergence_not_started');
- if(isSourceScalarRenamePending(original,definition.sourceScalarRename,definition.codec))throw Error('local_tool_source_migration_required');
+ if(isSourceMigrationPending(original,definition))throw Error('local_tool_source_migration_required');
  const contract=sourceConvergenceContract(original,definition,options,adopting),stored=original.convergence.checkpoint;
  const knownAdoption=adopting&&!!contract.richAdoption&&stored.engine.version==='3';if(knownAdoption)effectiveRichAdoptionContract(stored,contract);
  const epochChanged=!knownAdoption&&(stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec));
@@ -147,7 +147,7 @@ export async function saveSourceToolState<T extends LocalToolJson>(scope:WorldEr
   await transformSourceToolDocument(scope,id,read=>{
    checkSourceCAS(read,expected,expectedVersion);if(!read||read.document.namespace!==definition.namespace)throw Error('source_tool_document_missing');
    let current=read.document,nextData=cloneLocalToolJson(safe);
-   if(isSourceScalarRenamePending(current,definition.sourceScalarRename,definition.codec))throw Error('local_tool_source_migration_required');
+   if(isSourceMigrationPending(current,definition))throw Error('local_tool_source_migration_required');
    if(sourceDefaultHash(current.codec)||current.convergence?.checkpoint.engine.version==='8')throw Error('local_tool_source_additive_write_unavailable');
    if(current.convergence){
     if(!convergenceOptions)throw Error('source_tool_convergence_context_required');
