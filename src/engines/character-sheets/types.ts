@@ -3,12 +3,13 @@ import { validCocState, type CocState, type CocRollData } from './cocTypes';
 import { validSheetInk,type SheetInk } from './ink';
 import {validStatBlockXp,type StatBlockXp} from './statBlock';
 import {validDaggerheartClass,type DaggerheartClassState} from './daggerheart';
+import { validDaggerheartAdversaryRow, type DaggerheartAdversaryRow } from './daggerheartAdversary';
 export const presets = ['5e-character', '5e-stat-block', 'coc7', 'daggerheart-character', 'daggerheart-adversary', 'custom'] as const;
 export type SheetPreset = typeof presets[number];
 export interface SheetTrait { id: string; label: string; value: number }
 export interface SheetSkill { id: string; label: string; traitId?: string; training: 0 | 1 | 2; value: number; bonus: number }
 export interface SheetResource { id: string; label: string; current: number; max: number; marked: boolean }
-export interface SheetRow { id: string; section: string; name: string; detail: string; expression: string; quantity: number; fiveESpell?:FiveESpellRow; fiveEAttack?:FiveEAttackRow }
+export interface SheetRow { id: string; section: string; name: string; detail: string; expression: string; quantity: number; fiveESpell?:FiveESpellRow; fiveEAttack?:FiveEAttackRow; daggerheartAdversary?: DaggerheartAdversaryRow }
 export interface SheetRoll { id: string; at: number; label: string; expression: string; dice: number[]; total: number; outcome: string; target?: number; appliedResources?: boolean; passed?: boolean; difficulty?: 'regular' | 'hard' | 'extreme'; coc?: CocRollData }
 export interface CharacterSheet {
   id: string; title: string; preset: SheetPreset; linkedEntryId?: string;
@@ -88,6 +89,7 @@ export function validateSheet(value: unknown): asserts value is CharacterSheet {
       if(numberFields.some(key=>typeof item[key]!=='number'||!Number.isFinite(item[key])||Math.abs(item[key] as number)>Number.MAX_SAFE_INTEGER))return fail();
       if(field==='rows'&&item.fiveESpell!==undefined&&(value.preset!=='5e-character'||!validFiveESpell(item.fiveESpell)))return fail();
       if(field==='rows'&&item.fiveEAttack!==undefined&&(value.preset!=='5e-character'||!validFiveEAttack(item.fiveEAttack)))return fail();
+      if(field==='rows'&&item.daggerheartAdversary!==undefined&&(value.preset!=='daggerheart-adversary'||!validDaggerheartAdversaryRow(item.daggerheartAdversary)))return fail();
       if(field==='skills'&&(![0,1,2].includes(item.training as number)||(item.traitId!==undefined&&typeof item.traitId!=='string')))return fail();
       if(field==='resources'&&(typeof item.marked!=='boolean'||(item.max as number)<0||(item.current as number)<0||(item.current as number)>(item.max as number)))return fail();
       if(field==='rolls'&&(!Array.isArray(item.dice)||item.dice.length>200||item.dice.some(n=>typeof n!=='number'||!Number.isFinite(n))||(item.target!==undefined&&(typeof item.target!=='number'||!Number.isFinite(item.target)))))return fail();
