@@ -90,7 +90,23 @@ export function setDaggerheartGold(sheet: CharacterSheet, unit: string, amount: 
  const key = DAGGERHEART_GOLD_UNITS.find(value => value === unit);
  if (!key || !validGoldAmount(key, amount)) throw Error('daggerheart_gold_invalid');
  const current = daggerheartGold(sheet);
- return current[key] === amount ? sheet : { ...sheet, daggerheartGold: { ...current, [key]: amount } };
+ const next = { ...current, [key]: amount };
+ const fullHandfuls = key === 'handfuls' && amount === DAGGERHEART_GOLD_CAPACITY.handfuls;
+ const fullBags = key === 'bags' && amount === DAGGERHEART_GOLD_CAPACITY.bags;
+ const carryBags = () => {
+  if (next.bags === DAGGERHEART_GOLD_CAPACITY.bags && next.chest < DAGGERHEART_GOLD_CAPACITY.chest) {
+   next.bags = 0;
+   next.chest += 1;
+  }
+ };
+ if (fullBags || fullHandfuls) carryBags();
+ if (fullHandfuls && next.bags < DAGGERHEART_GOLD_CAPACITY.bags) {
+  next.handfuls = 0;
+  next.bags += 1;
+  carryBags();
+ }
+ // Leave full lower denominations intact when there is nowhere to carry them.
+ return DAGGERHEART_GOLD_UNITS.every(item => current[item] === next[item]) ? sheet : { ...sheet, daggerheartGold: next };
 }
 
 export function daggerheartDerived(sheet:CharacterSheet){if(!sheet.preset.startsWith('daggerheart'))return undefined;return{source:DAGGERHEART_SOURCE,coreClasses:sheet.preset==='daggerheart-character'?DAGGERHEART_CLASSES:[],selectedClass:sheet.daggerheartClass?.classId??null,authoredClass:sheet.details.class??'',evasion:sheet.numbers.evasion,level:sheet.numbers.level,tier:sheet.numbers.tier,...(sheet.preset==='daggerheart-character'?{gold:daggerheartGold(sheet)}:{}),resources:sheet.resources.map(({id,label,current,max,marked})=>({id,label,current,max,marked}))};}
