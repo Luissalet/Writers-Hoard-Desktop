@@ -2,7 +2,7 @@ import {validFiveE,validFiveESpell,validFiveEAttack,type FiveEState,type FiveESp
 import { validCocState, type CocState, type CocRollData } from './cocTypes';
 import { validSheetInk,type SheetInk } from './ink';
 import {validStatBlockXp,type StatBlockXp} from './statBlock';
-import {validDaggerheartClass,type DaggerheartClassState} from './daggerheart';
+import {validDaggerheartClass,validDaggerheartGold,type DaggerheartClassState,type DaggerheartGold} from './daggerheart';
 import { validDaggerheartAdversaryRow, type DaggerheartAdversaryRow } from './daggerheartAdversary';
 export const presets = ['5e-character', '5e-stat-block', 'coc7', 'daggerheart-character', 'daggerheart-adversary', 'custom'] as const;
 export type SheetPreset = typeof presets[number];
@@ -20,6 +20,7 @@ export interface CharacterSheet {
   paperLayout?: 'record'|'stat-block';
   statBlockXp?: StatBlockXp;
   daggerheartClass?:DaggerheartClassState;
+  daggerheartGold?:DaggerheartGold;
   fiveE?:FiveEState;
 }
 export const sourceLinks: Partial<Record<SheetPreset, { title: string; url: string }[]>> = {
@@ -75,6 +76,7 @@ export function validateSheet(value: unknown): asserts value is CharacterSheet {
   if(value.ink!==undefined&&!validSheetInk(value.ink))return fail();
   if(value.paperLayout!==undefined&&value.paperLayout!=='record'&&(value.paperLayout!=='stat-block'||value.preset!=='5e-stat-block'))return fail();
   if(value.daggerheartClass!==undefined&&(value.preset!=='daggerheart-character'||!validDaggerheartClass(value.daggerheartClass)))return fail();
+  if(value.daggerheartGold!==undefined&&(value.preset!=='daggerheart-character'||!validDaggerheartGold(value.daggerheartGold)))return fail();
   if(value.statBlockXp!==undefined&&(value.preset!=='5e-stat-block'||!validStatBlockXp(value.statBlockXp)))return fail();
   for(const field of ['revision','createdAt','updatedAt']) if(!Number.isSafeInteger(value[field]) || (value[field] as number)<0) return fail();
   if(!record(value.details)||!record(value.numbers)||Object.keys(value.details).length>200||Object.keys(value.numbers).length>200) return fail();

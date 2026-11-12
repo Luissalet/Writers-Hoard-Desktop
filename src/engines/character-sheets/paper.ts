@@ -6,6 +6,7 @@ import { skillBonus } from './mechanics';
 import { sheetInkHeight,sheetInkSvg } from './ink';
 import {fiveEDerived,FIVE_E_SOURCE} from './fiveE';
 import {statBlockPaper} from './statBlockPaper';
+import { DAGGERHEART_GOLD_LABELS, DAGGERHEART_GOLD_UNITS } from './daggerheart';
 import { daggerheartFeatureLabel, daggerheartTierLevels } from './daggerheartAdversary';
 const esc=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const label=(value:string)=>value.replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('_',' ');
@@ -83,6 +84,10 @@ export function sheetPaper(sheet:CharacterSheet,locale:'es'|'en'='en'):{svg:stri
       const metadata=row.daggerheartAdversary;
       return metadata?.kind==='feature' ? [[row.name,daggerheartFeatureLabel(metadata.category,locale)]] : [];
     }));
+  }
+  if (sheet.daggerheartGold) {
+    const copy = DAGGERHEART_GOLD_LABELS[locale], gold = sheet.daggerheartGold;
+    section(copy.title, [es?'Unidad':'Unit', es?'Cantidad':'Quantity'], DAGGERHEART_GOLD_UNITS.map(unit => [copy[unit], gold[unit]]));
   }
   const height=Math.ceil(Math.max(700,y+48,sheetInkHeight(sheet.ink)+48)),prefix='sheet-ink-'+crypto.randomUUID();
   return{height,svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" width="1000" height="${height}" role="img" aria-label="${esc(sheet.title)}" data-sheet-paper="paper-v1" style="display:block;width:100%;height:auto;max-height:none"><rect width="1000" height="${height}" fill="#f6f2e8"/>${elements.join('')}${sheetInkSvg(sheet.ink,height,prefix)}</svg>`};

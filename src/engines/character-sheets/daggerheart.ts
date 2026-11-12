@@ -63,4 +63,34 @@ export function setDaggerheartResource(sheet:CharacterSheet,id:string,value:numb
  if(!resource||!Number.isFinite(value)||value<0||value>resource.max)throw Error('daggerheart_resource_invalid');
  return resource.current===value?sheet:{...sheet,resources:sheet.resources.map(r=>r.id===id?{...r,current:value}:r)};
 }
-export function daggerheartDerived(sheet:CharacterSheet){if(!sheet.preset.startsWith('daggerheart'))return undefined;return{source:DAGGERHEART_SOURCE,coreClasses:sheet.preset==='daggerheart-character'?DAGGERHEART_CLASSES:[],selectedClass:sheet.daggerheartClass?.classId??null,authoredClass:sheet.details.class??'',evasion:sheet.numbers.evasion,level:sheet.numbers.level,tier:sheet.numbers.tier,resources:sheet.resources.map(({id,label,current,max,marked})=>({id,label,current,max,marked}))};}
+export const DAGGERHEART_GOLD_CAPACITY = { handfuls: 10, bags: 10, chest: 1 } as const;
+export const DAGGERHEART_GOLD_UNITS = ['handfuls', 'bags', 'chest'] as const;
+export const DAGGERHEART_GOLD_LABELS = {
+ en: { title: 'Gold', handfuls: 'Handfuls', bags: 'Bags', chest: 'Chest' },
+ es: { title: 'Oro', handfuls: 'Puñados', bags: 'Bolsas', chest: 'Cofre' },
+};
+type DaggerheartGoldUnit = typeof DAGGERHEART_GOLD_UNITS[number];
+export type DaggerheartGold = Record<DaggerheartGoldUnit, number>;
+
+function validGoldAmount(unit: DaggerheartGoldUnit, amount: unknown): amount is number {
+ return typeof amount === 'number' && Number.isInteger(amount) && amount >= 0 && amount <= DAGGERHEART_GOLD_CAPACITY[unit];
+}
+
+export function validDaggerheartGold(value: unknown): value is DaggerheartGold {
+ return record(value) && Object.keys(value).length === DAGGERHEART_GOLD_UNITS.length
+  && DAGGERHEART_GOLD_UNITS.every(unit => Object.hasOwn(value, unit) && validGoldAmount(unit, value[unit]));
+}
+
+export function daggerheartGold(sheet: CharacterSheet): DaggerheartGold {
+ return sheet.daggerheartGold ?? { handfuls: 0, bags: 0, chest: 0 };
+}
+
+export function setDaggerheartGold(sheet: CharacterSheet, unit: string, amount: unknown): CharacterSheet {
+ if (sheet.preset !== 'daggerheart-character') throw Error('daggerheart_character_required');
+ const key = DAGGERHEART_GOLD_UNITS.find(value => value === unit);
+ if (!key || !validGoldAmount(key, amount)) throw Error('daggerheart_gold_invalid');
+ const current = daggerheartGold(sheet);
+ return current[key] === amount ? sheet : { ...sheet, daggerheartGold: { ...current, [key]: amount } };
+}
+
+export function daggerheartDerived(sheet:CharacterSheet){if(!sheet.preset.startsWith('daggerheart'))return undefined;return{source:DAGGERHEART_SOURCE,coreClasses:sheet.preset==='daggerheart-character'?DAGGERHEART_CLASSES:[],selectedClass:sheet.daggerheartClass?.classId??null,authoredClass:sheet.details.class??'',evasion:sheet.numbers.evasion,level:sheet.numbers.level,tier:sheet.numbers.tier,...(sheet.preset==='daggerheart-character'?{gold:daggerheartGold(sheet)}:{}),resources:sheet.resources.map(({id,label,current,max,marked})=>({id,label,current,max,marked}))};}

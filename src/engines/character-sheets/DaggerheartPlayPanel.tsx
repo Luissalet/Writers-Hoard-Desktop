@@ -1,9 +1,32 @@
 import {useState} from 'react';
 import type {PanelProps} from './StatsPanel';
-import {DAGGERHEART_CLASSES,DAGGERHEART_SOURCE,applyDaggerheartClass,daggerheartClassPreview,setDaggerheartResource,type DaggerheartClassField} from './daggerheart';
+import {DAGGERHEART_CLASSES,DAGGERHEART_SOURCE,applyDaggerheartClass,daggerheartClassPreview,setDaggerheartResource,type DaggerheartClassField, DAGGERHEART_GOLD_CAPACITY, DAGGERHEART_GOLD_LABELS, DAGGERHEART_GOLD_UNITS, daggerheartGold, setDaggerheartGold} from './daggerheart';
 import {button,input} from './uiStyles';
 import {Field,NumberField} from './ui';
 import { DaggerheartAdversaryRows, DaggerheartAdversaryStats } from './DaggerheartAdversaryPanel';
+
+const slotButton = 'flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-elevated text-sm text-text-muted aria-pressed:border-accent-gold aria-pressed:bg-accent-gold/20 aria-pressed:text-accent-gold focus-visible:outline focus-visible:outline-accent-gold';
+
+function DaggerheartGoldTrack({ sheet, locale, update }: Pick<PanelProps, 'sheet' | 'locale' | 'update'>) {
+ const copy = DAGGERHEART_GOLD_LABELS[locale];
+ const gold = daggerheartGold(sheet);
+ return <section className="space-y-3 rounded-lg border border-border p-4" aria-label={copy.title}>
+  <h3 className="font-semibold text-text-primary">{copy.title}</h3>
+  {DAGGERHEART_GOLD_UNITS.map(unit => <div key={unit} className="space-y-2" role="group" aria-label={copy[unit]}>
+   <div className="flex items-center justify-between gap-2 text-sm text-text-muted">
+    <span>{copy[unit]}</span><output className="tabular-nums">{gold[unit]} / {DAGGERHEART_GOLD_CAPACITY[unit]}</output>
+   </div>
+   <div className="flex flex-wrap gap-1.5">
+    {Array.from({ length: DAGGERHEART_GOLD_CAPACITY[unit] }, (_, index) => {
+     const amount = index + 1;
+     return <button type="button" key={amount} aria-label={unit === 'chest' ? copy.chest : copy[unit] + ' ' + amount}
+      aria-pressed={amount <= gold[unit]} className={slotButton} onClick={() => update(current =>
+       setDaggerheartGold(current, unit, daggerheartGold(current)[unit] === amount ? index : amount))}>{amount}</button>;
+    })}
+   </div>
+  </div>)}
+ </section>;
+}
 
 export default function DaggerheartPlayPanel({sheet,locale,update,confirm}:PanelProps){
  const es=locale==='es',pc=sheet.preset==='daggerheart-character';
@@ -20,12 +43,13 @@ export default function DaggerheartPlayPanel({sheet,locale,update,confirm}:Panel
    {sheet.resources.map(resource=><div key={resource.id} className="space-y-2" data-testid={`daggerheart-track-${resource.id}`}>
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-text-primary"><strong>{resource.label}</strong><output>{resource.current} / {resource.max} · {resource.marked?(es?'marcados':'marked'):(es?'disponibles':'available')}</output></div>
     {Number.isSafeInteger(resource.max)&&Number.isSafeInteger(resource.current)&&resource.max>0&&resource.max<=24?<div className="flex flex-wrap gap-1.5" role="group" aria-label={resource.label}>
-     {Array.from({length:resource.max},(_,i)=><button type="button" key={i} aria-label={`${resource.label}: ${i+1}`} aria-pressed={i<resource.current} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-elevated text-sm text-text-muted aria-pressed:border-accent-gold aria-pressed:bg-accent-gold/20 aria-pressed:text-accent-gold focus-visible:outline focus-visible:outline-accent-gold" onClick={()=>{const value=resource.current===i+1?i:i+1;update(current=>setDaggerheartResource(current,resource.id,value));}}>{i+1}</button>)}
+     {Array.from({length:resource.max},(_,i)=><button type="button" key={i} aria-label={`${resource.label}: ${i+1}`} aria-pressed={i<resource.current} className={slotButton} onClick={()=>{const value=resource.current===i+1?i:i+1;update(current=>setDaggerheartResource(current,resource.id,value));}}>{i+1}</button>)}
      <button type="button" className={button} disabled={resource.current===0} aria-label={`${es?'Vaciar':'Clear'} · ${resource.label}`} onClick={()=>update(current=>setDaggerheartResource(current,resource.id,0))}>0</button>
     </div>:<NumberField label={resource.label} value={resource.current} min={0} max={resource.max} onChange={value=>{if(Number.isFinite(value)&&value>=0&&value<=resource.max&&value!==resource.current)update(current=>setDaggerheartResource(current,resource.id,value));}}/>}
    </div>)}
    <p className="text-xs text-text-muted">{es?'Las capacidades y etiquetas siguen disponibles en Recursos. Los cambios de clase o nivel no reinician estos contadores.':'Capacities and labels remain editable in Resources. Class or level changes do not reset these counters.'}</p>
   </section>
+  {pc && <DaggerheartGoldTrack sheet={sheet} locale={locale} update={update} />}
   {pc&&<section className="space-y-3 rounded-lg border border-border p-4" aria-label={es?'Datos de clase':'Class data'}>
    <p className="text-sm text-text-primary">{es?'Clase registrada':'Recorded class'}: {sheet.details.class||'—'} · {sheet.details.domains||'—'}</p>
    <Field label={es?'Previsualizar clase del juego base':'Preview core class'}><select className={input} aria-label={es?'Previsualizar clase del juego base':'Preview core class'} value={candidate} onChange={event=>{const id=event.target.value;setNotice('');setCandidate(id);setChoices(id?daggerheartClassPreview(sheet,id).changes.filter(change=>change.safe).map(change=>({field:change.field,before:change.before,after:change.after,automatic:true})):[]);}}><option value="">{es?'Elegir clase…':'Choose class…'}</option>{DAGGERHEART_CLASSES.map(source=><option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>

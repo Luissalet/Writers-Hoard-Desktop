@@ -13,7 +13,7 @@ import { COC_ACTIONS } from './bridgeManifest';
 import { applySheetInk,SHEET_INK_SURFACE,type SheetInkStroke } from './ink';
 import {statBlockDerived} from './statBlock';
 import {issueSheetReceipt} from './sheetUndo';
-import {DAGGERHEART_CLASSES,daggerheartDerived,daggerheartClassPreview,applyDaggerheartClass,setDaggerheartResource} from './daggerheart';
+import {DAGGERHEART_CLASSES,daggerheartDerived,daggerheartClassPreview,applyDaggerheartClass,setDaggerheartResource,setDaggerheartGold} from './daggerheart';
 import { cocSummary } from './cocSummary';
 async function load(args:ToolArgs){const projectId=resolveProjectId(args),id=requireString(args,'sheetId');const sheet=(await getEraProject({ projectId, eraId: optString(args, 'eraId') }))?.characterSheets?.find(item=>item.id===id);if(!sheet)throw new BridgeError('not-found','Sheet not found in this project.');return {projectId,sheet:resolveCocSheet(sheet)};}
 function revision(args:ToolArgs){if(!Number.isSafeInteger(args.revision)||(args.revision as number)<0)throw new BridgeError('bad-args','revision must be the current nonnegative integer revision.');return args.revision as number;}
@@ -68,6 +68,8 @@ export const SHEET_HANDLERS={
         next=applyDaggerheartClass(sheet,requireString(args,'classId'),args.fields);
       }else if(args.action==='resource'){
         if(typeof args.value!=='number')throw Error('daggerheart_resource_invalid');next=setDaggerheartResource(sheet,requireString(args,'resourceId'),args.value);
+      }else if(args.action==='gold'){
+        next=setDaggerheartGold(sheet,requireString(args,'goldUnit'),args.value);
       }else throw Error('daggerheart_action_invalid');
       validateSheet(next);
     }catch(error){throw new BridgeError('bad-args',error instanceof Error?error.message:'Invalid Daggerheart action.');}
