@@ -11,7 +11,7 @@ import type {LocalToolStateCodec} from '../stateCodec';
 import type {SourceToolDocument} from './types';
 import {findSourceAdditivePredecessor} from './additiveOrigin';
 import {validateSourceDocumentCheckpoint} from './portability';
-import {isSourceMigrationPending,projectSourceMigration} from './migration';
+import {projectSourceMigration,sourceMigrationPredecessor} from './migration';
 
 export function assertSourceAdditiveTarget<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>):void {
  const codec=definition.codec,checkpoint=document.convergence?.checkpoint;
@@ -21,7 +21,8 @@ export function assertSourceAdditiveTarget<T extends LocalToolJson>(document:Sou
 
 /** Project the default for the selected package only. Durable Source data stays sparse. */
 export function parseSourceToolDocumentState<T extends LocalToolJson>(definition:LocalToolDefinition<T>,document:SourceToolDocument):T {
- if(isSourceMigrationPending(document,definition))return parseLocalToolState(definition,projectSourceMigration(document,definition));
+ const predecessorMigration=sourceMigrationPredecessor(document,definition);
+ if(predecessorMigration)return parseLocalToolState(definition,projectSourceMigration(document,definition,predecessorMigration));
  const declaration=definition.sourceAdditive;
  const predecessor=findSourceAdditivePredecessor(document,declaration);
  const defaults=sourceDefaultEntries(definition.codec);
