@@ -1,0 +1,24 @@
+# Source document loading — #3015
+
+## Author contract
+
+A deferred Source view may declare a no-props React component as top-level `Skeleton` in `defineLocalTool`. The host presents it in an accessible loading status inside the document panel. If the author skeleton also suspends, the status shows standard loading first. Omitting `Skeleton` keeps the existing outer fallback. This does not replace the read-only preview or the runtime error path. With `panelTitle: false`, standard and author loading identify the document once, the ready component supplies its own heading, and the saved read-only fallback retains the host heading. The document ID, stored data and normal controls keep their existing behavior.
+
+`LocalToolDocumentGate` is the standalone author view. The caller supplies `loading`, `ready` or `error`, its optional skeleton, an error message and a Retry handler. The gate renders children in ready, announces loading and error, and offers Retry only when `onRetry` is supplied; `retrying` disables that button. Built-in labels use English by default and Spanish when `locale="es"`; the Source host passes the workspace locale. The gate imports React without application data or locale stores and does not initiate reads or writes. Keeping an existing snapshot ready lets the editor stay mounted during later refreshes. `wh_local_tool_describe` includes `hasCustomDocumentLoading: true` only when the Source definition declares both `document` and `Skeleton`; it omits the field otherwise. This is metadata, not a report of current loading or a new MCP command.
+
+## Reference and prior Writer state
+
+`REFERENCE-BRAVE.md`: the runnable VVD SDK guide used the real `DocumentGate` with connecting/ready status supplied by the fixture. It showed the author skeleton when provided and retained document identity in ready; `defineTool` accepted the declaration. The example was restored. This supports the author surface, without testing a hosted panel transition or network latency. `RED-BRAVE.md`: Writer at `f2ae7a75` ignored the author skeleton and reached the outer fallback.
+
+## Attributed verification
+
+Receipts are in `Research/writer-parity-20261110/sdk-document-loading/`. `COMMIT-CUT3015-r4.json` (SHA-256 `fa1f3914c558ba7e70b87885beec5fbbfe47cf96fa85d74d799d107a2e3cc469`) lists five paths and fifteen evidence hashes for `d9efa3fabfcbbbed813e61f4e319a6992a480a8d`.
+
+- `RED-BRAVE-r2.md` and `RED-BRAVE-r3.md`: after the initial missing-skeleton baseline, the r2 candidate lost standard loading when the skeleton also suspended; the r3 candidate lost the Source heading when the same sequence used `panelTitle: false`. These failures stay separate from the r4 pass.
+- `GREEN-BRAVE-r4.md`: real Brave exercised the deferred component and deferred skeleton, with one identifying title in standard loading, author loading and the ready view on the same ID. Read-only fallback restored its host heading; the Fullscreen control stayed available during the wait. The omitted declaration kept the outer fallback. The standalone gate passed error, Retry, standard loading and locale checks. Cleanup left 89 private tables empty and closed the tab.
+- `NODE-RED-r1.log` and `NODE-GREEN-r4.log`: the initial public SDK graph pulled application/database and locale modules; r4's seven Node checks passed with exit 0, including the existing pure public SDK import check. The Yjs duplicate-import warning remains in the log. Package CLI pack/check is not package installation or a UI run.
+- `NATIVE-r4.md` and `native3015/run-20261112T044530Z-6fca901b/RESULT.json`: two real independent keys and four renderer IPC replies. Describe included or omitted the metadata as declared, and a read during standard loading matched the entire read response after ready. Standard loading, author loading and the ready editor each identified the same document once. Both keys returned 401 after revocation with no IPC; stdio exited 0, port closed, 89 tables were empty and the private profile was retired. Result SHA-256 `606c37b812559c32c53bba1cb18f7c9827cb9208923b2147c33396c9d4347fb5`.
+- `QUICK-r4.log` and `BUILD-r4.log` exited 0. Conformance recorded 34 engines, 64 engine tables and zero known warnings. The production build completed in 1m 55s. `DETECT-r4.json` reports `[]`.
+- `MERGE3015-RESULT-r4.json` and `DONE3015-r4.json`: #3015 was approved at exact submission revision 4 and fast-forwarded from `f2ae7a753b9862a3bc7ab3547ad2d7e0694b59f0` to `d9efa3fabfcbbbed813e61f4e319a6992a480a8d`. Root verified all five paths and preserved unrelated work. The source worktree and branch were retired normally (`RETIRE3015-FINAL-r4.json`); `MANUAL3015-r4.json` separately verifies the 226-character manual update. No push.
+
+This covers Source document loading and the author gate. It does not establish network or file recovery across all hosts, a remote renderer, or full SDK parity.
