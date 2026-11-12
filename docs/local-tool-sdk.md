@@ -891,7 +891,7 @@ Read the full current snapshot. `client.convergence.start(snapshot, { migrate: t
 
 ## Transform Source state with a migration callback
 
-Declare `sourceMigration: { from, migrate }` when a Source release changes the shape of a record codec. Both releases use codec 1 and convergence engine 1. Declare the exact predecessor namespace, codec, validationId and schemaEpoch in `from`. A document without a checkpoint identifies its predecessor by the stored codec. Use one migration declaration per release. `sourceMigration` cannot be combined with `sourceScalarRename`, `sourceAdditive` or `richAdoption`.
+Declare `sourceMigration: { from, migrate }` when a Source release changes the shape or stored values of a record codec. Both releases use codec 1 and convergence engine 1. Declare the exact predecessor namespace, codec, validationId and schemaEpoch in `from`. For a change of shape, a document without a checkpoint identifies its predecessor by the stored codec. Use one migration declaration per release. `sourceMigration` cannot be combined with `sourceScalarRename`, `sourceAdditive` or `richAdoption`.
 
 The callback receives a detached copy of the previous JSON. Return JSON accepted by the selected release's validator and codec. Keep the transform synchronous and deterministic. Pinning and reading can evaluate it, and the host checks the projected output against the exact snapshot before saving.
 
@@ -913,6 +913,10 @@ sourceMigration: {
 Read the current document, then call `client.convergence.start(snapshot, { migrate: true })`. MCP accepts `migrate: true` in `wh_local_tool_convergence_start`. `wh_local_tool_describe` reports `sourceMigration.from`. The operation writes one revision with the same document ID, a new causal genesis, and the previous root in history. To migrate an inherited era, first create its variant with the predecessor state. A generic era save can copy that state, while the explicit operation applies the transformation.
 
 [Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#transformar-el-estado-source-con-un-callback).
+
+A release can keep the same codec and change `stateSchemaVersion`. In that case the existing checkpoint must identify the exact predecessor. A newly created document or a document with no checkpoint can start normally with the selected version. An explicit request cannot migrate an unstarted document when both versions have the same codec. The destination keeps the codec hash and uses the new validation identity, schema epoch and genesis.
+
+[Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#migrar-valores-source-con-el-mismo-codec).
 
 ## Add fields to an existing Owned block
 
