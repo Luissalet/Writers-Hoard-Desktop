@@ -447,6 +447,10 @@ The tests use synthetic local source code and isolated data. They do not activat
 
 Opt in with `document: {defaultTitle: {en: 'Untitled notebook', es: 'Cuaderno sin título'}}` in a source definition. The real example is `src/engines/local/examples/documentNotebookDefinition.ts`. Once compiled/enabled, its normal engine lists, creates, opens, renames and archives separate documents. No legacy namespace state is copied or migrated. “Project state (legacy)” retains the previous route. Each document has a real stable ID, namespace, title, JSON data, optional codec, revision/timestamps and a portable generation token; it lives in `Project.sourceToolDocuments`. Named eras use the existing per-document overlay and zero-copy inheritance. Source code/packages never enter project backups.
 
+If a Source component renders its own document heading, set the top-level `panelTitle: false` in `defineLocalTool`. The field accepts only a boolean; omission or `true` keeps the normal host heading. In the live Source editor this hides the host heading while the tool renders its own, for example from `context?.document?.title`. The stored document title, ID, data and normal rename path do not change. Local sharing and fullscreen controls stay available under their existing conditions.
+
+The setting does not hide the identifying heading in the saved read-only fallback or the fullscreen dialog title. If the runtime boundary catches a render error while the host heading is hidden, its notice includes the document title; Retry uses the existing recovery and returns to the author's heading when the component works again. This is a Source panel presentation option, with no new command or persisted document field. [Panel-title contract and verification](../tasks/vvd1095/verification-sdk-panel-title3006.md).
+
 The bound component receives `client.documentId`; `client.read()` returns the same ID/title plus opaque `document.version` and `document.lineage`. Missing/archived documents fail read/save rather than being recreated. Whole-document writes compare both values read:
 
 ```ts
