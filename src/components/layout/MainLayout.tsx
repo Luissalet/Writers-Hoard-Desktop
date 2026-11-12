@@ -29,6 +29,7 @@ export default function MainLayout() {
   const loadSidebar = useAppStore(state => state.loadSidebar);
   const [focus] = useState(createWorkspaceFocusController);
   const focusState = useSyncExternalStore(focus.subscribe, focus.getState, focus.getState);
+  const exclusivePane = useSyncExternalStore(focus.subscribe, focus.getExclusivePane, focus.getExclusivePane);
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -89,7 +90,7 @@ export default function MainLayout() {
       </a>
       <Sidebar />
       <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col overflow-hidden min-w-0 outline-none">
-        {focusState.active && <div className="flex shrink-0 justify-end border-b border-border bg-surface px-4 py-2"><button type="button" data-workspace-focus-exit className="min-h-10 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={() => focus.clear(true)}>{t('localTool.focus.exit')}</button></div>}
+        {focusState.active && !exclusivePane && <div className="flex shrink-0 justify-end border-b border-border bg-surface px-4 py-2"><button type="button" data-workspace-focus-exit className="min-h-10 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={() => focus.clear(true)}>{t('localTool.focus.exit')}</button></div>}
         <Outlet />
       </main>
       {/* Right-hand copilot; renders only inside a project (desktop). */}

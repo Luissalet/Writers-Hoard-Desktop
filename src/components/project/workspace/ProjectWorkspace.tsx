@@ -1,6 +1,6 @@
 import {RuntimeTrialBanner} from '@/engines/local/RuntimeTrialControls';
 import { LocalToolAppliedThemeProvider } from '@/engines/local/appliedTheme';
-import {WorkspaceFocusContext,useWorkspaceFocusChrome} from './workspaceFocus';
+import {WorkspaceFocusContext,useWorkspaceExclusivePane,useWorkspaceFocusChrome} from './workspaceFocus';
 import WorldEraToolbar from '@/services/worldEras/WorldEraToolbar';
 import WorkspaceAppearance from '@/services/workspaceAppearance/WorkspaceAppearance';
 import WorkspaceDecoration from '@/services/workspaceAppearance/WorkspaceDecoration';
@@ -39,6 +39,7 @@ const WorkspaceLibrary = lazy(() => import('./library/WorkspaceLibrary'));
 
 export default function ProjectWorkspace({ projectId, engines, children }: { projectId: string; engines: EngineDefinition[]; children: ReactNode }) {
   const focus=useContext(WorkspaceFocusContext),focusChrome=useWorkspaceFocusChrome();
+  const exclusivePane=useWorkspaceExclusivePane();
   useLayoutEffect(()=>focus?.begin(projectId),[focus,projectId]);
   const { locale, t } = useTranslation(), copy = workspaceCopy[locale];
   const location = useLocation(), navigate = useNavigate();
@@ -58,6 +59,8 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   const [primaryOverlay, setPrimaryOverlay] = useState<HTMLDivElement | null>(null);
   const [primaryMeasure, primaryWidth] = usePaneWidth();
   const primaryId = `primary:${projectId}`;
+  const primaryExpanded=exclusivePane===primaryId;
+  const secondaryExpanded=!!exclusivePane&&!primaryExpanded;
   const requestBeside=useRef<(to:string,isCurrent?:OpenBesideGuard)=>Promise<boolean>>(async()=>false);
   const workspaceSession=useRef<object|undefined>(undefined);
   useLayoutEffect(()=>{
@@ -69,6 +72,10 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   const active = tabs.find(tab => tab.id === activeId) ?? tabs[0];
   const promoteRoute = active && isPersistentWorkspaceTab(active) ? routeOf(active) : undefined;
   const liveTabs = tabs.filter(tab => enabledIds.includes(tab.engineId));
+  const expandedCompanionVisible = liveTabs.some(tab => tab.id === active?.id && tab.id === exclusivePane);
+  useLayoutEffect(() => {
+    if (secondaryExpanded && !expandedCompanionVisible) focus?.clear();
+  }, [focus, secondaryExpanded, expandedCompanionVisible]);
   const reportTitle = useCallback((id: string, title: string | undefined) => setTabs(previous => previous.map(tab => tab.id === id && tab.documentTitle !== title ? { ...tab, documentTitle: title } : tab)), []);
   const split = liveTabs.length > 0;
   const guarded = useCallback(async (action: () => boolean | void | Promise<boolean | void>): Promise<boolean> => {
@@ -91,7 +98,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
     const apply=()=>navigate(workspaceRouteKey(after));
     if(changesBlockView(before,after))void guardNavigation.current(apply);else apply();
   }, [navigate, location]);
-  const primaryPane = useMemo(() => ({ instanceId: primaryId, projectId, eraId, visible: true, primary: true, width: primaryWidth, overlayTarget: split ? primaryOverlay : null, dialogTarget: primaryOverlay, openBeside, navigate: primaryNavigate }), [primaryId, projectId, eraId, primaryOverlay, primaryWidth, split, primaryNavigate, openBeside]);
+  const primaryPane = useMemo(() => ({ instanceId: primaryId, projectId, eraId, visible: !secondaryExpanded, primary: true, width: primaryWidth, overlayTarget: split ? primaryOverlay : null, dialogTarget: primaryOverlay, openBeside, navigate: primaryNavigate }), [primaryId, projectId, eraId, secondaryExpanded, primaryOverlay, primaryWidth, split, primaryNavigate, openBeside]);
   useEffect(() => registerEnginePaneScope(primaryId, { projectId, eraId, navigate: primaryPane.navigate, openBeside }), [primaryId, projectId, eraId, primaryPane.navigate, openBeside]);
   useEffect(() => { activateEnginePane(primaryId); }, [location.pathname, location.search, primaryId]);
   const open = useCallback((route: WorkspaceRoute, forceNew = false, besideOnly = false): boolean => {
@@ -219,6 +226,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
     } catch { setError(copy.failure); return false; }
     finally { navigationPending.current=false; setBusy(false); }
   };
+  const showSplit=split&&!exclusivePane;
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="project-workspace">
     <RuntimeTrialBanner key={projectId} projectId={projectId}/>
     <div {...focusChrome} data-tour="project-workspace" className="flex flex-wrap items-center justify-end gap-2 border-b border-border bg-deep px-4 py-2">
@@ -229,15 +237,15 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
         : <button type="button" className={button} disabled={busy} data-testid="workspace-close" onClick={() => requestClose(tabs.map(tab => tab.id))}><X size={15} aria-hidden="true" />{copy.close}</button>}
     </div>
     {error && <p role="alert" className="border-b border-border px-4 py-3 text-sm text-danger">{error}</p>}
-    <div className={`grid min-h-0 flex-1 overflow-auto ${split ? 'grid-cols-1 xl:grid-cols-[minmax(0,var(--primary-fr))_minmax(0,var(--secondary-fr))]' : 'grid-cols-1'}`} style={{ '--primary-fr': `${ratio}fr`, '--secondary-fr': `${100 - ratio}fr` } as CSSProperties}>
-      <EnginePaneContext.Provider value={primaryPane}><LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={primaryTheme}><div data-testid="workspace-primary" data-engine-pane-id={primaryId} aria-label={split ? copy.primary : undefined} onPointerDownCapture={() => activateEnginePane(primaryId)} onFocusCapture={() => activateEnginePane(primaryId)} style={primaryTheme} data-workspace-performance={primaryAppearance?.effective.performance || undefined} data-workspace-prose={primaryAppearance?.effective.proseFont || undefined} className={`workspace-appearance-pane relative flex min-w-0 flex-col overflow-hidden ${split ? 'min-h-[30rem] xl:min-h-0' : ''}`}><WorkspaceDecoration values={primaryAppearance?.effective} /><WorldEraToolbar projectId={projectId} eraId={eraId} onChange={next => void guarded(() => navigate(workspaceRouteKey(routeInEra(workspaceRoute(location), next))))} /><WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${primaryId}:${eraId ?? 'base'}`} ref={primaryMeasure} className="min-h-0 flex-1 overflow-y-auto p-6">{ownedBlockPanelToken(workspaceRoute(location))===null?children:<OwnedBlockPanelUnavailable/>}</div><div ref={setPrimaryOverlay} className="pointer-events-none absolute inset-0 z-30" /></div></LocalToolAppliedThemeProvider></EnginePaneContext.Provider>
-      {split && <aside className="flex min-h-[30rem] min-w-0 flex-col overflow-hidden border-t border-border bg-deep xl:min-h-0 xl:border-l xl:border-t-0" aria-label={copy.title} data-testid="workspace-secondary">
+    <div className={`grid min-h-0 flex-1 overflow-auto ${showSplit ? 'grid-cols-1 xl:grid-cols-[minmax(0,var(--primary-fr))_minmax(0,var(--secondary-fr))]' : 'grid-cols-1'}`} style={{ '--primary-fr': `${ratio}fr`, '--secondary-fr': `${100 - ratio}fr` } as CSSProperties}>
+      <EnginePaneContext.Provider value={primaryPane}><LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={primaryTheme}><div data-testid="workspace-primary" hidden={secondaryExpanded} inert={secondaryExpanded} data-engine-pane-id={primaryId} aria-label={split ? copy.primary : undefined} onPointerDownCapture={() => activateEnginePane(primaryId)} onFocusCapture={() => activateEnginePane(primaryId)} style={primaryTheme} data-workspace-performance={primaryAppearance?.effective.performance || undefined} data-workspace-prose={primaryAppearance?.effective.proseFont || undefined} className={`workspace-appearance-pane relative flex min-w-0 flex-col overflow-hidden [&[hidden]]:hidden ${showSplit ? 'min-h-[30rem] xl:min-h-0' : ''}`}><WorkspaceDecoration values={primaryAppearance?.effective} /><WorldEraToolbar projectId={projectId} eraId={eraId} onChange={next => void guarded(() => navigate(workspaceRouteKey(routeInEra(workspaceRoute(location), next))))} /><WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${primaryId}:${eraId ?? 'base'}`} ref={primaryMeasure} className={`min-h-0 flex-1 overflow-y-auto ${primaryExpanded ? '' : 'p-6'}`}>{ownedBlockPanelToken(workspaceRoute(location))===null?children:<OwnedBlockPanelUnavailable/>}</div><div ref={setPrimaryOverlay} className="pointer-events-none absolute inset-0 z-30" /></div></LocalToolAppliedThemeProvider></EnginePaneContext.Provider>
+      {split && <aside hidden={primaryExpanded} inert={primaryExpanded} className={`flex min-w-0 flex-col overflow-hidden bg-deep [&[hidden]]:hidden ${showSplit ? 'min-h-[30rem] border-t border-border xl:min-h-0 xl:border-l xl:border-t-0' : 'min-h-0'}`} aria-label={copy.title} data-testid="workspace-secondary">
         <header {...focusChrome} className="space-y-2 border-b border-border p-3">
           <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-sm font-semibold text-text-primary">{copy.title}</span><button type="button" className={button} data-testid="workspace-duplicate-main" disabled={busy || tabs.length >= TAB_LIMIT || !paneEngineId(workspaceRoute(location), projectId, enabledIds)} aria-label={copy.duplicate} title={copy.duplicate} onClick={() => open(workspaceRoute(location), true)}><Copy size={15} aria-hidden="true" /></button><button type="button" className={button} data-testid="workspace-to-main" disabled={busy || !promoteRoute} aria-label={copy.main} title={copy.main} onClick={() => promoteRoute && void guarded(() => navigate(workspaceRouteKey(promoteRoute)))}><ArrowUpRight size={15} aria-hidden="true" /></button></div>
           <div className="flex flex-wrap items-center gap-2"><label className="min-w-32 flex-1"><span className="sr-only">{copy.add}</span><select data-testid="workspace-engine-choice" className="min-h-9 w-full rounded-lg border border-border bg-deep px-2 text-sm text-text-primary" value={choice || engines[0]?.id || ''} onChange={event => setChoice(event.target.value)}>{engines.map(engine => <option key={engine.id} value={engine.id}>{t(`engines.${engine.id}.name`) === `engines.${engine.id}.name` ? engine.name : t(`engines.${engine.id}.name`)}</option>)}</select></label><button type="button" className={button} disabled={busy || tabs.length >= TAB_LIMIT} data-testid="workspace-add-tab" onClick={() => open(workspaceRoute(`/project/${encodeURIComponent(projectId)}/${choice || engines[0]?.id}`, workspaceRoute(location)), true)}><Plus size={15} aria-hidden="true" />{copy.newTab}</button></div>
           <WorkspaceTabBar tabs={liveTabs} openCount={tabs.length} activeId={active?.id} engines={engines} closed={closed} busy={busy} onSelect={select} onClose={closeTab} onRename={(id, label) => setTabs(previous => renameTab(previous, id, label))} onPin={id => setTabs(previous => togglePin(previous, id))} onDuplicate={duplicate} onCloseOthers={id => { const ids = idsToCloseOthers(tabs, id); if (ids.length) requestClose(ids); }} onCloseRight={id => { const ids = idsToCloseRight(tabs, id); if (ids.length) requestClose(ids); }} onReopen={(at, exact) => reopen(at, exact)} />
         </header>
-        {liveTabs.map(tab => <SecondaryTab key={tab.id} tab={tab} openBeside={openBeside} projectId={projectId} engine={engines.find(item => item.id === tab.engineId)!} visible={tab.id === active?.id} onEraChange={next => navigateTab(tab.id, routeInEra(routeOf(tab), next), true, true)} onTitle={reportTitle} onNavigate={(route, replace) => navigateTab(tab.id, route, replace)} onBack={delta => stepTab(tab,delta)} />)}
+        {liveTabs.map(tab => <SecondaryTab key={tab.id} tab={tab} openBeside={openBeside} projectId={projectId} engine={engines.find(item => item.id === tab.engineId)!} visible={!primaryExpanded&&tab.id === active?.id} expanded={exclusivePane===tab.id} onEraChange={next => navigateTab(tab.id, routeInEra(routeOf(tab), next), true, true)} onTitle={reportTitle} onNavigate={(route, replace) => navigateTab(tab.id, route, replace)} onBack={delta => stepTab(tab,delta)} />)}
       </aside>}
     </div>
     <Modal open={!!closing} onClose={() => setClosing(null)} title={copy.freshTitle} dismissible={false}>{closing && <div className="space-y-4" data-testid="workspace-fresh-prompt"><p className="text-sm text-text-primary">{copy.freshBody.replace('{title}', closing.docs[0].title || copy.untitled)}</p><div className="flex flex-wrap justify-end gap-2"><button type="button" className={button} data-testid="workspace-fresh-cancel" onClick={() => setClosing(null)}>{copy.freshCancel}</button><button type="button" className={`${button} text-danger`} data-testid="workspace-fresh-delete" onClick={() => decideFresh('delete')}>{copy.freshDelete}</button><button type="button" autoFocus className={button} data-testid="workspace-fresh-keep" onClick={() => decideFresh('keep')}>{copy.freshKeep}</button></div></div>}</Modal>
@@ -246,7 +254,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   </div>;
 }
 
-function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, onNavigate, onBack, openBeside }: { openBeside:(to:string,isCurrent?:OpenBesideGuard)=>Promise<boolean>; tab: PaneTab; projectId: string; engine: EngineDefinition; visible: boolean; onEraChange: (eraId?: string) => void; onTitle: (id: string, title: string | undefined) => void; onNavigate: (route: WorkspaceRoute, replace?: boolean) => void; onBack: (delta: number) => void }) {
+function SecondaryTab({ tab, projectId, engine, visible, expanded, onEraChange, onTitle, onNavigate, onBack, openBeside }: { openBeside:(to:string,isCurrent?:OpenBesideGuard)=>Promise<boolean>; tab: PaneTab; projectId: string; engine: EngineDefinition; visible: boolean; expanded: boolean; onEraChange: (eraId?: string) => void; onTitle: (id: string, title: string | undefined) => void; onNavigate: (route: WorkspaceRoute, replace?: boolean) => void; onBack: (delta: number) => void }) {
   const { locale, t } = useTranslation(), copy = workspaceCopy[locale], route = routeOf(tab);
   const eraId = workspaceEra(route), ownedToken = ownedBlockPanelToken(route);
   const { appearance, style: theme } = useWorkspaceAppearance({ projectId, eraId });
@@ -262,8 +270,8 @@ function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, o
   const pane = useMemo(() => ({ instanceId: tab.id, projectId, eraId, visible, width, overlayTarget, dialogTarget: overlayTarget, reportTitle: setTitle, openBeside, navigate: paneNavigate }), [paneNavigate, tab.id, projectId, eraId, visible, setTitle, width, overlayTarget, openBeside]);
   useEffect(() => registerEnginePaneScope(tab.id, { projectId, eraId, navigate: pane.navigate }), [tab.id, projectId, eraId, pane.navigate]);
   return <EnginePaneContext.Provider value={pane}><PaneRouter projectId={projectId} engineId={engine.id} route={route} onNavigate={onNavigate} onBack={onBack}>
-    <LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={theme}><div id={`panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} hidden={!visible} inert={!visible} data-engine-pane-id={tab.id} data-testid={`workspace-panel-${tab.id}`} style={theme} data-workspace-performance={appearance?.effective.performance || undefined} data-workspace-prose={appearance?.effective.proseFont || undefined} className="workspace-appearance-pane relative flex min-h-0 flex-1 flex-col overflow-hidden [&[hidden]]:hidden" onPointerDownCapture={() => activateEnginePane(tab.id)} onFocusCapture={() => activateEnginePane(tab.id)}><WorkspaceDecoration values={appearance?.effective} />{ownedToken===null&&<WorldEraToolbar projectId={projectId} eraId={eraId} onChange={onEraChange} />}<WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${tab.id}:${eraId ?? 'base'}`} ref={measure} className="min-h-0 flex-1 overflow-y-auto p-4">
-      {tab.index > 0 && <button type="button" className={`${button} mb-3`} aria-label={copy.back} onClick={() => onBack(-1)}><ArrowLeft size={15} aria-hidden="true" />{copy.back}</button>}
+    <LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={theme}><div id={`panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} hidden={!visible} inert={!visible} data-engine-pane-id={tab.id} data-testid={`workspace-panel-${tab.id}`} style={theme} data-workspace-performance={appearance?.effective.performance || undefined} data-workspace-prose={appearance?.effective.proseFont || undefined} className="workspace-appearance-pane relative flex min-h-0 flex-1 flex-col overflow-hidden [&[hidden]]:hidden" onPointerDownCapture={() => activateEnginePane(tab.id)} onFocusCapture={() => activateEnginePane(tab.id)}><WorkspaceDecoration values={appearance?.effective} />{ownedToken===null&&<WorldEraToolbar projectId={projectId} eraId={eraId} onChange={onEraChange} />}<WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${tab.id}:${eraId ?? 'base'}`} ref={measure} className={`min-h-0 flex-1 overflow-y-auto ${expanded ? '' : 'p-4'}`}>
+      {tab.index > 0 && <button type="button" hidden={expanded} className={`${button} mb-3 [&[hidden]]:hidden`} aria-label={copy.back} onClick={() => onBack(-1)}><ArrowLeft size={15} aria-hidden="true" />{copy.back}</button>}
       <EngineErrorBoundary resetKey={`${projectId}:${tab.id}:${engine.id}`} title={t('project.engineError.title')} message={t('project.engineError.message')} retryLabel={t('project.engineError.retry')} detailsLabel={t('project.engineError.details')}>{everShown && <Suspense fallback={<p className="p-5 text-sm text-text-muted">{copy.loading}</p>}>{ownedToken===null?<engine.component projectId={projectId} />:<OwnedBlockPanel token={ownedToken} scope={{projectId,eraId}} ownerKind={engine.id}/>}</Suspense>}</EngineErrorBoundary>
     </div><div ref={setOverlayTarget} className="pointer-events-none absolute inset-0 z-30" /></div></LocalToolAppliedThemeProvider>
   </PaneRouter></EnginePaneContext.Provider>;
