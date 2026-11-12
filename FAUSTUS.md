@@ -317,6 +317,12 @@ Tablas y hojas ofrecen Insertar fila encima, Subir/Bajar y asa de puntero, con I
 
 Source y editor antiguo reciben `context.focusMode` opcional y hook de concentración: chrome oculto/inert pero montado, borradores/clientes retenidos y salida explícita/Escape; Pantalla completa independiente. MCP get/set usa hosts reales, sin guardado implícito y con IDs efímeros. Catálogo949. Fuente a8e9ba6+a55e6e aprobada exactamente CAS49 e integrada por FF; Main manifest949/contratos6/Nativefoco2claves pasan. Gates ROOT quick/build/crítica396 y pruebas reales Brave tienen recibos separados. [Contrato y atribución](tasks/vvd1095/verification-rows-places-zones-focus.md). 1095 y paridad general siguen abiertos; sin push.
 
+## Pantalla completa en Tablas y hojas
+
+Desde la barra del documento, **Pantalla completa** amplía la cuadrícula dentro de Writer. Conserva el ámbito Base/era, la agrupación, los filtros, la selección y el borrador. En vista dividida se amplía el panel dueño; el otro queda montado, sin recibir interacción. Pulsa **Salir de pantalla completa** o usa Escape si ningún editor de celda, menú o diálogo lo está usando. Cambiar la pestaña compañera mientras su tabla está ampliada restaura la vista dividida y conserva la cuadrícula anterior en su pestaña.
+
+`wh_workspace_focus_get` y `wh_workspace_focus_set` usan el mismo estado de la interfaz para destinos montados y visibles con `namespace: 'tables'`. Los IDs de host son efímeros y se resuelven en el proyecto, la era y el documento efectivos. Un destino oculto o revocado no está disponible y la solicitud no queda en cola. Es un cambio de vista sin guardado implícito ni Deshacer de documento. La concentración del editor Source conserva su comportamiento. [Uso y evidencia de #2942](tasks/vvd1095/verification-table-fullscreen2942.md).
+
 ## Viajes desde lugares y decisiones duraderas de candidatos — corte1095
 
 El inspector Worldgen fija origen o destino desde el lugar efectivo; la selección normal completa el otro extremo y el guardado del itinerario usa el flujo existente. `wh_plan_journey` conserva su función de lectura. El lector común hace efectivo un projectId explícito en Base, sin exigirlo cuando se omite y manteniendo primero la guarda histórica de conversación. La regresión final independiente cubre13casos; Native final3 usa dos claves y el perfil LVXQWp, no la ejecución anterior2.

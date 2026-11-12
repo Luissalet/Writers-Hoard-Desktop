@@ -1,4 +1,4 @@
-## Estado vigente — 11 de noviembre de 2026
+## Estado vigente — 12 de noviembre de 2026
 
 Esta cabecera distingue las entregas acreditadas del historial inferior. No es una nueva ejecución de todo el inventario ni un porcentaje de paridad. Los antiguos «pendiente», checks sin marcar o «1095 abierta» describen sus respectivos cortes: antes de convertirlos en trabajo nuevo se consulta la verificación posterior correspondiente. El bloque HISTORIAL conserva íntegros los bytes anteriores.
 
@@ -6,6 +6,7 @@ Esta cabecera distingue las entregas acreditadas del historial inferior. No es u
 | --- | --- | --- |
 | Filas/columnas compartidas por ID y ancho de columna | [Ejes 2047](../../docs/local-tool-sdk.md#collaborative-row-and-column-editing-2047), [anchos 2082](../../docs/local-tool-sdk.md#shared-table-column-widths-2082) | No equivale a cerrar toda la tabla, schema general o adopción arbitraria. |
 | Agrupación y ajustes de vista de tabla (C97, 2647/2656/2658/2664) | [Dos niveles](verification-table-nested-groups2647.md), [agrupación persistida](verification-table-grouping-persistence2656.md), [filtros y orden persistidos](verification-table-view-persistence2658.md), [más niveles](verification-sdk-type-icon2659-table-levels2664.md#agrupar-por-más-de-dos-columnas) | **P/E local acotado; resto P/G**. Configuración por tabla normal/viva y ámbito Base/era; pliegue de sesión. Vistas nombradas y agregados siguen abiertos. |
+| Pantalla completa en Tablas y hojas (2942) | [Uso, revisión y evidencia](verification-table-fullscreen2942.md) | **P/E local acotado**. Pantalla completa de la cuadrícula montada, Base/era y dos paneles, con MCP `tables` en las dos herramientas de foco existentes. Source conserva su concentración; no acredita vistas nombradas, subtotales ni paridad general. |
 | Orden manual de filas en tablas vivas del Códex (C95, 2688) | [Uso y verificación](verification-table-live-row2688.md) | Orden guardado por tabla y ámbito Base/era con Deshacer, compatible con proyección, exportación y copias de mundo. |
 | Selección por rango de filas (2714) | [Uso y verificación](verification-table-row-range2714.md) | Selección de sesión por tabla y era. MCP duplica varias filas de tabla u hoja con IDs y CAS. |
 | Navegación y selección de celdas en tablas normales (2715/2743) | [Uso y verificación](verification-table-cell-keyboard2715.md) | Selección rectangular con Mayús+flecha o Mayús+clic y edición según la vista. Tab en la última celda puede añadir una fila visible con Deshacer. MCP admite vacíos al guardar celdas. |
