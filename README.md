@@ -832,6 +832,10 @@ Tables and Sheets add Insert above, Move up/down and a row-header Pointer handle
 
 Local Source and legacy editors expose optional `context.focusMode` and `useLocalToolFocusMode(context)`. Concentration hides shell chrome while retaining editors and unsaved drafts; Exit or free Escape restores it. Fullscreen remains separate. `wh_workspace_focus_get/set` use actual mounted host IDs without a draft save; the catalogue has949tools. [Use, exact evidence and delivery](tasks/vvd1095/verification-rows-places-zones-focus.md); [remaining parity](tasks/vvd1095/remaining-parity.md). General web/SDK parity remains open.
 
+## Fullscreen in Tables and Sheets
+
+Open a table or sheet and choose **Full screen** from its document toolbar. The grid fills the Writer workspace without changing the document or its Base/era scope. In a split workspace, only the owning pane expands; the other pane stays mounted. The same grid, groups, filters, selection and unsaved draft remain. Choose **Exit full screen** or press Escape when it is not being used by an editor, menu or dialog. Changing the active companion tab while its table is expanded restores the split view; the previous grid is kept with its tab. This is separate from Source concentration. [Workspace controls and evidence](tasks/vvd1095/verification-table-fullscreen2942.md).
+
 ## Place directions, durable suggestion decisions and shared Three — bounded continuation
 
 Worldgen's place inspector offers Travel from here and Directions to here. The current place anchors the chosen end, including moved or locked places, and normal map picking completes the other end. Temporary travel options survive returning through the inspector; saving an itinerary remains explicit. This does not promise that an unsaved creative journey draft survives inspector unmounting.

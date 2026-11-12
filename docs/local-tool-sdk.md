@@ -1144,6 +1144,12 @@ Focus is ephemeral and shared within that shell; either available host can resto
 The pure author fake supplies an inert recording port and `focusModeCommands`; it records set/toggle intent without DOM, shell state or data writes. Tests may explicitly provide an in-memory override. Do not use a fake to claim actual shell behavior. [Use, two-key transport, actual shell and limitations](../tasks/vvd1095/verification-rows-places-zones-focus.md). These are Writer signatures; overall SDK parity remains partial.
 
 
+## Mounted Tables fullscreen targets
+
+Writer's Tables and Sheets use the existing workspace focus transport for the **Full screen** control in the document toolbar. A mounted, visible document can appear in `wh_workspace_focus_get({projectId,eraId?,namespace:'tables',documentId?})`. Use the returned ephemeral `hostId` in `wh_workspace_focus_set` with the matching scope and `active: true` to expand or `active: false` to leave. An omitted `eraId` leaves discovery unfiltered by era; a Base target returns no `eraId`. The UI and MCP observe the same logical state. A hidden pane or inactive companion tab cannot be operated through its target. Closing its document or leaving the workspace revokes the target. Rediscover the host after navigation instead of caching its ID.
+
+Fullscreen expands the owning pane in Writer, leaving the other pane mounted. It does not use browser fullscreen. It preserves the effective Base or era, grid and session state; it does not save, create a document Undo receipt or start a headless editor. This `tables` target is built into Writer; it does not extend the optional Source author port `context.focusMode` or change Source concentration. [Scope and verification](../tasks/vvd1095/verification-table-fullscreen2942.md).
+
 ## Executable local packages, trials and session feedback
 
 The normal package manager accepts a complete own runtime JSON file without rebuilding Writer. Inspect validates canonical bytes/hashes without evaluating its module or factory; Install publishes the app/tool batch into the global inventory. Installation does not enable engines or select project pins. Each project explicitly selects member versions, using the existing compatibility/CAS/era/draft rules. Source/1 author bundles retain their separate compiled-source contract. Runtime packages use the host React/JSX/SDK and existing Source writer. See [format, CLI and evidence](../tasks/vvd1095/verification-sdk-runtime-packages.md).
