@@ -12,6 +12,9 @@ function DaggerheartGoldTrack({ sheet, locale, update }: Pick<PanelProps, 'sheet
  const gold = daggerheartGold(sheet);
  return <section className="space-y-3 rounded-lg border border-border p-4" aria-label={copy.title}>
   <h3 className="font-semibold text-text-primary">{copy.title}</h3>
+  <p className="text-sm text-text-muted">{locale === 'es'
+   ? '10 puñados hacen una bolsa y 10 bolsas hacen un cofre. Si el destino está lleno, el oro se conserva.'
+   : '10 handfuls make a bag and 10 bags make a chest. If the next counter is full, the gold stays where it is.'}</p>
   {DAGGERHEART_GOLD_UNITS.map(unit => <div key={unit} className="space-y-2" role="group" aria-label={copy[unit]}>
    <div className="flex items-center justify-between gap-2 text-sm text-text-muted">
     <span>{copy[unit]}</span><output className="tabular-nums">{gold[unit]} / {DAGGERHEART_GOLD_CAPACITY[unit]}</output>
@@ -20,8 +23,10 @@ function DaggerheartGoldTrack({ sheet, locale, update }: Pick<PanelProps, 'sheet
     {Array.from({ length: DAGGERHEART_GOLD_CAPACITY[unit] }, (_, index) => {
      const amount = index + 1;
      return <button type="button" key={amount} aria-label={unit === 'chest' ? copy.chest : copy[unit] + ' ' + amount}
-      aria-pressed={amount <= gold[unit]} className={slotButton} onClick={() => update(current =>
-       setDaggerheartGold(current, unit, daggerheartGold(current)[unit] === amount ? index : amount))}>{amount}</button>;
+      aria-pressed={amount <= gold[unit]} className={slotButton} onClick={() => update(current => {
+       const next = setDaggerheartGold(current, unit, amount);
+       return next === current ? setDaggerheartGold(current, unit, index) : next;
+      })}>{amount}</button>;
     })}
    </div>
   </div>)}
