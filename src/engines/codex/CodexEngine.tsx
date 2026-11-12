@@ -12,6 +12,8 @@ import type { CodexEntry } from '@/types';
 import WikiExportControl from './WikiExportControl';
 import { useTranslation } from '@/i18n/useTranslation';
 import { worldGraphCopy } from './worldGraph/copy';
+import { useWorkspaceExclusivePane } from '@/components/project/workspace/workspaceFocus';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 const WorldGraphPane = lazy(() => import('./worldGraph/WorldGraphPane'));
 const NameGenerator = lazy(() => import('@/engines/names/NameGenerator'));
 
@@ -19,6 +21,8 @@ export default function CodexEngine({ projectId }: EngineComponentProps) {
   const scope = useWorldEraScope(projectId);
   const { items: entries, loading, refresh, addItem: addEntry, editItem: editEntry, removeItem: removeEntry } = useCodexEntries(projectId);
   const [view, setView] = useState<'cards' | 'graph'>('cards');
+  const pane = useEnginePane(), exclusivePane = useWorkspaceExclusivePane();
+  const graphExpanded = view === 'graph' && !!exclusivePane && pane?.instanceId === exclusivePane;
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
   const [names, setNames] = useState(false);
   const { locale } = useTranslation(); const copy = worldGraphCopy[locale];
@@ -27,14 +31,16 @@ export default function CodexEngine({ projectId }: EngineComponentProps) {
   if (loading) return <EngineSpinner />;
 
   return (
-    <div className="space-y-4">
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={copy.title} data-tour="codex-view-toggle">
+    <div className={graphExpanded ? 'h-full min-h-0' : 'space-y-4'}>
+    <div hidden={graphExpanded} inert={graphExpanded} className="flex flex-wrap items-center gap-2 [&[hidden]]:hidden" role="group" aria-label={copy.title} data-tour="codex-view-toggle">
       <button type="button" aria-pressed={view === 'cards'} onClick={() => setView('cards')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm ${view === 'cards' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-elevated'}`} data-testid="codex-show-cards"><LayoutGrid size={16} />{copy.cards}</button>
       <button type="button" aria-pressed={view === 'graph'} onClick={() => setView('graph')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm ${view === 'graph' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-elevated'}`} data-testid="codex-show-graph"><Network size={16} />{copy.graph}</button>
           {!scope.eraId && <button type="button" onClick={() => setNames(true)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated" data-testid="codex-name-generator"><Wand2 size={16} />{locale === 'es' ? 'Generar un nombre' : 'Generate a name'}</button>}
     </div>
     <Modal open={names} onClose={() => { setNames(false); void refresh(); }} title={locale === 'es' ? 'Generar un nombre' : 'Generate a name'} wide><Suspense fallback={null}><NameGenerator projectId={projectId} locale={locale === 'en' ? 'en' : 'es'} onOpenCard={id => { setNames(false); void refresh().then(() => { setFocusEntryId(id); setView('cards'); navigate(`/project/${projectId}/codex?entry=${encodeURIComponent(id)}`); }); }} /></Suspense></Modal>
-    <WikiExportControl key={`wiki-${projectId}`} projectId={projectId} entries={entries} />
+    <div hidden={graphExpanded} inert={graphExpanded}>
+      <WikiExportControl key={`wiki-${projectId}`} projectId={projectId} entries={entries} />
+    </div>
     {view === 'graph' ? <Suspense fallback={<EngineSpinner />}><WorldGraphPane projectId={projectId} entries={entries} onOpenEntry={id => { setFocusEntryId(id); setView('cards'); navigate(`/project/${projectId}/codex?entry=${encodeURIComponent(id)}`); }} /></Suspense> : <CodexEntryList
       key={projectId}
       projectId={projectId}

@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { Background, ControlButton, Controls, Handle, MarkerType, Position, ReactFlow, ViewportPortal, getViewportForBounds, useReactFlow, useStore, type Edge, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Download, Eye, EyeOff, ExternalLink, GitBranch, Maximize, Network, Pin, Save, Search, Settings2 } from 'lucide-react';
+import { Download, Eye, EyeOff, ExternalLink, GitBranch, Maximize, Maximize2, Minimize2, Network, Pin, Save, Search, Settings2 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
 import { codexTypeColors, codexTypeIcons } from '@/components/codex/codexTypeMeta';
 import type { CodexEntryType } from '@/types';
+import type { useWorkspacePaneFocus } from '@/components/project/workspace/useWorkspacePaneFocus';
 import { filterWorldGraph, layoutWorldGraph } from './model';
 import { DEFAULT_GRAPH_DISPLAY, normalizeWorldGraphDisplay, WORLD_GRAPH_CARD_SIZE, type CodexGraphLayout, type WorldGraph, type WorldGraphDisplay, type WorldGraphEdgeKind, type WorldGraphFilters, type WorldGraphNode, type WorldGraphView } from './types';
 import { worldGraphTypeAreas } from './areas';
@@ -41,10 +42,15 @@ interface Props {
   onSaveSettings?: (patch: Partial<Omit<CodexGraphLayout, 'positions'>>) => Promise<void>;
   indexing?: boolean;
   templates?: CodexTemplate[];
+  fullscreen?: ReturnType<typeof useWorkspacePaneFocus>;
 }
 
-export default function WorldGraphWorkspace({ graph, initialLayout, avatars, onOpenEntry, onSaveLayout, onSaveSettings, indexing = false,templates=[] }: Props) {
+export default function WorldGraphWorkspace({ graph, initialLayout, avatars, onOpenEntry, onSaveLayout, onSaveSettings, indexing = false,templates=[], fullscreen }: Props) {
   const { t, locale } = useTranslation(); const copy = worldGraphCopy[locale];
+  const expanded = fullscreen?.active ?? false;
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const controlsId = useId(), controlsButton = useRef<HTMLButtonElement>(null);
+  if (!expanded && controlsOpen) setControlsOpen(false);
   const [filters, setFilters] = useState(defaultFilters);
   const [manual, setManual] = useState<CodexGraphLayout['positions']>(() => ({ ...initialLayout?.positions }));
   const [selected, setSelected] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null);
@@ -98,8 +104,28 @@ export default function WorldGraphWorkspace({ graph, initialLayout, avatars, onO
   const open = (id: string) => { if (byId.has(id)) onOpenEntry(id); };
   const focus = (id: string) => { patchFilters({ focusId: id, query: '', type: 'all',types:undefined,templateId:'', tag: '' }); setSelected({ kind: 'node', id }); };
   const selectedConnections = selectedNode ? graph.edges.filter(edge => filters.kinds.includes(edge.kind) && (edge.source === selectedNode.id || edge.target === selectedNode.id)) : [];
-  return <div className="space-y-4" data-testid="world-graph-workspace">
-    <div className="flex items-start justify-between flex-wrap gap-3"><div><h3 className="flex items-center gap-2 font-serif text-lg text-accent-gold"><Network size={18} />{copy.title}</h3><p className="mt-1 text-sm text-text-muted">{graphText(copy.total, { nodes: graph.nodes.length, edges: graph.edges.length })}</p></div><div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={layoutBusy} onClick={() => { setManual({}); setLayoutEpoch(value => value + 1); void persist({}); }} data-testid="world-graph-auto-layout"><GitBranch size={14} />{copy.reset}</button><button type="button" className={button} disabled={!view.nodes.length} onClick={() => saveAs(new Blob([exportWorldGraphSvg(view.nodes, view.edges, positions, labels, typeLabels, display)], { type: 'image/svg+xml;charset=utf-8' }), 'world-graph.svg')}><Download size={14} />{copy.export}</button></div></div>
+  return <div className={expanded ? 'flex min-h-0 flex-1 flex-col gap-3 p-3' : 'space-y-4'}
+    data-testid="world-graph-workspace" data-world-graph-fullscreen={expanded || undefined}
+    onKeyDown={event => {
+      if (event.key !== 'Escape' || event.repeat || event.nativeEvent.isComposing || event.defaultPrevented || !controlsOpen) return;
+      event.preventDefault();
+      setControlsOpen(false);
+      controlsButton.current?.focus({ preventScroll: true });
+    }}>
+    <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
+      <div><h3 className="flex items-center gap-2 font-serif text-lg text-accent-gold"><Network size={18} />{copy.title}</h3><p className="mt-1 text-sm text-text-muted">{graphText(copy.total, { nodes: graph.nodes.length, edges: graph.edges.length })}</p></div>
+      <div className="flex flex-wrap gap-2">
+        {expanded && <button type="button" ref={controlsButton} className={button} aria-controls={controlsId}
+          aria-expanded={controlsOpen} onClick={() => setControlsOpen(value => !value)}><Settings2 size={14} aria-hidden="true" />{copy.controls}</button>}
+        {fullscreen?.available && <button type="button" ref={fullscreen.button} className={button} data-world-graph-fullscreen-toggle
+          onClick={fullscreen.toggle}>{expanded ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}{expanded ? copy.exitFullscreen : copy.fullscreen}</button>}
+        <button type="button" className={button} disabled={layoutBusy} onClick={() => { setManual({}); setLayoutEpoch(value => value + 1); void persist({}); }} data-testid="world-graph-auto-layout"><GitBranch size={14} />{copy.reset}</button>
+        <button type="button" className={button} disabled={!view.nodes.length} onClick={() => saveAs(new Blob([exportWorldGraphSvg(view.nodes, view.edges, positions, labels, typeLabels, display)], { type: 'image/svg+xml;charset=utf-8' }), 'world-graph.svg')}><Download size={14} />{copy.export}</button>
+      </div>
+    </div>
+    <div className={expanded ? 'relative flex min-h-[20rem] flex-1 flex-col gap-3' : 'space-y-4'}>
+    <div id={controlsId} hidden={expanded && !controlsOpen} inert={expanded && !controlsOpen}
+      className={`space-y-4 [&[hidden]]:hidden ${expanded ? 'absolute inset-x-0 top-0 z-30 max-h-[85%] overflow-y-auto rounded-xl border border-border bg-surface p-4' : ''}`}>
     <p className="text-xs text-text-muted max-w-4xl">{copy.explanation}</p>
     <div className="flex flex-wrap items-end gap-3">
       <label className="relative min-w-52 flex-1"><Search size={15} className="absolute left-3 top-3 text-text-muted" /><input className={`${field} w-full pl-9`} value={filters.query} onChange={event => patchFilters({ query: event.target.value })} placeholder={copy.query} aria-label={copy.query} data-testid="world-graph-search" /></label>
@@ -128,24 +154,26 @@ export default function WorldGraphWorkspace({ graph, initialLayout, avatars, onO
       <label className="inline-flex min-h-8 items-center gap-1.5"><input type="checkbox" className="accent-accent-gold" data-testid="world-graph-type-areas" checked={display.typeAreas ?? false} onChange={event => saveSettings({ display: { ...display, typeAreas: event.target.checked } })} />{locale === 'es' ? 'Áreas por tipo' : 'Type areas'}</label>
       <button type="button" className={`${button} py-1 text-xs`} data-testid="world-graph-settings-reset" onClick={() => saveSettings({ display: { ...DEFAULT_GRAPH_DISPLAY } })}>{locale === 'es' ? 'Restablecer' : 'Reset'}</button>
     </fieldset>}
-    {settingsBusy && <p role="status" className="text-xs text-text-muted">{locale === 'es' ? 'Guardando ajustes…' : 'Saving settings…'}</p>}
-    {failedSettings && <p role="alert" className="text-xs text-danger" data-testid="world-graph-settings-error">{locale === 'es' ? 'No se pudieron guardar los ajustes del grafo.' : 'Could not save graph settings.'}<button type="button" className="ml-2 underline" onClick={() => saveSettings(failedSettings)}>{copy.retry}</button></p>}
     <div className="flex flex-wrap items-center gap-3 text-xs text-text-muted"><span className="flex-1" role="status" data-testid="world-graph-counts">{graphText(copy.visible, { nodes: view.nodes.length, matchingNodes: view.matchingNodes, edges: view.edges.length, matchingEdges: view.matchingEdges })}</span><label>{copy.nodeLimit} <select className={`${field} py-1 text-xs`} value={filters.nodeLimit} onChange={event => patchFilters({ nodeLimit: Number(event.target.value) })} data-testid="world-graph-node-limit">{[150, 300, 600, 1000].map(limit => <option key={limit} value={limit}>{limit}</option>)}<option value={Number.MAX_SAFE_INTEGER}>{graphText(copy.allCount, { count: graph.nodes.length })}</option></select></label><label>{copy.edgeLimit} <select className={`${field} py-1 text-xs`} value={filters.edgeLimit} onChange={event => patchFilters({ edgeLimit: Number(event.target.value) })}>{[500, 1500, 5000].map(limit => <option key={limit} value={limit}>{limit}</option>)}<option value={Number.MAX_SAFE_INTEGER}>{graphText(copy.allCount, { count: graph.edges.length })}</option></select></label></div>
     {(view.omittedNodes > 0 || view.omittedEdges > 0) && <p className="text-xs text-accent-gold">{copy.limits}</p>}
+    </div>
+    {settingsBusy && <p role="status" className="text-xs text-text-muted">{locale === 'es' ? 'Guardando ajustes…' : 'Saving settings…'}</p>}
+    {failedSettings && <p role="alert" className="text-xs text-danger" data-testid="world-graph-settings-error">{locale === 'es' ? 'No se pudieron guardar los ajustes del grafo.' : 'Could not save graph settings.'}<button type="button" className="ml-2 underline" onClick={() => saveSettings(failedSettings)}>{copy.retry}</button></p>}
     {indexing && <p className="text-xs text-text-muted" role="status">{copy.indexing}</p>}
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-      <div className="relative min-w-0 h-[600px] rounded-xl border border-border bg-deep overflow-hidden" data-testid="world-graph-canvas">
+    <div className={`grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] ${expanded ? 'min-h-0 flex-1 grid-rows-[minmax(16rem,1fr)_auto] xl:grid-rows-[minmax(0,1fr)]' : ''}`}>
+      <div className={`relative min-w-0 rounded-xl border border-border bg-deep overflow-hidden ${expanded ? 'min-h-0' : 'h-[600px]'}`} data-testid="world-graph-canvas">
         <ReactFlow key={`${layoutEpoch}:${filters.focusId}:${filters.query}:${filters.type}:${filters.types?.join()}:${filters.templateId}:${filters.includeDescendants}:${filters.tag}:${filters.nodeLimit}:${display.nodeSize}:${hiddenIds.length}:${showHidden}`} nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onNodeDragStop={(_event, node) => { const next = { ...manual, [node.id]: node.position }; setManual(next); void persist(next); }} onNodeClick={(_event, node) => setSelected({ kind: 'node', id: node.id })} onNodeDoubleClick={(_event, node) => open(node.id)} onEdgeClick={(_event, edge) => setSelected({ kind: 'edge', id: edge.id })} onPaneClick={() => setSelected(null)} fitView minZoom={.03} maxZoom={3} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null} proOptions={{ hideAttribution: true }} ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': copy.zoomIn, 'controls.zoomOut.ariaLabel': copy.zoomOut, 'controls.fitView.ariaLabel': copy.fit }}>
           <Background color="var(--color-border)" gap={28} /><GraphControls fitLabel={copy.fit} />
           {!!areas.length && <ViewportPortal><svg data-testid="world-graph-type-areas-layer" aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none', zIndex: -1 }}>{areas.map(area => <g key={area.type} data-testid={`world-graph-type-area-${area.type}`}><polygon points={area.points.map(point => `${point.x},${point.y}`).join(' ')} fill={codexTypeColors[area.type]} fillOpacity={0.08} stroke={codexTypeColors[area.type]} strokeOpacity={0.5} strokeWidth={1.5} strokeLinejoin="round" /><text x={area.label.x} y={area.label.y} fill="var(--color-text-muted)" fontSize={12}>{t(`codex.types.${area.type}`)}</text></g>)}</svg></ViewportPortal>}
           {!view.nodes.length && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8 text-sm text-text-muted"><p>{copy.empty}</p><button type="button" className={button} onClick={() => setFilters(defaultFilters())}>{copy.clear}</button></div>}
         </ReactFlow>
       </div>
-      <aside className="rounded-xl border border-border bg-surface p-4 min-w-0 max-h-[600px] overflow-y-auto" data-testid="world-graph-inspector">
+      <aside className={`rounded-xl border border-border bg-surface p-4 min-w-0 overflow-y-auto ${expanded ? 'max-h-[min(12rem,32vh)] xl:max-h-none' : 'max-h-[600px]'}`} data-testid="world-graph-inspector">
         {!selectedNode && !selectedEdge && <p className="text-sm text-text-muted">{copy.select}</p>}
         {selectedNode && <div className="space-y-4"><button type="button" className={`${button} w-full py-1 text-xs`} data-testid="world-graph-hide-node" onClick={() => { const hidden = hiddenIds.includes(selectedNode.id); saveSettings({ hiddenIds: hidden ? hiddenIds.filter(id => id !== selectedNode.id) : [...hiddenIds, selectedNode.id] }); setSelected(null); }}>{hiddenIds.includes(selectedNode.id) ? <Eye size={12} /> : <EyeOff size={12} />}{hiddenIds.includes(selectedNode.id) ? (locale === 'es' ? 'Volver a mostrar en el grafo' : 'Show in the graph again') : (locale === 'es' ? 'Ocultar del grafo' : 'Hide from the graph')}</button><div><p className="text-xs text-text-muted">{t(`codex.types.${selectedNode.type}`)}</p><h4 className="mt-1 font-serif text-lg text-accent-gold break-words">{selectedNode.title}</h4></div>{selectedNode.summary && <p className="text-sm text-text-muted">{selectedNode.summary}</p>}{!!selectedNode.aliases.length && <p className="text-xs text-text-muted"><strong>{copy.aliases}: </strong>{selectedNode.aliases.join(' · ')}</p>}{!!selectedNode.tags.length && <p className="text-xs text-text-muted"><strong>{copy.tags}: </strong>{selectedNode.tags.join(' · ')}</p>}<div className="flex flex-wrap gap-2"><button type="button" className={`${button} text-accent-gold`} onClick={() => open(selectedNode.id)} data-testid="world-graph-open-card"><ExternalLink size={14} />{copy.open}</button><button type="button" className={button} onClick={() => focus(selectedNode.id)}>{copy.focusNode}</button></div><div className="border-t border-border pt-3"><h5 className="text-xs font-semibold text-text-muted">{copy.neighbors} ({selectedConnections.length})</h5><div className="mt-2 space-y-2">{!selectedConnections.length && <p className="text-xs text-text-muted">{copy.noConnections}</p>}{selectedConnections.map(edge => <button key={edge.id} type="button" className="w-full rounded border border-border p-2 text-left hover:bg-elevated" onClick={() => setSelected({ kind: 'edge', id: edge.id })} data-testid={`world-graph-connection-${edge.id}`}><span className="block text-xs" style={{ color: WORLD_GRAPH_COLORS[edge.kind] }}>{copy[edge.kind]}{edge.label ? ` · ${edge.label}` : ''}</span><span className="mt-1 block text-sm text-text-primary">{byId.get(edge.source === selectedNode.id ? edge.target : edge.source)?.title}</span></button>)}</div></div></div>}
         {selectedEdge && <div className="space-y-4"><p className="text-xs" style={{ color: WORLD_GRAPH_COLORS[selectedEdge.kind] }}>{copy[selectedEdge.kind]} · {selectedEdge.kind === 'mention' ? copy.inferred : copy.explicit}</p>{selectedEdge.label && <h4 className="font-serif text-lg text-accent-gold">{selectedEdge.label}</h4>}{([['source', selectedEdge.source], ['target', selectedEdge.target]] as const).map(([label, id]) => <div key={label}><p className="text-xs text-text-muted">{copy[label]}</p><button type="button" className="mt-1 text-sm text-text-primary hover:text-accent-gold underline decoration-border" onClick={() => open(id)}>{byId.get(id)?.title} <ExternalLink size={12} className="inline" /></button></div>)}{selectedEdge.description && <p className="whitespace-pre-wrap text-sm text-text-muted">{selectedEdge.description}</p>}{selectedEdge.kind === 'mention' && <><h5 className="text-xs text-text-muted">{copy.evidence} · {graphText(copy.occurrences, { count: selectedEdge.count })}</h5>{selectedEdge.ambiguousCount > 0 && <p className="text-xs text-warning">{copy.ambiguous}</p>}{selectedEdge.evidence.map((evidence, index) => <blockquote key={index} className="border-l-2 border-border pl-3 text-xs text-text-muted"><p className="mb-1 text-text-primary">{evidence.field ? `${copy.unknownField}: ${t(`codex.field.${evidence.field}`) === `codex.field.${evidence.field}` ? evidence.field : t(`codex.field.${evidence.field}`)}` : copy.body} · “{evidence.matchedAlias}”</p><p>{evidence.excerpt}</p></blockquote>)}</>}</div>}
       </aside>
+    </div>
     </div>
     {graph.stats.ambiguousMatches > 0 && <p className="text-xs text-text-muted">{graphText(copy.ambiguousCount, { count: graph.stats.ambiguousMatches })}</p>}
     {graph.stats.unresolvedReferences > 0 && <p className="text-xs text-text-muted">{graphText(copy.unresolved, { count: graph.stats.unresolvedReferences })}</p>}

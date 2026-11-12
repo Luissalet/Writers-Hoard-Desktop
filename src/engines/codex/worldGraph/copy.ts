@@ -1,5 +1,6 @@
 export const worldGraphCopy = {
   es: {
+    fullscreen: 'Pantalla completa', exitFullscreen: 'Salir de pantalla completa', controls: 'Controles del grafo',
     template:'Plantilla',descendants:'Incluir descendientes',unavailable:'Plantilla no disponible',categories:'Tipos de ficha incluidos',clearTypes:'Ninguno', title: 'Grafo del mundo', cards: 'Fichas', graph: 'Grafo', query: 'Filtrar por nombre o alias', type: 'Tipo de ficha', all: 'Todos', tag: 'Etiqueta',
     mention: 'Menciones del texto', codex: 'Relaciones de las fichas', reference: 'Referencias a fichas', relationship: 'Relaciones del proyecto',
     textLink: 'Enlace del texto', codexBlock: 'Bloque Codex vivo',
@@ -21,6 +22,7 @@ export const worldGraphCopy = {
     relationsFailed: 'No se pudieron leer las relaciones del proyecto. Esta fuente no se incluye hasta reintentar.',
   },
   en: {
+    fullscreen: 'Full screen', exitFullscreen: 'Exit full screen', controls: 'Graph controls',
     template:'Template',descendants:'Include descendants',unavailable:'Template unavailable',categories:'Included card types',clearTypes:'None', title: 'World graph', cards: 'Cards', graph: 'Graph', query: 'Filter by name or alias', type: 'Card type', all: 'All', tag: 'Tag',
     mention: 'Text mentions', codex: 'Card relationships', reference: 'Card references', relationship: 'Project relationships',
     textLink: 'Text link', codexBlock: 'Live Codex block',
