@@ -5,6 +5,7 @@ interface EngineErrorBoundaryProps {
   children: ReactNode;
   resetKey: string;
   title: string;
+  subject?: string;
   message: string;
   retryLabel: string;
   detailsLabel: string;
@@ -51,6 +52,7 @@ export default class EngineErrorBoundary extends Component<
           <h2 className="font-serif text-lg font-semibold text-text-primary">
             {this.props.title}
           </h2>
+          {this.props.subject && <p className="mt-2 break-words text-sm text-text-primary">{this.props.subject}</p>}
           <p className="mt-2 text-sm text-text-muted">{this.props.message}</p>
           <details className="mt-4 text-left text-xs text-text-dim">
             <summary className="cursor-pointer select-none">{this.props.detailsLabel}</summary>
