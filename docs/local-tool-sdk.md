@@ -469,6 +469,28 @@ D1 was the independent-document milestone. D2 below adds editable embeds/fullscr
 D1 checks: `npx electron tests/local-tool-documents.transport.cjs`, `npx electron scripts/run-codex-properties-ui.cjs tests/local-tool-documents.browser.tsx testSourceToolDocuments`, and the same runner with `tests/local-tool-documents.ui.browser.tsx testSourceToolDocumentsUi`. The latter exercises actual product CSS and native input at1440/640 in an isolated profile. Headless fixtures can set `projects[].sourceToolDocuments` and call `host.createClient(scope, readOnly, documentId)` / `host.runOperation(scope,id,input,writes,documentId)`; source CRUD/history semantics are verified against the real application, not fabricated in the memory kit.
 
 
+### Document loading in Source
+
+Declare a no-props React component as top-level `Skeleton` in `defineLocalTool` to give a deferred Source view its own loading appearance. While the view suspends, the Source host shows it in a loading status inside the document panel. If the skeleton itself suspends, the same panel shows standard loading until it resolves. Omitting `Skeleton` keeps the existing outer workspace fallback. Let the host identify the document; keep the skeleton to loading content, with no state writes. When `panelTitle: false` hides the usual host heading, the loading panel identifies the same document once; the ready component supplies its own title and the read-only fallback retains the host title. Existing controls keep their availability.
+
+A view that loads its own state can render `LocalToolDocumentGate` from the SDK. Pass `status="loading"`, `"ready"` or `"error"`, an optional `skeleton` component and an `onRetry` handler. The gate is a view; use the existing read and reload paths. `retrying` disables Retry. Pass `locale="es"` for the built-in Spanish labels; the default is English, and the Source host passes the workspace locale. The gate can be imported in Node without application data or locale stores. For example, pair it with `useLocalToolState(client)` and pass the author view’s `en` or `es` locale:
+
+```tsx
+const status = state.snapshot ? 'ready' : state.error ? 'error' : 'loading';
+return <LocalToolDocumentGate
+  status={status}
+  skeleton={LoadingMap}
+  locale={locale}
+  error={state.error}
+  onRetry={() => void state.reload()}
+  retrying={state.busy}
+>
+  {state.snapshot && <MapEditor data={state.snapshot.data} />}
+</LocalToolDocumentGate>;
+```
+
+Keep an existing snapshot ready during saves or refreshes so its editor stays mounted. `wh_local_tool_describe` reports `hasCustomDocumentLoading: true` only when the Source definition declares both `document` and `Skeleton`; it omits the field otherwise. It describes the declaration, not whether a view is currently loading. [Verification](../tasks/vvd1095/verification-sdk-document-loading3015.md).
+
 ## Document hosts and inline blocks (D2)
 
 `document.embed: 'interactive'` explicitly opts a compiled source into the embedded editor; the default is a readonly preview. The component receives `LocalToolProps.context`, which reports `view: 'editor' | 'embed' | 'fullscreen'`, `canEdit` and the actual document identity. All three views bind to the same `documentId` and normal scoped client. Pristine peer views observe committed writes; a local draft is retained until Save or explicit Discard. Changing project, era, document, release or owner ends the old host lifetime. Delayed callbacks refuse after that boundary. Fullscreen and return to preview flush pending state and retain the editor if Save fails.
