@@ -63,6 +63,36 @@ export function setDaggerheartResource(sheet:CharacterSheet,id:string,value:numb
  if(!resource||!Number.isFinite(value)||value<0||value>resource.max)throw Error('daggerheart_resource_invalid');
  return resource.current===value?sheet:{...sheet,resources:sheet.resources.map(r=>r.id===id?{...r,current:value}:r)};
 }
+const experienceSections = new Set(['experience', 'experiences', 'experiencia', 'experiencias']);
+
+function isDaggerheartExperience(row: SheetRow): boolean {
+ return row.daggerheartExperience !== undefined || experienceSections.has(row.section.trim().toLowerCase());
+}
+
+export function daggerheartExperienceRows(sheet: CharacterSheet): SheetRow[] {
+ return sheet.preset === 'daggerheart-character' ? sheet.rows.filter(isDaggerheartExperience) : [];
+}
+
+export type DaggerheartExperienceEdit =
+ | { action: 'save-experience'; rowId?: string; name: string; modifier: number }
+ | { action: 'delete-experience'; rowId: string };
+
+export function editDaggerheartExperience(sheet: CharacterSheet, edit: DaggerheartExperienceEdit): CharacterSheet {
+ if (sheet.preset !== 'daggerheart-character') throw Error('daggerheart_character_required');
+ const row = edit.rowId === undefined ? undefined : sheet.rows.find(item => item.id === edit.rowId && isDaggerheartExperience(item));
+ if (edit.rowId !== undefined && !row) throw Error('daggerheart_experience_missing');
+ if (edit.action === 'delete-experience') return { ...sheet, rows: sheet.rows.filter(item => item !== row) };
+ const name = edit.name.trim(), modifier = edit.modifier;
+ if (!name || name.length > 100000 || !Number.isSafeInteger(modifier)) throw Error('daggerheart_experience_invalid');
+ if (row?.name === name && row.daggerheartExperience === modifier) return sheet;
+ if (!row && sheet.rows.length >= 500) throw Error('daggerheart_rows_limit');
+ const updated: SheetRow = {
+  ...(row ?? { id: crypto.randomUUID(), section: 'Experiences', detail: '', expression: '', quantity: 1 }),
+  name, daggerheartExperience: modifier,
+ };
+ return { ...sheet, rows: row ? sheet.rows.map(item => item === row ? updated : item) : [...sheet.rows, updated] };
+}
+
 export const DAGGERHEART_GOLD_CAPACITY = { handfuls: 10, bags: 10, chest: 1 } as const;
 export const DAGGERHEART_GOLD_UNITS = ['handfuls', 'bags', 'chest'] as const;
 export const DAGGERHEART_GOLD_LABELS = {
