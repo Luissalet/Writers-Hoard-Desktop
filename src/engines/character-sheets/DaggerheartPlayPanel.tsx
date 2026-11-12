@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import type {PanelProps} from './StatsPanel';
-import {DAGGERHEART_CLASSES,DAGGERHEART_SOURCE,applyDaggerheartClass,daggerheartClassPreview,setDaggerheartResource,type DaggerheartClassField, DAGGERHEART_GOLD_CAPACITY, DAGGERHEART_GOLD_LABELS, DAGGERHEART_GOLD_UNITS, daggerheartGold, setDaggerheartGold} from './daggerheart';
-import {button,input} from './uiStyles';
+import {DAGGERHEART_CLASSES,DAGGERHEART_SOURCE,applyDaggerheartClass,daggerheartClassPreview,setDaggerheartResource,type DaggerheartClassField, DAGGERHEART_GOLD_CAPACITY, DAGGERHEART_GOLD_LABELS, DAGGERHEART_GOLD_UNITS, daggerheartGold, setDaggerheartGold, daggerheartExperienceRows, editDaggerheartExperience} from './daggerheart';
+import {button,input,signed} from './uiStyles';
 import {Field,NumberField} from './ui';
 import { DaggerheartAdversaryRows, DaggerheartAdversaryStats } from './DaggerheartAdversaryPanel';
 
@@ -33,6 +33,76 @@ function DaggerheartGoldTrack({ sheet, locale, update }: Pick<PanelProps, 'sheet
  </section>;
 }
 
+const experienceLabels = {
+ es: {
+  title: 'Experiencias', add: 'Añadir experiencia', edit: 'Editar', remove: 'Eliminar', name: 'Nombre de la experiencia',
+  modifier: 'Modificador', unset: 'Sin modificador', save: 'Guardar experiencia', cancel: 'Cancelar', confirm: '¿Eliminar la experiencia «{name}»?',
+  changed: 'La experiencia cambió en otra vista. Revisa la fila actual antes de volver a editarla.',
+  full: 'La ficha alcanzó el límite de filas.',
+ },
+ en: {
+  title: 'Experiences', add: 'Add experience', edit: 'Edit', remove: 'Remove', name: 'Experience name',
+  modifier: 'Modifier', unset: 'No modifier', save: 'Save experience', cancel: 'Cancel', confirm: 'Remove the experience “{name}”?',
+  changed: 'The experience changed in another view. Review the current row before editing it again.',
+  full: 'This sheet has reached its row limit.',
+ },
+};
+
+function DaggerheartExperiences({ sheet, locale, update, confirm }: PanelProps) {
+ const copy = experienceLabels[locale];
+ const rows = daggerheartExperienceRows(sheet);
+ const [draft, setDraft] = useState<{
+  rowId?: string; name: string; modifier: string; before?: { name: string; modifier?: number };
+ }>();
+ const target = draft?.before && rows.find(row => row.id === draft.rowId);
+ const changed = draft?.before && (!target || target.name !== draft.before.name || target.daggerheartExperience !== draft.before.modifier);
+ const problem = changed ? copy.changed : draft && draft.rowId === undefined && sheet.rows.length >= 500 ? copy.full : '';
+ const value = draft?.modifier.trim() ?? '';
+ const modifier = Number(value);
+ const valid = !!draft?.name.trim() && /^[+-]?\d+$/.test(value) && Number.isSafeInteger(modifier);
+ return <section className="space-y-3 rounded-lg border border-border p-4" aria-label={copy.title}>
+  <div className="flex flex-wrap items-center justify-between gap-2">
+   <h3 className="font-semibold text-text-primary">{copy.title}</h3>
+   <button type="button" className={button} disabled={sheet.rows.length >= 500}
+    onClick={() => setDraft({ name: '', modifier: '' })}>{copy.add}</button>
+  </div>
+  {rows.length > 0 && <ul className="divide-y divide-border">
+   {rows.map(row => <li key={row.id} className="flex flex-wrap items-center gap-2 py-2">
+    <strong className="mr-auto min-w-0 break-words text-sm font-medium text-text-primary">{row.name}</strong>
+    <span className="text-sm tabular-nums text-text-muted">{row.daggerheartExperience === undefined ? copy.unset : signed(row.daggerheartExperience)}</span>
+    <button type="button" className={button} aria-label={copy.edit + ' · ' + row.name}
+     onClick={() => setDraft({
+      rowId: row.id, name: row.name, modifier: row.daggerheartExperience === undefined ? '' : signed(row.daggerheartExperience),
+      before: { name: row.name, modifier: row.daggerheartExperience },
+     })}>{copy.edit}</button>
+    <button type="button" className={button} aria-label={copy.remove + ' · ' + row.name}
+     onClick={() => confirm(copy.confirm.replace('{name}', () => row.name), () => {
+      update(current => editDaggerheartExperience(current, { action: 'delete-experience', rowId: row.id }));
+      if (draft?.rowId === row.id) setDraft(undefined);
+     })}>{copy.remove}</button>
+   </li>)}
+  </ul>}
+  {draft && <form key={draft.rowId ?? 'new'} className="flex flex-wrap items-end gap-2" onSubmit={event => {
+   event.preventDefault();
+   if (!valid || problem) return;
+   update(current => editDaggerheartExperience(current, { action: 'save-experience', rowId: draft.rowId, name: draft.name, modifier }));
+   setDraft(undefined);
+  }}>
+   <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-text-muted">{copy.name}
+    <input autoFocus required className={input} maxLength={100000} value={draft.name}
+     onChange={event => setDraft({ ...draft, name: event.target.value })} />
+   </label>
+   <label className="flex flex-col gap-1 text-sm text-text-muted">{copy.modifier}
+    <input required className={input + ' w-28'} inputMode="text" value={draft.modifier}
+     onChange={event => setDraft({ ...draft, modifier: event.target.value })} />
+   </label>
+   {problem && <p role="alert" className="basis-full text-sm text-danger">{problem}</p>}
+   <button type="submit" className={button} disabled={!valid || !!problem}>{copy.save}</button>
+   <button type="button" className={button} onClick={() => setDraft(undefined)}>{copy.cancel}</button>
+  </form>}
+ </section>;
+}
+
 export default function DaggerheartPlayPanel({sheet,locale,update,confirm}:PanelProps){
  const es=locale==='es',pc=sheet.preset==='daggerheart-character';
  const [candidate,setCandidate]=useState(''),[choices,setChoices]=useState<{field:DaggerheartClassField;before:unknown;after:unknown;automatic:boolean}[]>([]),[notice,setNotice]=useState('');
@@ -54,6 +124,7 @@ export default function DaggerheartPlayPanel({sheet,locale,update,confirm}:Panel
    </div>)}
    <p className="text-xs text-text-muted">{es?'Las capacidades y etiquetas siguen disponibles en Recursos. Los cambios de clase o nivel no reinician estos contadores.':'Capacities and labels remain editable in Resources. Class or level changes do not reset these counters.'}</p>
   </section>
+  {pc && <DaggerheartExperiences sheet={sheet} locale={locale} update={update} confirm={confirm} />}
   {pc && <DaggerheartGoldTrack sheet={sheet} locale={locale} update={update} />}
   {pc&&<section className="space-y-3 rounded-lg border border-border p-4" aria-label={es?'Datos de clase':'Class data'}>
    <p className="text-sm text-text-primary">{es?'Clase registrada':'Recorded class'}: {sheet.details.class||'—'} · {sheet.details.domains||'—'}</p>
