@@ -1058,13 +1058,13 @@ Enable **Guided counter / Contador guiado** through Engine Manager after compili
 
 ## Optional host context menus
 
-`useLocalToolContextMenu(context)` returns `LocalToolContextMenuPort` for a mounted editable Source or legacy editor. Its own contract remains `open(event, entries, {label}): boolean` and `close(): void`. Flat entries remain `{kind:'item', id, label, onSelect, disabled?, variant?:'default'|'destructive'}`, `{kind:'label', label}` or `{kind:'separator'}`. The additive branch is `{kind:'submenu', id, label, disabled?, entries: readonly LocalToolMenuEntry[]}`. Labels are plain text; author icons and HTML remain outside this API. This is Writer's own signature, not an upstream ABI claim.
+`useLocalToolContextMenu(context)` returns `LocalToolContextMenuPort` for a mounted editable Source or legacy editor. Its own contract remains `open(event, entries, {label}): boolean` and `close(): void`. Action leaves accept `{kind:'item', id, label, onSelect, icon?:string, disabled?, variant?:'default'|'destructive'}`. The other entries are `{kind:'label', label}`, `{kind:'separator'}` and `{kind:'submenu', id, label, disabled?, entries: readonly LocalToolMenuEntry[]}`. Labels remain plain text. The icon field is a Writer catalogue ID for action leaves, including leaves inside submenus. Branches, labels and separators have no author icon field, and the menu accepts no author HTML. This is Writer's own signature.
 
 ```tsx
 const menu = useLocalToolContextMenu(context);
 const messages = useLocalToolT(client);
 const entries: LocalToolMenuEntry[] = [
-  {kind: 'item', id: 'increment', label: messages('increment'), onSelect: increment},
+  {kind: 'item', id: 'increment', label: messages('increment'), icon: 'Plus', onSelect: increment},
   {kind: 'separator'},
   {kind: 'item', id: 'reset', label: messages('reset'),
     disabled: count === 0, variant: 'destructive', onSelect: reset},
@@ -1076,13 +1076,15 @@ const openMenu = (event: LocalToolMenuTrigger) =>
 // An Actions button can also pass its click event to openMenu.
 ```
 
+Use an existing Writer icon ID such as `Plus` or `MapPin`. Omit `icon` for a text-only action. A nonblank string is copied as supplied; absent, blank or non-string values are omitted without invalidating an otherwise valid action. On a host with `client.icons`, a known ID draws a decorative icon and an unknown or unresolved ID shows a neutral mark. Without that service the label-only action still works. The visible label remains the accessible name. `examples.context-counter` uses `Plus` for Increment at the root and inside More actions; Reset remains undecorated. Icons do not change keyboard navigation, focus restoration or callback scope.
+
 Use the public types/hooks from the SDK. Here `increment` and `reset` are the same scoped functions used by normal buttons and declared operations; the runnable `examples.context-counter` shows `client.read()` plus `client.state.apply()` and receipt-based `client.state.undo/redo()`. Its Undo/Redo buttons retain only receipts produced in that mount. This does not register keyboard Undo or expose the private state hook. `messages` is an author-catalog translator, separate from the application's global `t`.
 
 Keep the existing flat entries and optionally append a branch using keys from your own catalogs:
 
 ```tsx
 entries.push({kind: 'submenu', id: 'more', label: messages('more'), entries: [
-  {kind: 'item', id: 'more-increment', label: messages('increment'), onSelect: increment},
+  {kind: 'item', id: 'more-increment', label: messages('increment'), icon: 'Plus', onSelect: increment},
 ]});
 ```
 
@@ -1092,11 +1094,11 @@ The host validates entries and options, captures the label and makes its own fro
 
 The port belongs to its mounted instance, selected release and scope. Hiding, retargeting, changing release/era/readonly or unmounting revokes it; old selections cannot adopt a replacement. Each child opening is also revocable, so reopening A after A→B cannot revive its old leaf. One SDK menu tree is active per document, and pointer/focus inside any of its panels remains inside that tree. Its visible panels receive menu keys while a tour is open: Escape returns through children and closes the root; only the following Escape returns to the tour's normal behavior. Already-started arbitrary callback effects cannot be canceled or rolled back by the menu host. A rejection is reported generically only while its host is still current.
 
-Without a host the hook is inert. `createRecordingLocalToolContextMenu()` returns `{port, requests}`: valid requests record detached labels/entry metadata recursively without events, DOM or callbacks; `open` returns `false`, does not consume the event and never invokes a callback. The author fake exposes `contextMenu` and `contextMenuRequests` with the same behavior. No popup tree is serialized into state, JSON/ZIP, Published or MCP describe.
+Without a host the hook is inert. `createRecordingLocalToolContextMenu()` returns `{port, requests}`: valid requests record detached labels and entry metadata recursively, including nonblank action icons, without events, DOM or callbacks; `open` returns `false`, does not consume the event and never invokes a callback. The author fake exposes `contextMenu` and `contextMenuRequests` with the same behavior. No popup tree is serialized into state, JSON/ZIP, Published or MCP describe.
 
 This port is not supplied to Owned/world blocks, readonly readers or fullscreen. The example is compiled from `installed/examples.context-counter`; enable it normally, then create/open a Source document. Compilation and CLI pack/check are not project enablement or a package-installation E2E proof. There is no new tool or permission: existing describe/call/state Undo/Redo expose the example's normal operations, not live menu callbacks. [Evidence, limits and delivery receipts](../tasks/vvd1095/verification-sdk-context-menus.md).
 
-The original flat 1501 delivery remains documented at the link above; [nested behavior, verification and delivery status](../tasks/vvd1095/verification-local-tool-submenus.md) records the additive 1505 extension separately. The general SDK remains partial; there is no claim of universal submenu behavior or binary compatibility with VVD.
+The original flat 1501 delivery remains documented at the link above; [nested behavior, verification and delivery status](../tasks/vvd1095/verification-local-tool-submenus.md) records the additive 1505 extension separately. The optional action icon has its own [contract and verification](../tasks/vvd1095/verification-sdk-menu-icons2999.md). The general SDK remains partial; there is no claim of universal submenu behavior or binary compatibility with VVD.
 
 ## Shared world/tool/key preferences
 
