@@ -7,7 +7,7 @@ import { editTableRows, type TableRowAction } from './rowActions';
 import {projectWorldTable} from './projection';
 import {createTypeTable,saveTableCalculation,removeTableColumn,type SaveTableCalculation} from './calculations';
 import type { CodexEntry } from '@/types';
-import { addTable, changeTable, deleteTable, saveAuditedTableCell, importCsv, previewCsv } from './operations';
+import { addTable, changeTable, deleteTable, editSavedTableView, readSavedTableViews, saveAuditedTableCell, importCsv, previewCsv } from './operations';
 import { exportXlsxReport, importXlsx, sheetsToTables } from './xlsx';
 import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
@@ -35,6 +35,18 @@ const stringArg = (args: ToolArgs, key: string) => { if (typeof args[key] !== 's
 function csvOptions(args:ToolArgs):CsvOptions{const delimiter=csvDelimiter(args.delimiter,true);if(args.decimal!==undefined&&args.decimal!=='.'&&args.decimal!==',')throw Error('csv_decimal_invalid');if(args.mode!==undefined&&args.mode!=='table'&&args.mode!=='sheet')throw Error('csv_mode_invalid');if(args.columnKinds!==undefined&&(!Array.isArray(args.columnKinds)||args.columnKinds.some(kind=>kind!=='text'&&kind!=='number')))throw Error('csv_columns_invalid');return{delimiter,decimal:args.decimal as CsvOptions['decimal'],mode:args.mode as CsvOptions['mode'],columnKinds:args.columnKinds as CsvOptions['columnKinds']};}
 function csvSource(args:ToolArgs){if(typeof args.csv==='string'&&args.base64===undefined)return{text:args.csv,encoding:'unicode'};if(typeof args.base64==='string'&&args.csv===undefined){let raw:string;try{raw=atob(args.base64);}catch{throw Error('csv_base64_invalid');}return decodeCsv(Uint8Array.from(raw,char=>char.charCodeAt(0)),csvEncoding(args.encoding));}throw Error('csv_source_required');}
 export const TABLE_HANDLERS = {
+  async wh_table_list_saved_views(args: ToolArgs) {
+    return readSavedTableViews(await scope(args), requireString(args, 'tableId'));
+  },
+  async wh_table_edit_saved_view(args: ToolArgs) {
+    const target = await scope(args), tableId = requireString(args, 'tableId'), action = args.action;
+    if (action === 'save') return editSavedTableView(target, tableId, { action, name: requireString(args, 'name') });
+    if (action !== 'apply' && action !== 'rename' && action !== 'delete') throw Error('table_view_action_invalid');
+    const viewId = requireString(args, 'viewId');
+    return editSavedTableView(target, tableId, action === 'rename'
+      ? { action, viewId, name: requireString(args, 'name') }
+      : { action, viewId });
+  },
   async wh_table_preview_csv(args:ToolArgs){await scope(args);const source=csvSource(args),parsed=previewCsv(source.text,csvOptions(args));return{...parsed,encoding:source.encoding,totalRows:parsed.records.length};},
   async wh_table_import_csv(args:ToolArgs){const target=await scope(args),source=csvSource(args),table=importCsv(source.text,requireString(args,'title'),csvOptions(args));await addTable(target.projectId,table,target.eraId);return{table,encoding:source.encoding};},
   async wh_table_create_type_view(args:ToolArgs){const target=await scope(args);return{table:await createTypeTable(target,requireString(args,'title'),requireString(args,'templateId'))};},

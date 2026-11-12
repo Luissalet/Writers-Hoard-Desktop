@@ -1,4 +1,4 @@
-import type { DataColumn, TableGroupingView, TableGroupRule, TableViewSettings } from './types';
+import type { DataColumn, SavedTableView, TableGroupingView, TableGroupRule, TableViewSettings } from './types';
 import { CONDITION_OPS } from './tableEdits.ts';
 
 export const tableViewParts = ['rules', 'sorts', 'conditions', 'subtotalColumns'] as const;
@@ -44,6 +44,34 @@ export function effectiveTableView(view: Partial<TableViewSettings>, columns: re
   const numericIds = new Set(columns.filter(isTableSubtotalColumn).map(column => column.id));
   const subtotalColumns = Array.isArray(view.subtotalColumns) ? view.subtotalColumns.filter(id => numericIds.delete(id)) : [];
   return { rules: effectiveTableGrouping(view.rules, columns), sorts, conditions, subtotalColumns };
+}
+
+export function savedViewAvailable(view: SavedTableView, columns: readonly DataColumn[]): boolean {
+  const effective = effectiveTableView(view.settings, columns);
+  if (!tableViewParts.every(key => Array.isArray(view.settings[key]) && effective[key].length === view.settings[key].length)) return false;
+  const recorded = new Set(Array.isArray(view.referenceConditionColumns) ? view.referenceConditionColumns : []);
+  const current = savedViewReferenceColumns(effective, columns);
+  return current.length === recorded.size && current.every(id => recorded.has(id));
+}
+
+export function savedViewUsesReferenceOperand(condition: TableViewSettings['conditions'][number]): boolean {
+  return !!condition.value && (condition.op === 'equals' || condition.op === 'notEquals');
+}
+
+export function savedViewReferenceColumns(settings: TableViewSettings, columns: readonly DataColumn[]): string[] {
+  const operands = new Set(settings.conditions.filter(savedViewUsesReferenceOperand).map(condition => condition.columnId));
+  return columns.filter(column => column.kind === 'reference' && operands.has(column.id)).map(column => column.id);
+}
+
+export function listSavedTableViews(views: readonly TableGroupingView[] | undefined, tableId: string, eraId: string | undefined, columns: readonly DataColumn[]) {
+  const records: readonly TableGroupingView[] = Array.isArray(views) ? views : [];
+  return records.flatMap(view => {
+    if (view?.tableId !== tableId || (view.eraId !== undefined && view.eraId !== eraId) || !Array.isArray(view.savedViews)) return [];
+    return view.savedViews.flatMap((saved: SavedTableView) => typeof saved?.id === 'string' && typeof saved.name === 'string' && saved.settings
+      ? [{ id: saved.id, name: saved.name, settings: saved.settings, eraId: view.eraId,
+          inherited: view.eraId !== eraId, available: savedViewAvailable(saved, columns) }]
+      : []);
+  });
 }
 
 /** Project and workbook copies retain view rules against the new column identities. */

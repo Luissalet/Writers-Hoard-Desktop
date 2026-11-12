@@ -9,7 +9,18 @@ export interface DataColumn { id: string; name: string; kind: ColumnKind; width?
 export interface DataRow { id: string; cells: Record<string, string> }
 export type TableGroupRule = { columnId: string; direction: 'asc' | 'desc' };
 export interface TableViewSettings { rules: TableGroupRule[]; sorts: TableSort[]; conditions: TableCondition[]; subtotalColumns: string[] }
-export interface TableGroupingView extends Partial<TableViewSettings> { tableId: string; eraId?: string; conditionsRevision?: number }
+export interface SavedTableView {
+  id: string;
+  name: string;
+  settings: TableViewSettings;
+  referenceConditionColumns?: string[];
+}
+export interface TableGroupingView extends Partial<TableViewSettings> {
+  tableId: string;
+  eraId?: string;
+  conditionsRevision?: number;
+  savedViews?: SavedTableView[];
+}
 export interface TableViewCopy { tableId: string; columnIds: ReadonlyMap<string, string> }
 export interface WorldTable {
   id: string;
