@@ -13,7 +13,8 @@ import {useLocalToolAssetPreview} from '../useLocalToolAssetPreview';
 import {useRichProseHostContext} from '../RichProseEditor';
 import {renderRichProsePreview} from '../richProseHtml';
 import {useLocalToolAudioLifecycle} from '../useLocalToolAudioLifecycle';
-import {useContext,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {Suspense,useContext,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {LocalToolDocumentGate} from '../LocalToolDocumentGate';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {Maximize2} from 'lucide-react';
 import {db} from '@/db';
@@ -115,17 +116,36 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,blockId,vie
  if(ancestors.includes(identity))return <p className="text-sm text-text-muted">{es?'Referencia circular al documento abierto.':'Circular reference to the open document.'}</p>;
  if(!record)return <p role="status">{es?'Cargando documento…':'Loading document…'}</p>;
  if(!document)return showUnavailable?<p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>:null;
- const Component=definition?.component;
+ const Component=definition?.component,Skeleton=definition?.Skeleton;
  const enabled=!!record.project?.enabledEngines.includes('local-tool-'+document.namespace);
  const fallback=!allowed||!client||!Component||(!canEdit&&!(retainPresentation||hasPending||definition?.app&&enabled));
  const showPanelTitle=view!=='editor'||fallback||definition?.panelTitle!==false;
+ const fallbackTitle=chrome&&!showPanelTitle?document.title:undefined;
  const componentContext={...context,...(selectedClient&&binding?.content?{documentContent:binding.content.port}:{}),...(selectedClient&&binding?.presence?{presence:binding.presence.port}:{}),...(selectedClient&&binding?.documentFields?{documentFields:binding.documentFields}:{}),...(definition?.app?{app:definition.app}:{})};
  return <LocalPresenceSurface host={selectedClient?binding?.presence:undefined}><LocalToolFocusHost context={context} releaseHash={hash} identity={client} visible={visible&&!fullscreen} namespace={document.namespace} instanceId={instanceId}>{(focusContext,focusControl)=><section className="min-w-0 space-y-3 text-text-primary" data-source-document-host={documentId} data-source-document-view={view}>
   {chrome&&<header className={'flex flex-wrap items-center gap-3'+(showPanelTitle?'':' justify-end')}>{showPanelTitle&&<h3 className="min-w-0 flex-1 break-words font-display text-lg">{document.title}</h3>}{selectedClient&&binding?.presence&&<LocalPresenceShare host={binding.presence}/>} {focusControl}{view!=='fullscreen'&&<button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-elevated disabled:opacity-50" disabled={busy} onClick={()=>void changeFullscreen(true)}><Maximize2 size={15}/>{es?'Pantalla completa':'Fullscreen'}</button>}</header>}
   {blocked&&<p role="alert" className="text-sm text-danger">{es?'Guarda o revisa el borrador pendiente antes de cambiar de vista.':'Save or review the pending draft before changing views.'}</p>}
   {error&&<p role="status" className="text-sm text-text-muted">{es?'Fuente no disponible. Se conserva el contenido guardado.':'Source unavailable. Saved content is preserved.'}</p>}
   <LocalToolAtomPendingContext.Provider value={reportPending}><LocalToolHostAncestors.Provider value={[...ancestors,identity]}><EnginePaneContext.Provider value={pane}><LocalToolUndoBoundary data-tool-editor-surface data-engine-pane-id={instanceId} onFocusCapture={()=>activateEnginePane(instanceId)} onPointerDownCapture={()=>activateEnginePane(instanceId)}>
-   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<LocalToolTutorialHost definition={definition!} context={focusContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{tutorialContext=><LocalToolContextMenuHost client={client} context={tutorialContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{menuContext=><LocalRuntimeErrorBoundary namespace={document.namespace} contentHash={presentationHash} documentTitle={chrome&&!showPanelTitle?document.title:undefined}><LocalToolPendingBoundary><Component key={retainPresentation||definition?.app?documentId:`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={{...menuContext,...(componentContext.documentContent?{documentContent:componentContext.documentContent}:{}),...(componentContext.presence?{presence:componentContext.presence}:{}),...(componentContext.documentFields?{documentFields:componentContext.documentFields}:{}),...(componentContext.app?{app:componentContext.app}:{})}}/></LocalToolPendingBoundary></LocalRuntimeErrorBoundary>}</LocalToolContextMenuHost>}</LocalToolTutorialHost>}
+   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:
+    <LocalToolTutorialHost definition={definition!} context={focusContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{tutorialContext=>
+     <LocalToolContextMenuHost client={client} context={tutorialContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{menuContext=>{
+      const editor=<Component key={retainPresentation||definition?.app?documentId:`${documentId}:${eraId??'base'}:${hash??'development'}`}
+       projectId={projectId} client={client} context={{...menuContext,
+        ...(componentContext.documentContent?{documentContent:componentContext.documentContent}:{}),
+        ...(componentContext.presence?{presence:componentContext.presence}:{}),
+        ...(componentContext.documentFields?{documentFields:componentContext.documentFields}:{}),
+        ...(componentContext.app?{app:componentContext.app}:{})}}/>;
+      return <LocalRuntimeErrorBoundary namespace={document.namespace} contentHash={presentationHash} documentTitle={fallbackTitle}>
+       <LocalToolPendingBoundary>
+        {Skeleton?<Suspense fallback={<>
+         {fallbackTitle&&<h3 className="mb-3 min-w-0 break-words font-display text-lg">{fallbackTitle}</h3>}
+         <LocalToolDocumentGate status="loading" skeleton={Skeleton} locale={locale}/>
+        </>}>{editor}</Suspense>:editor}
+       </LocalToolPendingBoundary>
+      </LocalRuntimeErrorBoundary>;
+     }}</LocalToolContextMenuHost>
+    }</LocalToolTutorialHost>}
   </LocalToolUndoBoundary></EnginePaneContext.Provider></LocalToolHostAncestors.Provider></LocalToolAtomPendingContext.Provider>
   {fullscreen&&<Modal open fullscreen title={document.title} busy={busy} dismissible={false} onClose={()=>void changeFullscreen(false)}><div className="space-y-3 p-5"><button type="button" className="min-h-10 rounded-lg border border-border px-3 text-sm" disabled={busy} onClick={()=>void changeFullscreen(false)}>{es?'Guardar y volver':'Save and return'}</button>{blocked&&<p role="alert">{es?'El borrador sigue pendiente.':'The draft is still pending.'}</p>}<LocalToolDocumentHost projectId={projectId} eraId={eraId} documentId={documentId} namespace={namespace} blockId={blockId} view="fullscreen" readOnly={mapAuthority?!canEdit:readOnly} interactive={interactive} mapContext={mapContext} mapAuthority={mapAuthority} retainPresentation={retainPresentation||!!mapAuthority} allowedNamespaces={allowedNamespaces} chrome={false}/></div></Modal>}
  </section>}</LocalToolFocusHost></LocalPresenceSurface>;
