@@ -6,6 +6,7 @@ import { skillBonus } from './mechanics';
 import { sheetInkHeight,sheetInkSvg } from './ink';
 import {fiveEDerived,FIVE_E_SOURCE} from './fiveE';
 import {statBlockPaper} from './statBlockPaper';
+import { daggerheartFeatureLabel, daggerheartTierLevels } from './daggerheartAdversary';
 const esc=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const label=(value:string)=>value.replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('_',' ');
 /** Original, complete vector paper. Layout coordinates are independent of viewport width. */
@@ -69,6 +70,19 @@ export function sheetPaper(sheet:CharacterSheet,locale:'es'|'en'='en'):{svg:stri
   if(attacks.length){
     y=Math.max(y,sheetInkHeight(sheet.ink));
     section(es?'Ataques':'Attacks',[es?'Nombre':'Name',es?'Bonificación':'Attack bonus',es?'Daño':'Damage',es?'Tipo de daño':'Damage type',es?'Notas':'Notes'],attacks.map(row=>[row.name,`${row.fiveEAttack!.bonus>=0?'+':''}${row.fiveEAttack!.bonus}`,row.expression,row.fiveEAttack!.damageType,row.detail]));
+  }
+  if(sheet.preset==='daggerheart-adversary'){
+    // Ink extends the canvas height, while the paper content keeps its coordinates.
+    const levels=daggerheartTierLevels(sheet.numbers.tier);
+    if(levels) section(es?'Rango de poder':'Tier',[es?'Rango':'Tier',es?'Nivel del grupo':'Party level'],[[sheet.numbers.tier,levels]]);
+    section(es?'Experiencias':'Experiences',[es?'Nombre':'Name',es?'Modificador':'Modifier'],sheet.rows.flatMap(row=>{
+      const metadata=row.daggerheartAdversary;
+      return metadata?.kind==='experience' ? [[row.name, `${metadata.modifier>=0?'+':''}${metadata.modifier}`]] : [];
+    }));
+    section(es?'Rasgos del adversario':'Adversary features',[es?'Nombre':'Name',es?'Tipo':'Kind'],sheet.rows.flatMap(row=>{
+      const metadata=row.daggerheartAdversary;
+      return metadata?.kind==='feature' ? [[row.name,daggerheartFeatureLabel(metadata.category,locale)]] : [];
+    }));
   }
   const height=Math.ceil(Math.max(700,y+48,sheetInkHeight(sheet.ink)+48)),prefix='sheet-ink-'+crypto.randomUUID();
   return{height,svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" width="1000" height="${height}" role="img" aria-label="${esc(sheet.title)}" data-sheet-paper="paper-v1" style="display:block;width:100%;height:auto;max-height:none"><rect width="1000" height="${height}" fill="#f6f2e8"/>${elements.join('')}${sheetInkSvg(sheet.ink,height,prefix)}</svg>`};

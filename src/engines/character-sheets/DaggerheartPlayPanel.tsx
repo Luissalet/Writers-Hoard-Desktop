@@ -3,8 +3,9 @@ import type {PanelProps} from './StatsPanel';
 import {DAGGERHEART_CLASSES,DAGGERHEART_SOURCE,applyDaggerheartClass,daggerheartClassPreview,setDaggerheartResource,type DaggerheartClassField} from './daggerheart';
 import {button,input} from './uiStyles';
 import {Field,NumberField} from './ui';
+import { DaggerheartAdversaryRows, DaggerheartAdversaryStats } from './DaggerheartAdversaryPanel';
 
-export default function DaggerheartPlayPanel({sheet,locale,update}:PanelProps){
+export default function DaggerheartPlayPanel({sheet,locale,update,confirm}:PanelProps){
  const es=locale==='es',pc=sheet.preset==='daggerheart-character';
  const [candidate,setCandidate]=useState(''),[choices,setChoices]=useState<{field:DaggerheartClassField;before:unknown;after:unknown;automatic:boolean}[]>([]),[notice,setNotice]=useState('');
  const preview=candidate&&pc?daggerheartClassPreview(sheet,candidate):null;
@@ -13,7 +14,8 @@ export default function DaggerheartPlayPanel({sheet,locale,update}:PanelProps){
  const fields=preview?selectedFields(preview.changes):[];
  const names:Record<DaggerheartClassField,string>={class:es?'Clase':'Class',domains:es?'Dominios':'Domains',evasion:es?'Evasión':'Evasion',startingHp:es?'PV iniciales (capacidad)':'Starting HP capacity',features:es?'Referencias de rasgos':'Feature references'};
  return <section className="space-y-5" data-testid="daggerheart-play">
-  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{(pc?['level','evasion','proficiency']:['tier','difficulty','attack']).map(key=><NumberField key={key} label={key} value={sheet.numbers[key]??0} onChange={value=>update(current=>({...current,numbers:{...current.numbers,[key]:value}}))}/>)}</div>
+  {pc ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{['level','evasion','proficiency'].map(key=><NumberField key={key} label={key} value={sheet.numbers[key]??0} onChange={value=>update(current=>({...current,numbers:{...current.numbers,[key]:value}}))}/>)}</div>
+    : <DaggerheartAdversaryStats sheet={sheet} locale={locale} update={update} confirm={confirm} />}
   <section className="space-y-3 rounded-lg border border-border p-4" aria-label={es?'Recursos de partida':'Play resources'}>
    {sheet.resources.map(resource=><div key={resource.id} className="space-y-2" data-testid={`daggerheart-track-${resource.id}`}>
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-text-primary"><strong>{resource.label}</strong><output>{resource.current} / {resource.max} · {resource.marked?(es?'marcados':'marked'):(es?'disponibles':'available')}</output></div>
@@ -35,6 +37,7 @@ export default function DaggerheartPlayPanel({sheet,locale,update}:PanelProps){
    </div>}
    <p className="text-xs text-text-muted">{es?'Nueve clases del juego base, verificadas en SRD2.0. Las filas son referencias editables; los efectos de los rasgos se resuelven en la mesa.':'Nine core classes, checked against SRD2.0. Rows are editable references; feature effects are resolved at the table.'} <a className="text-accent-gold underline" href={DAGGERHEART_SOURCE.license} target="_blank" rel="noreferrer noopener">{es?'Fuente y licencia':'Source and license'}</a></p>
   </section>}
-  {sheet.rows.filter(row=>/feature|trait|rasgo|hope/i.test(row.section)).map(row=><article key={row.id} className="space-y-1 rounded-lg border border-border p-3"><h3 className="font-semibold text-text-primary">{row.name}</h3><p className="whitespace-pre-wrap break-words text-sm text-text-muted">{row.detail}</p></article>)}
+  {!pc && <DaggerheartAdversaryRows sheet={sheet} locale={locale} update={update} confirm={confirm} />}
+  {sheet.rows.filter(row=>!row.daggerheartAdversary&&/feature|trait|rasgo|hope/i.test(row.section)).map(row=><article key={row.id} className="space-y-1 rounded-lg border border-border p-3"><h3 className="font-semibold text-text-primary">{row.name}</h3><p className="whitespace-pre-wrap break-words text-sm text-text-muted">{row.detail}</p></article>)}
  </section>;
 }
