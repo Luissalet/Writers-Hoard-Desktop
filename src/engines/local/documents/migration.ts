@@ -14,13 +14,14 @@ export interface LocalToolSourceMigration<T extends LocalToolJson=LocalToolJson>
  readonly migrate:(previous:LocalToolJson)=>T;
 }
 
-export function prepareSourceMigration<T extends LocalToolJson>(declaration:LocalToolSourceMigration<T>,namespace:string,codec:LocalToolStateCodec|undefined):LocalToolSourceMigration<T> {
+export function prepareSourceMigration<T extends LocalToolJson>(declaration:LocalToolSourceMigration<T>,namespace:string,codec:LocalToolStateCodec|undefined,targetValidationId:string):LocalToolSourceMigration<T> {
  if(!declaration||typeof declaration!=='object'||Object.keys(declaration).sort().join(',')!=='from,migrate'||
     typeof declaration.migrate!=='function'||!codec||codec.version!==1||convergenceEngine(codec).version!=='1')throw Error('local_tool_source_migration_invalid');
  const from=cloneLocalToolJson(declaration.from as unknown as LocalToolJson) as unknown as LocalToolConvergenceMetadata;
  if(!from||Object.keys(from).sort().join(',')!=='codec,namespace,schemaEpoch,validationId'||from.namespace!==namespace)throw Error('local_tool_source_migration_invalid');
  validateConvergenceMetadata(from);
- if(from.codec.version!==1||convergenceEngine(from.codec).version!=='1'||convergenceCanonical(from.codec)===convergenceCanonical(codec))throw Error('local_tool_source_migration_invalid');
+ if(from.codec.version!==1||convergenceEngine(from.codec).version!=='1'||
+    from.validationId===targetValidationId&&convergenceCanonical(from.codec)===convergenceCanonical(codec))throw Error('local_tool_source_migration_invalid');
  for(const field of Object.values(from.codec.fields))Object.freeze(field);
  Object.freeze(from.codec.fields);
  Object.freeze(from.codec);

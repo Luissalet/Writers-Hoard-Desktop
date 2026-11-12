@@ -8,7 +8,7 @@ export type {LocalToolSourceScalarRename} from './documents/scalarRename';
 import {prepareSourceMigration,type LocalToolSourceMigration} from './documents/migration';
 export type {LocalToolSourceMigration} from './documents/migration';
 export type {LocalToolSourceAdditive} from './convergence/sourceAdditive';
-import {localToolConvergenceContext} from './convergence/context';
+import {localToolConvergenceContext,localToolValidationId} from './convergence/context';
 export type {LocalToolDocumentContent,LocalToolDocumentContentSnapshot,LocalToolSaveMode} from './liveContent/types';
 export {useLocalToolDocumentContent} from './liveContent/hooks';
 export type {RichBlockEmptyItemFrame,RichBlockEmptyItemCapture,RichBlockExitAction} from './convergence/blockExit';
@@ -147,7 +147,7 @@ export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDe
     operations:[...provided.operations??[],...derived.operations],
   }:provided;
   const stateSchemaVersion=definition.stateSchemaVersion??'1';
-  if(definition.richAdoption){if(!definition.codec)throw Error('local_tool_rich_adoption_invalid');const target=localToolConvergenceContext({...definition,apiVersion:1,stateSchemaVersion});validateRichAdoption(definition.richAdoption,{namespace:definition.namespace,codec:definition.codec,...target!});}
+  if(definition.richAdoption){if(!definition.codec)throw Error('local_tool_rich_adoption_invalid');const target=localToolConvergenceContext({...definition,stateSchemaVersion});validateRichAdoption(definition.richAdoption,{namespace:definition.namespace,codec:definition.codec,...target!});}
   if(typeof stateSchemaVersion!=='string'||!stateSchemaVersion.trim()||stateSchemaVersion.length>200||Array.from(stateSchemaVersion).some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))throw Error('local_tool_state_schema_version_invalid');
   if(definition.namespace===HOST_ASSET_NAMESPACE)throw Error('local_tool_reserved_namespace');
   if(definition.assets)validateLocalAssetManifest(definition.assets,definition.assetFiles??{});
@@ -160,7 +160,7 @@ export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDe
   const sourceAdditive=definition.sourceAdditive===undefined?undefined:prepareSourceAdditiveDeclaration(definition.sourceAdditive,definition.namespace,definition.codec);
   const hasRename=definition.sourceScalarRename!==undefined,hasMigration=definition.sourceMigration!==undefined;
   if((hasRename||hasMigration)&&(!definition.document||sourceAdditive||definition.richAdoption||hasRename&&hasMigration))throw Error('local_tool_source_migration_invalid');
-  const sourceMigration=definition.sourceMigration===undefined?undefined:prepareSourceMigration(definition.sourceMigration,definition.namespace,definition.codec);
+  const sourceMigration=definition.sourceMigration===undefined?undefined:prepareSourceMigration(definition.sourceMigration,definition.namespace,definition.codec,localToolValidationId(definition.namespace,stateSchemaVersion));
   const sourceScalarRename=definition.sourceScalarRename===undefined?undefined:prepareSourceScalarRename(definition.sourceScalarRename,definition.namespace,definition.codec);
   if(definition.index)validateLocalToolIndexSpec(definition.index);
   const blockKeys=new Set<string>();for(const block of definition.blocks??[]){if(blockKeys.has(block.key))throw Error('local_tool_block_key_duplicate');blockKeys.add(block.key);validateLocalToolBlockDefinition(definition.namespace,block);}

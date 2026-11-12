@@ -1,14 +1,15 @@
 import {convergenceCanonical,convergenceHash,convergenceIdentity,convergenceIdentityOf} from '../convergence/format';
 import type {LocalToolConvergenceMetadata} from '../convergence/formatTypes';
+import {localToolConvergenceContext,type LocalToolConvergenceDefinition} from '../convergence/context';
 import type {LocalToolStateCodec} from '../stateCodecFormat';
 import type {SourceToolDocument} from './types';
 
 interface SourceMigrationOrigin {
  from:LocalToolConvergenceMetadata;
  codec?:LocalToolStateCodec;
+ sameCodecTarget?:LocalToolConvergenceMetadata;
 }
-interface SourceMigrationMetadata {
- codec?:LocalToolStateCodec;
+interface SourceMigrationMetadata extends LocalToolConvergenceDefinition {
  sourceMigration?:{from:LocalToolConvergenceMetadata};
  sourceScalarRename?:{from:LocalToolConvergenceMetadata};
 }
@@ -25,21 +26,29 @@ export function sourceMigrationOriginFor(namespace:string,contentHash?:string|nu
 }
 
 export function sourceMigrationOrigin(source:SourceMigrationMetadata|undefined):SourceMigrationOrigin|undefined {
- const from=(source?.sourceMigration??source?.sourceScalarRename)?.from;
- return from?{from,codec:source?.codec}:undefined;
+ if(!source)return undefined;
+ const from=(source.sourceMigration??source.sourceScalarRename)?.from;
+ if(!from)return undefined;
+ const codec=source.codec;
+ const sameCodecTarget=codec&&convergenceCanonical(from.codec)===convergenceCanonical(codec)
+  ?{namespace:source.namespace,codec,...localToolConvergenceContext(source,codec)!}:undefined;
+ return {from,codec,sameCodecTarget};
 }
 
-/** A pre-start root attests to its codec. Started roots attest to the declared origin. */
+/** A pre-start root attests to its codec. Distinguishing versions of one codec requires a checkpoint. */
 export function isSourceMigrationPredecessor(document:SourceToolDocument,origin:SourceMigrationOrigin|undefined):boolean {
  if(!origin)return false;
- const {from,codec}=origin;
+ const {from,codec,sameCodecTarget}=origin;
  if(!codec||!document.codec||document.namespace!==from.namespace)throw Error('local_tool_source_migration_origin_mismatch');
  const storedCodec=convergenceCanonical(document.codec);
- if(storedCodec===convergenceCanonical(codec))return false;
+ if(!sameCodecTarget&&storedCodec===convergenceCanonical(codec))return false;
+ if(storedCodec!==convergenceCanonical(from.codec))throw Error('local_tool_source_migration_origin_mismatch');
  const checkpoint=document.convergence?.checkpoint;
- if(storedCodec!==convergenceCanonical(from.codec)||checkpoint&&
-    convergenceHash(convergenceIdentityOf(checkpoint))!==convergenceHash(convergenceIdentity(from,checkpoint.genesisId)))throw Error('local_tool_source_migration_origin_mismatch');
- return true;
+ if(!checkpoint)return !sameCodecTarget;
+ const identity=convergenceHash(convergenceIdentityOf(checkpoint));
+ if(identity===convergenceHash(convergenceIdentity(from,checkpoint.genesisId)))return true;
+ if(sameCodecTarget&&identity===convergenceHash(convergenceIdentity(sameCodecTarget,checkpoint.genesisId)))return false;
+ throw Error('local_tool_source_migration_origin_mismatch');
 }
 
 /** Generic era saves may fork the predecessor, but cannot rewrite its migration inputs. */
