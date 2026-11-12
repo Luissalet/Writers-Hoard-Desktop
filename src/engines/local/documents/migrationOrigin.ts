@@ -5,12 +5,13 @@ import type {LocalToolStateCodec} from '../stateCodecFormat';
 import type {SourceToolDocument} from './types';
 
 interface SourceMigrationOrigin {
- from:LocalToolConvergenceMetadata;
+ predecessors:readonly LocalToolConvergenceMetadata[];
+ namespace:string;
  codec?:LocalToolStateCodec;
  sameCodecTarget?:LocalToolConvergenceMetadata;
 }
 interface SourceMigrationMetadata extends LocalToolConvergenceDefinition {
- sourceMigration?:{from:LocalToolConvergenceMetadata};
+ sourceMigration?:{from:LocalToolConvergenceMetadata;additionalPredecessors?:readonly LocalToolConvergenceMetadata[]};
  sourceScalarRename?:{from:LocalToolConvergenceMetadata};
 }
 type Lookup=(namespace:string,contentHash:string|null|undefined)=>SourceMigrationOrigin|undefined;
@@ -29,31 +30,33 @@ export function sourceMigrationOrigin(source:SourceMigrationMetadata|undefined):
  if(!source)return undefined;
  const from=(source.sourceMigration??source.sourceScalarRename)?.from;
  if(!from)return undefined;
- const codec=source.codec;
- const sameCodecTarget=codec&&convergenceCanonical(from.codec)===convergenceCanonical(codec)
+ const predecessors=[from,...(source.sourceMigration?.additionalPredecessors??[])];
+ const codec=source.codec,codecKey=codec&&convergenceCanonical(codec);
+ const sameCodecTarget=codec&&predecessors.some(predecessor=>convergenceCanonical(predecessor.codec)===codecKey)
   ?{namespace:source.namespace,codec,...localToolConvergenceContext(source,codec)!}:undefined;
- return {from,codec,sameCodecTarget};
+ return {predecessors,namespace:source.namespace,codec,sameCodecTarget};
 }
 
 /** A pre-start root attests to its codec. Distinguishing versions of one codec requires a checkpoint. */
-export function isSourceMigrationPredecessor(document:SourceToolDocument,origin:SourceMigrationOrigin|undefined):boolean {
- if(!origin)return false;
- const {from,codec,sameCodecTarget}=origin;
- if(!codec||!document.codec||document.namespace!==from.namespace)throw Error('local_tool_source_migration_origin_mismatch');
- const storedCodec=convergenceCanonical(document.codec);
- if(!sameCodecTarget&&storedCodec===convergenceCanonical(codec))return false;
- if(storedCodec!==convergenceCanonical(from.codec))throw Error('local_tool_source_migration_origin_mismatch');
+export function findSourceMigrationPredecessor(document:SourceToolDocument,origin:SourceMigrationOrigin|undefined):LocalToolConvergenceMetadata|undefined {
+ if(!origin)return undefined;
+ const {predecessors,namespace,codec,sameCodecTarget}=origin;
+ if(!codec||!document.codec||document.namespace!==namespace)throw Error('local_tool_source_migration_origin_mismatch');
+ const storedCodec=convergenceCanonical(document.codec),target=storedCodec===convergenceCanonical(codec);
+ if(target&&!sameCodecTarget)return undefined;
+ const from=predecessors.find(predecessor=>convergenceCanonical(predecessor.codec)===storedCodec);
+ if(!from)throw Error('local_tool_source_migration_origin_mismatch');
  const checkpoint=document.convergence?.checkpoint;
- if(!checkpoint)return !sameCodecTarget;
+ if(!checkpoint)return target?undefined:from;
  const identity=convergenceHash(convergenceIdentityOf(checkpoint));
- if(identity===convergenceHash(convergenceIdentity(from,checkpoint.genesisId)))return true;
- if(sameCodecTarget&&identity===convergenceHash(convergenceIdentity(sameCodecTarget,checkpoint.genesisId)))return false;
+ if(identity===convergenceHash(convergenceIdentity(from,checkpoint.genesisId)))return from;
+ if(target&&sameCodecTarget&&identity===convergenceHash(convergenceIdentity(sameCodecTarget,checkpoint.genesisId)))return undefined;
  throw Error('local_tool_source_migration_origin_mismatch');
 }
 
 /** Generic era saves may fork the predecessor, but cannot rewrite its migration inputs. */
 export function sourceMigrationVariantConvergence(previous:SourceToolDocument,next:SourceToolDocument,origin:SourceMigrationOrigin|undefined):SourceToolDocument['convergence'] {
- if(!isSourceMigrationPredecessor(previous,origin))return;
+ if(!findSourceMigrationPredecessor(previous,origin))return;
  if(next.namespace!==previous.namespace||convergenceHash(next.codec??null)!==convergenceHash(previous.codec??null)||
     convergenceHash(next.data)!==convergenceHash(previous.data)||next.convergence&&
     convergenceHash(next.convergence)!==convergenceHash(previous.convergence??null))throw Error('local_tool_source_migration_required');
