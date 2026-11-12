@@ -59,3 +59,9 @@ La demo oficial de VVD convirtió el mapa en una lista mediante un callback y un
 `sourceMigration` admite el mismo codec si cambia `stateSchemaVersion`. El checkpoint acredita la identidad exacta de origen o destino. La versión nueva puede mostrar el dato transformado sin guardarlo. La migración explícita usa la lectura vigente y conserva ID, hash de codec y raíz previa. Guarda otro validationId, schemaEpoch y génesis. Una raíz sin checkpoint puede iniciar el estado de la versión seleccionada por la vía normal. La solicitud de migración requiere que pueda acreditarse la versión anterior.
 
 VVD transformó Draft: Storm en Storm con una sola actualización. Writer RED #2928 cambió la identidad en el inicio normal y conservó el dato anterior. Brave GREEN pasó 21 comprobaciones, incluidas raíz ambigua, época no declarada, historia y variantes. Native registró 31 llamadas MCP con dos claves, y Quick y Build terminaron con código 0. Fuente integrada `4b8c15a0d44485012377bd411364040d1c154708`.
+
+## Migrar desde varios orígenes Source
+
+V3 puede declarar el origen V1 en `from` y V2 en `additionalPredecessors`, cada uno con su codec distinto. El callback recibe la metadata del origen como segundo argumento cuando se declaran varios. Una declaración de un solo origen conserva la llamada con un argumento. Al aplicar, se guarda una revisión por documento y su raíz previa queda en Historial.
+
+VVD ejecutó el mismo callback V3 desde V1 y V2 con una actualización por documento. Writer RED #2934 rechazó el pin con un solo origen y conservó ambas raíces. Brave GREEN pasó 23 comprobaciones con dos orígenes activos y retenidos, raíz pre-start, eras, CAS, reintento y compatibilidad unaria. Native registró 45 llamadas MCP con dos claves. Quick y Build terminaron con código 0. Fuente integrada `f6c60b22190d9ee7aa9895dcbfbc1037b52c5114`.

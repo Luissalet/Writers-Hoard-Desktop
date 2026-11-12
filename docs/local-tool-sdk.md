@@ -918,6 +918,34 @@ A release can keep the same codec and change `stateSchemaVersion`. In that case 
 
 [Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#migrar-valores-source-con-el-mismo-codec).
 
+### Migrate from several Source predecessors
+
+Keep the primary origin in `sourceMigration.from` and declare other origins in `additionalPredecessors`. Each origin must use a distinct codec. A checkpoint must match the complete predecessor. For an unstarted document, the stored codec can identify one declaration. When the document has the destination codec and no checkpoint, it starts normally with the selected version.
+
+When `additionalPredecessors` is declared, the host passes the matching origin metadata as the callback's second argument. A callback with a single declared origin still receives just the previous JSON. This example turns the V1 label and V2 map into the same V3 list.
+
+```ts
+sourceMigration: {
+  from: fromV1,
+  additionalPredecessors: [fromV2],
+  migrate(previous, from) {
+    if (from?.validationId === fromV1.validationId && from.schemaEpoch === fromV1.schemaEpoch) {
+      const { label } = previous as { label: string };
+      return { entries: [{ id: 'label', value: label }] };
+    }
+    if (from?.validationId === fromV2.validationId && from.schemaEpoch === fromV2.schemaEpoch) {
+      const { scores } = previous as { scores: Record<string, number> };
+      return { entries: Object.keys(scores).sort().map(id => ({ id, value: String(scores[id]) })) };
+    }
+    throw Error('Unknown migration origin');
+  },
+},
+```
+
+`wh_local_tool_describe` reports `from` and `additionalPredecessors` as metadata. Pinning can project both origins without storing a change. Apply the migration separately to each document with its exact current snapshot.
+
+[Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#migrar-desde-varios-orígenes-source).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
