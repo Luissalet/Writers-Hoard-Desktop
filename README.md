@@ -117,6 +117,8 @@ SDK audio `fcf94f6` is integrated after fresh independent CAS20: per-handle digi
 
 The world graph adds adjustable spacing and optional areas by card type, preserving manual pins and saved views. Project JSON copies and Duplicate retain graph settings and remap their card/template references. Source `ecb1703` is integrated after independent CAS16; [verification and limits](tasks/vvd1095/verification-graph-display.md) track this separate delivery. Task1095 continues.
 
+In **Codex → Graph**, choose **Full screen** to expand the current graph inside Writer. The canvas, camera, selection and filters stay in place. In a split workspace the other pane stays mounted and returns when you exit. Use **Graph controls** to open the existing filters and settings in the expanded view. Escape closes those controls first; the next Escape or **Exit full screen** restores the workspace. Spacing and pinned positions still belong to the project. [Use, MCP and verification](tasks/vvd1095/verification-world-graph-fullscreen2991.md).
+
 Manual 5e player attacks can keep a separate attack bonus and free-text damage type alongside existing row notes, quantity, damage dice and spell metadata. Native Attack/Damage rolls add contextual history without spending resources or assuming a target; optional attack paper follows existing content and ink. Discard and Reload have their own confirmation labels. Source `112f1fc` is integrated after fresh independent CAS 18 approval. Clean-main verification/build passed (Vite 36.92s, Electron and Node 937); the Google manual update has its separate revision/readback receipt. [Verified player-attack flow and limits](tasks/vvd1095/verification-player-attacks.md).
 
 Local-first creative writing platform, packaged as a desktop app with

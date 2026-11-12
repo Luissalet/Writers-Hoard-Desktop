@@ -1150,6 +1150,12 @@ Writer's Tables and Sheets use the existing workspace focus transport for the **
 
 Fullscreen expands the owning pane in Writer, leaving the other pane mounted. It does not use browser fullscreen. It preserves the effective Base or era, grid and session state; it does not save, create a document Undo receipt or start a headless editor. This `tables` target is built into Writer; it does not extend the optional Source author port `context.focusMode` or change Source concentration. [Scope and verification](../tasks/vvd1095/verification-table-fullscreen2942.md).
 
+## Mounted Codex graph fullscreen targets
+
+The mounted **Codex → Graph** pane exposes `namespace: 'world-graph'` through the existing `wh_workspace_focus_get/set` pair. Query with `projectId` and optional `eraId`; omit `documentId`, because the graph target represents a pane rather than a document. With no era filter discovery may return Base and era targets; Base omits `eraId` in its result. Use the observed ephemeral `hostId` in `wh_workspace_focus_set` with `active: true` or `false`. The toolbar and tools use the same logical state. A hidden, missing or revoked target is unavailable; requests are not queued. Leaving the graph for Cards revokes its target.
+
+Graph fullscreen expands only its own Writer pane, retains the mounted canvas and leaves the other pane mounted. It does not save, enter browser fullscreen or change the optional Source author port. The era of a focus target does not change the project-level persistence of graph spacing, display settings and pinned positions. [Graph scope and verification](../tasks/vvd1095/verification-world-graph-fullscreen2991.md).
+
 ## Executable local packages, trials and session feedback
 
 The normal package manager accepts a complete own runtime JSON file without rebuilding Writer. Inspect validates canonical bytes/hashes without evaluating its module or factory; Install publishes the app/tool batch into the global inventory. Installation does not enable engines or select project pins. Each project explicitly selects member versions, using the existing compatibility/CAS/era/draft rules. Source/1 author bundles retain their separate compiled-source contract. Runtime packages use the host React/JSX/SDK and existing Source writer. See [format, CLI and evidence](../tasks/vvd1095/verification-sdk-runtime-packages.md).
