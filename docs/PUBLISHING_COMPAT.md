@@ -2,10 +2,10 @@
 
 Version 0.1.6 keeps the existing MCP server IDs, enabled flags and disabled-tool selections when the operator updates their command and token-file path. The desktop app and its native modules remain under explicit user control. Registering MCP or listing tools starts neither the desktop nor a worker.
 
-Use the installed adapter (outside `app.asar`):
+The manifests launch the adapter that `node electron/build.mjs` builds in this repository (`dist-electron/aibridge/mcpStdio.cjs`, from `electron/aibridge/mcpStdio.ts`), so it always follows the source; `WRITER_ADAPTER` in a manifest can still point at another build:
 
 ```text
-node <installation>/resources/app.asar.unpacked/dist-electron/aibridge/mcpStdio.cjs --publishing-module borges
+node <repository>/dist-electron/aibridge/mcpStdio.cjs --publishing-module borges
 ```
 
 The mode `borges` preserves the complete earlier catalogue: 375 native Library, Links and Paperwork tools plus `borges_modules`, `borges_set_module` and `borges_search_all` (378 total). Its control schema still names only those three modules. `borges_search_all` with all three OFF returns their disabled states without starting a worker. The existing explicit module control continues to work.

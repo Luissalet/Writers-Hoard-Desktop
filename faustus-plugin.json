@@ -38,7 +38,7 @@
     "TOKEN_FILE": "%APPDATA%/writers-hoard/aibridge/token",
     "DATA_DIR": "%APPDATA%/writers-hoard/backups",
     "WRITER_EXE": "%LOCALAPPDATA%/Programs/Writers Hoard/Writers Hoard.exe",
-    "WRITER_ADAPTER": "%LOCALAPPDATA%/Programs/Writers Hoard/resources/app.asar.unpacked/dist-electron/aibridge/mcpStdio.cjs",
+    "WRITER_ADAPTER": "{WRITER_DIR}/dist-electron/aibridge/mcpStdio.cjs",
     "WRITER_INSTALL_DIR": "%LOCALAPPDATA%/Programs/Writers Hoard"
   },
   "app": {
@@ -79,6 +79,7 @@
     "env": {
       "WH_BRIDGE_URL": "{APP_URL}",
       "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}",
+      "WH_SKILLS_DIR": "{DATA_DIR}/skills",
       "ELECTRON_RUN_AS_NODE": "1"
     },
     "optional_env": [

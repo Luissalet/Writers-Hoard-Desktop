@@ -24,6 +24,7 @@ import { BRIDGE_INSTRUCTIONS, BRIDGE_TOOLS, selectTools } from '@/services/aiBri
 import { toolAnnotations } from '@/services/aiRuntime/toolPolicy';
 import { buildToolResult } from './mcpContent';
 import { publishingCompatContext, publishingCompatIdentity, publishingCompatModule, publishingCompatTools } from '../publishing/compat';
+import { callSkillTool, isSkillTool, shelfDir, shelfSkills, skillPrompt, skillPrompts, skillsInstructions, skillTools } from './skills';
 
 const SERVER_NAME = 'writers-hoard';
 const SERVER_VERSION = '1.0.0';
@@ -72,6 +73,9 @@ function resolveToken(): string {
 }
 
 const TOKEN = resolveToken();
+
+/** The skills copied beside the app's data by the hub; read on every request, so a refresh shows without a restart. */
+const SKILLS_DIR = shelfDir(process.env.WH_BRIDGE_TOKEN_FILE?.trim() ?? '');
 
 interface BridgeResponse {
   status: number;
@@ -290,24 +294,39 @@ export async function handleRpc(message: Record<string, unknown>): Promise<void>
   switch (method) {
     case 'initialize': {
       const requested = typeof params.protocolVersion === 'string' ? params.protocolVersion : '';
+      const skills = shelfSkills(SKILLS_DIR);
       reply(id, {
         protocolVersion: requested || DEFAULT_PROTOCOL,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, ...(skills.length ? { prompts: {} } : {}) },
         serverInfo: { name: COMPAT_MODULE ? `${SERVER_NAME}-${COMPAT_MODULE}` : SERVER_NAME, version: SERVER_VERSION },
         // Handed to the model verbatim: this is the briefing that means nobody
-        // has to explain the app in a prompt.
-        instructions: BRIDGE_INSTRUCTIONS,
+        // has to explain the app in a prompt. The skills it carries are named at its end.
+        instructions: skillsInstructions(skills, BRIDGE_INSTRUCTIONS),
       });
       return;
     }
     case 'ping':
       reply(id, {});
       return;
-    case 'tools/list':
-      reply(id, { tools: await listTools() });
+    case 'tools/list': {
+      const tools = await listTools();
+      reply(id, { tools: shelfSkills(SKILLS_DIR).length ? [...tools, ...skillTools()] : tools });
+      return;
+    }
+    case 'prompts/list':
+      reply(id, { prompts: skillPrompts(shelfSkills(SKILLS_DIR)) });
+      return;
+    case 'prompts/get':
+      try { reply(id, skillPrompt(SKILLS_DIR, String(params.name ?? ''))); }
+      catch (error) { fail(id, -32602, (error as Error).message); }
       return;
     case 'tools/call': {
       const name = String(params.name ?? '');
+      if (isSkillTool(name) && shelfSkills(SKILLS_DIR).length) {
+        const answer = callSkillTool(SKILLS_DIR, name, params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments) ? params.arguments as Record<string, unknown> : {});
+        reply(id, compatToolResult(answer.body, answer.isError));
+        return;
+      }
       const args =
         params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
           ? (params.arguments as Record<string, unknown>)
