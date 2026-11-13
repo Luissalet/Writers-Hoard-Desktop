@@ -14,7 +14,8 @@
   "placeholders": [
     "WRITER_DIR",
     "APP_URL",
-    "TOKEN_FILE"
+    "TOKEN_FILE",
+    "DATA_DIR"
   ],
   "defaults": {
     "APP_URL": "http://127.0.0.1:8766",
@@ -46,6 +47,7 @@
     "env": {
       "WH_BRIDGE_URL": "{APP_URL}",
       "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}",
+      "WH_SKILLS_DIR": "{DATA_DIR}/skills",
       "WH_BRIDGE_GROUPS": "story,core"
     },
     "optional_env": []
