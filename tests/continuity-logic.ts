@@ -85,6 +85,35 @@ export function runContinuityLogicTests(): string[] {
   assert.deepEqual(kinds, ['ana:knows-before-learning', 'bo:after-death', 'bo:after-death', 'bo:item-not-carried', 'bo:two-places']);
   passed.push('checks find objects not carried, life after death, knowledge before learning and two places at once');
 
+  const cycle = [
+    line({ kind: 'dies', writingId: 'w1' }),
+    line({ kind: 'revives', writingId: 'w2' }),
+    line({ kind: 'dies', writingId: 'w3' }),
+  ];
+  const cycleLedger = placeLedger({ ana: cycle }, [...chapters.slice(0, 3), fourth]);
+  const cycleFindings = checkLedger(cycleLedger, [
+    { characterId: 'ana', chapter: 2, writingId: 'w2', lineId: 'alive-on-map', label: 'Harbour' },
+    { characterId: 'ana', chapter: 4, writingId: 'w4', lineId: 'dead-on-map', label: 'Harbour' },
+  ]);
+  assert.deepEqual(cycleFindings.map((finding) => [finding.kind, finding.lineId, finding.otherLineId]), [
+    ['after-death', 'dead-on-map', cycle[2].id],
+  ]);
+  passed.push('map presences check every death and revival against the chapter');
+
+  const earlyAct = line({ kind: 'actsOn', writingId: 'w2', order: 0, fact: 'Password' });
+  const lateLearning = line({ kind: 'learns', writingId: 'w2', order: 1, fact: 'Password' });
+  const learningFindings = checkLedger(placeLedger({ ana: [lateLearning, earlyAct] }, chapters));
+  assert.deepEqual(learningFindings.map((finding) => [finding.kind, finding.lineId, finding.otherLineId]), [
+    ['knows-before-learning', earlyAct.id, lateLearning.id],
+  ]);
+  assert.deepEqual(checkLedger(placeLedger({ ana: [
+    earlyAct, lateLearning, line({ kind: 'learns', writingId: 'w2', fact: 'Password' }),
+  ] }, chapters)), []);
+  assert.deepEqual(checkLedger(placeLedger({ ana: [
+    { ...earlyAct, order: 1 }, lateLearning,
+  ] }, chapters)), []);
+  passed.push('knowledge checks explicit order within the chapter and leaves ambiguous order unresolved');
+
   assert.throws(() => normalizeLedgerEntry({ id: 'x', writingId: 'w1', kind: 'location', place: { label: 'A', x: 1, y: 2 } }), /worldId/);
   assert.throws(() => normalizeLedgerEntry({ id: 'x', writingId: 'w1', kind: 'uses' }), /itemId/);
   passed.push('ledger lines are validated');

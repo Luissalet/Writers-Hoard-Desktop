@@ -161,8 +161,17 @@ export function checkLedger(placed: readonly PlacedLine[], presences: readonly P
   for (const [characterId, lines] of byCharacter) {
     const carries = new Set<string>();
     let dead: PlacedLine | null = null;
-    const learnt = new Map<string, PlacedLine>();
-    for (const line of lines) if (line.entry.kind === 'learns') { const key = factKey(line.entry); if (!learnt.has(key)) learnt.set(key, line); }
+    const learnt = new Map<string, PlacedLine[]>();
+    const lifeChanges: PlacedLine[] = [];
+    for (const line of lines) {
+      if (line.entry.kind === 'learns') {
+        const key = factKey(line.entry);
+        const learningLines = learnt.get(key) ?? [];
+        learningLines.push(line);
+        learnt.set(key, learningLines);
+      }
+      if (line.entry.kind === 'dies' || line.entry.kind === 'revives') lifeChanges.push(line);
+    }
     for (const line of lines) {
       const e = line.entry;
       if (dead && e.kind !== 'revives' && e.kind !== 'dies' && !line.fromId) {
@@ -176,8 +185,13 @@ export function checkLedger(placed: readonly PlacedLine[], presences: readonly P
       }
       if (e.kind === 'loses') carries.delete(itemKey(e));
       if (e.kind === 'actsOn') {
-        const learning = learnt.get(factKey(e));
-        if (learning && learning.chapter > line.chapter) {
+        const learningLines = learnt.get(factKey(e)) ?? [];
+        const learning = learningLines[0];
+        const order = e.order;
+        // Without two explicit positions in the same writing, the order within a chapter is uncertain.
+        if (learning && learningLines.every(({ chapter, entry }) => chapter > line.chapter
+          || (chapter === line.chapter && entry.writingId === e.writingId
+            && order !== undefined && entry.order !== undefined && entry.order > order))) {
           findings.push({ id: `knows-before-learning:${characterId}:${e.id}`, kind: 'knows-before-learning', characterId, writingId: e.writingId, chapter: line.chapter, lineId: e.id, otherLineId: learning.entry.id, otherWritingId: learning.entry.writingId, detail: e.fact ?? '' });
         }
       }
@@ -193,15 +207,18 @@ export function checkLedger(placed: readonly PlacedLine[], presences: readonly P
         findings.push({ id: `two-places:${characterId}:${prior.entry.id}:${e.id}`, kind: 'two-places', characterId, writingId: e.writingId, chapter: line.chapter, lineId: e.id, otherLineId: prior.entry.id, otherWritingId: prior.entry.writingId, detail: `${prior.entry.place.label} / ${e.place.label}` });
       } else if (!prior) seen.set(slot, line);
     }
-    // Presence on the map after the death chapter.
-    const death = lines.find((line) => line.entry.kind === 'dies');
-    if (death) {
-      const revived = lines.find((line) => line.entry.kind === 'revives' && line.chapter >= death.chapter);
-      for (const presence of presences) {
-        if (presence.characterId !== characterId || presence.chapter <= death.chapter) continue;
-        if (revived && presence.chapter >= revived.chapter) continue;
-        findings.push({ id: `after-death:${characterId}:${presence.lineId}`, kind: 'after-death', characterId, writingId: presence.writingId, chapter: presence.chapter, lineId: presence.lineId, otherLineId: death.entry.id, otherWritingId: death.entry.writingId, detail: presence.label });
+    // Map events do not share an exact ledger position. A revival in the event's
+    // chapter can explain a presence; a death there alone cannot rule it out.
+    for (const presence of presences) {
+      if (presence.characterId !== characterId) continue;
+      let death: PlacedLine | null = null;
+      for (const line of lifeChanges) {
+        if (line.chapter > presence.chapter) break;
+        if (line.entry.kind === 'revives') death = null;
+        else if (line.chapter < presence.chapter) death = line;
       }
+      if (!death) continue;
+      findings.push({ id: `after-death:${characterId}:${presence.lineId}`, kind: 'after-death', characterId, writingId: presence.writingId, chapter: presence.chapter, lineId: presence.lineId, otherLineId: death.entry.id, otherWritingId: death.entry.writingId, detail: presence.label });
     }
   }
   return findings.sort((a, b) => a.chapter - b.chapter || a.id.localeCompare(b.id));
