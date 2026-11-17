@@ -27,7 +27,7 @@ viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel
 Entregado (Ágora writers #3336): simulación determinista, fronteras por año en el mapa, cronología, ruinas con causa,
 topónimos de sustrato, hechos fijados, fichas propuestas y herramientas `wh_world_history*`. Queda:
 
-- **Eras.** La historia se guarda en la fila base del mundo; un mundo propio de una era no puede guardarla todavía.
+- **Ficha de reino.** Abrir el mapa en el año de máxima extensión desde la ficha del Códex.
 - **Proyecciones curvas y 3D.** El territorio solo se dibuja en las vistas cilíndricas del mapa.
 - **Topónimos.** Ofrecer «renombrar con la forma de la lengua de sus señores» como edición del mundo con Deshacer.
 - **Ficha de lugar.** Mostrar la historia del lugar (quién lo tuvo, cuándo cayó) en la ficha de lugar del mapa,

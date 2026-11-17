@@ -95,22 +95,24 @@ Pestaña «Historia» en el panel del mapa del mundo, junto a «Comercio».
 
 - **Simulación determinista.** Misma semilla y mismos ajustes, misma historia. El autor elige semilla, siglos (1–30),
   agresividad y el año del mapa actual. Los reinos de hoy nacen en sus capitales y crecen por el terreno y los
-  caminos entre lugares; reinos antiguos nacen donde hoy hay ruinas y caen antes del presente. Hay guerras entre
+  caminos entre lugares; reinos antiguos nacen donde hoy hay ruinas y desaparecen al llegar al mapa actual. Hay guerras entre
   vecinos, conquistas, saqueos, fundaciones, cambios de dinastía, caídas y migraciones que llevan una lengua a otra
   región. Al final las fronteras coinciden con las del mapa actual (cesiones por tratado donde hace falta).
 - **Mapa.** Un deslizador de años (con reproducción) pinta el territorio de cada reino en ese año, con su nombre.
 - **Cronología** fechada con el calendario del mundo, filtrable por tipo; «Llevar a la línea de tiempo» crea una
   línea de tiempo la primera vez y después solo añade lo que falte.
-- **Ruinas con causa y fecha**, **topónimos de sustrato** (nombres en una lengua distinta de la de sus señores, con
-  la forma en la lengua de estos) y **reinos** con dinastías y gobernantes.
+- **Ruinas.** Cada ruina muestra la causa y la fecha de su caída y enlaza al acontecimiento y a la ficha
+  del reino si está aceptada en el Códex. También hay topónimos de sustrato y reinos con dinastías y gobernantes.
 - **Hechos fijados.** «Este reino existe en tal año» y «esta ciudad cae en tal año» (con conquistador opcional); la
-  simulación los respeta y avisa cuando ha tenido que mover uno.
+  simulación aplica el año exacto, incluido el último, y avisa si el hecho no puede cumplirse.
 - **Fichas del Códex propuestas** (reinos, dinastías, gobernantes, guerras, tratados, ruinas): nada se escribe hasta
   aceptarlas, una a una o todas las de la lista; las aceptadas se conservan al volver a simular y no se duplican.
+- **Épocas.** Historia funciona con los mundos de Base y con los propios de cada época. Usa el calendario activo
+  y guarda en esa época los ajustes, las fichas aceptadas y su línea temporal.
 - **MCP.** `wh_world_history_simulate`, `wh_world_history`, `wh_world_history_proposals`, `wh_world_history_accept` y
   `wh_world_history_to_timeline` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
-- **No hace todavía:** mundos propios de una era (solo la base), proyecciones curvas (las fronteras se dibujan en las
-  vistas cilíndricas), renombrar un lugar con el topónimo de la lengua conquistadora. Ver `OBJETIVOS.md`.
+- **Mapa cilíndrico.** Las fronteras históricas se dibujan en estas vistas. Las proyecciones curvas y la edición
+  de topónimos figuran en `OBJETIVOS.md`.
 
 ## Imágenes en documentos Source compartidos — 2114
 
