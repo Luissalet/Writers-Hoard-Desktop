@@ -18,9 +18,9 @@ export interface CartographerSource {
 }
 
 export async function openCartographerSource(row: GeneratedWorld, scope: WorldEraScope) {
-  const opened = await openWorldForReading(row, 'full', scope.eraId);
+  const serialized = liveWorld(worldRuntimeKey(row.id, scope.eraId))?.snapshot() ?? row.edits;
+  const opened = await openWorldForReading({ ...row, edits: serialized }, 'full', scope.eraId, 'snapshot');
   if (!opened.ok) return opened;
-  const serialized = (opened.world.live ? liveWorld(worldRuntimeKey(row.id, scope.eraId))?.snapshot() : undefined) ?? row.edits;
   const domain = serialized ? readDomainDocument(serialized) : null;
   const edits = serialized ? deserializeEdits(serialized) : [];
   return { ok: true as const, source: {

@@ -122,13 +122,15 @@ export function isForging(worldId: string): boolean {
  * reading only. `depth: 'places'` is settlements, ruins and landmarks; `'full'`
  * adds realms, named seas/ranges and roads (slower to build the first time).
  */
-export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth = 'full', eraId?: string): Promise<OpenWorldResult> {
+export async function openWorldForReading(
+  world: GeneratedWorld, depth: GeoDepth = 'full', eraId?: string, source: 'live-or-snapshot' | 'snapshot' = 'live-or-snapshot',
+): Promise<OpenWorldResult> {
   const runtimeId = worldRuntimeKey(world.id, eraId);
   const document = world.edits ? readDomainDocument(world.edits) : null;
   // 1. An open view: its object is the current state, and its geography is
   //    already built (or will be adopted by the view, a deeper answer being
   //    valid for shallower questions too).
-  if (liveWorld(runtimeId)) {
+  if (source !== 'snapshot' && liveWorld(runtimeId)) {
     const data = getCachedWorld(runtimeId, world.params);
     if (data && (!document || liveWorld(runtimeId)?.snapshot() === world.edits)) {
       applyWorldScaleMetadata(data, world);
@@ -138,10 +140,12 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   }
 
   // 2. A recent private build for exactly this list.
-  const key = buildKey(world, depth);
+  // Snapshot readers must use the same quantised source on initial and cold
+  // opens. In borderline settlements, the raw fields can even change naming.
+  const key = source + '|' + buildKey(world, depth);
   const hit = built.get(runtimeId);
   if (hit && Date.now() - hit.at < BUILT_TTL_MS) {
-    if (hit.prepared && hit.key === buildKey(world, 'full')) {
+    if (source !== 'snapshot' && hit.prepared && hit.key === buildKey(world, 'full')) {
       const data = hit.prepared; applyWorldScaleMetadata(data, world);
       const geo = getGeography(data, depth);
       return { ok: true, world: { data, geo, atlas: buildAtlas(data, geo), live: false } };
@@ -152,7 +156,7 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   // 3. The snapshot, replayed privately.
   // A pending view adoption must not round-trip a warm domain through the cold codec.
   // Legacy PaintSession below still receives only its private snapshot.
-  const pristine = (document ? getCachedWorldSource(runtimeId, world.params) : null) ?? await loadSnapshot(runtimeId, paramsKey(world.params));
+  const pristine = (source !== 'snapshot' && document ? getCachedWorldSource(runtimeId, world.params) : null) ?? await loadSnapshot(runtimeId, paramsKey(world.params));
   const snap = pristine && document ? replayDomain(pristine, document, world.domainRevision ?? 0) : pristine;
   if (snap) {
     applyWorldScaleMetadata(snap, world);
