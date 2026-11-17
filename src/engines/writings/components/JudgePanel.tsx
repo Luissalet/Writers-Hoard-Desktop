@@ -47,6 +47,7 @@ import {
 } from '@/services/judge';
 import type { Writing } from '@/types';
 import ReferenceLibrary from './ReferenceLibrary';
+import { acceptLedgerProposal, dismissLedgerProposal } from '@/services/continuity/judgeProposals';
 
 interface JudgePanelProps {
   projectId: string;
@@ -84,6 +85,33 @@ function confidenceClass(confidence: JudgeFinding['confidence']): string {
   if (confidence === 'high') return 'bg-success/10 text-success';
   if (confidence === 'medium') return 'bg-accent-amber/10 text-accent-amber';
   return 'bg-elevated text-text-muted';
+}
+
+/** A story-state proposal for the state ledger: written only if the author accepts it. */
+function LedgerProposalBox({ finding, readOnly }: { finding: JudgeFinding; readOnly: boolean }) {
+  const { t } = useTranslation();
+  const proposal = finding.ledgerProposal!;
+  const [status, setStatus] = useState(proposal.status);
+  const [error, setError] = useState<string | null>(null);
+  const act = (accept: boolean) => {
+    setError(null);
+    const work = accept ? acceptLedgerProposal(finding).then(() => setStatus('accepted')) : dismissLedgerProposal(finding).then(() => setStatus('dismissed'));
+    void work.catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  return (
+    <div className="rounded-md border border-accent-gold/25 bg-surface p-2.5" data-testid="judge-ledger-proposal">
+      <p className="text-[10px] font-semibold text-accent-gold">{t('continuity.proposal')}</p>
+      <p className="mt-1 text-[11px] text-text-primary">{proposal.character} · {t(`continuity.kind.${proposal.aspect}`)}{proposal.value ? `: ${proposal.value}` : ''}</p>
+      {status ? <p className="mt-1 text-[10px] text-text-dim">{t(status === 'accepted' ? 'continuity.accepted' : 'continuity.dismissed')}</p>
+        : !readOnly && (
+          <div className="mt-1.5 flex gap-1.5">
+            <button type="button" data-testid="judge-ledger-accept" onClick={() => act(true)} className="rounded border border-accent-gold/30 px-2 py-1 text-[10px] font-semibold text-accent-gold hover:bg-accent-gold/10">{t('continuity.accept')}</button>
+            <button type="button" onClick={() => act(false)} className="rounded border border-border px-2 py-1 text-[10px] text-text-dim hover:text-text-primary">{t('continuity.dismiss')}</button>
+          </div>
+        )}
+      {error && <p role="alert" className="mt-1 text-[10px] text-red-300">{error}</p>}
+    </div>
+  );
 }
 
 function FindingCard({
@@ -164,6 +192,8 @@ function FindingCard({
               <span className="mt-1 block text-[10px] italic leading-relaxed text-text-muted">“{finding.internal.quote}”</span>
             </button>
           )}
+
+          {finding.ledgerProposal && <LedgerProposalBox finding={finding} readOnly={readOnly} />}
 
           <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-text-dim">
             <CircleHelp size={11} className="mt-0.5 shrink-0" aria-hidden="true" />
