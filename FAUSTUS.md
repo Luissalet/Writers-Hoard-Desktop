@@ -637,7 +637,9 @@ Continuidad2367 ejecutada tras GO concreto de Root: manual párrafo389 con inser
 
 ## Mapas intramundo
 
-Faustus puede listar los orígenes y las láminas de un mundo, guardar una perspectiva fechada de una cultura o lugar, vincularla a una ficha del Codex y corregir qué zonas aparecen. El alcance, la deformación, la niebla por capítulo y el estilo son propios de cada lámina. Desde el mapa se puede descargar en PNG, SVG o PDF e insertar una copia PNG al principio de un capítulo local. El puente devuelve los bytes de exportación y sus cambios se revierten con wh_undo.
+En el Generador de Mundos se puede guardar una perspectiva fechada de una cultura o lugar, vincularla a una ficha del Codex y corregir qué zonas aparecen. El alcance, la deformación, la niebla por capítulo y el estilo son propios de cada lámina. Desde el mapa se puede descargar en PNG, SVG o PDF e insertar una copia PNG al principio de un capítulo local.
+
+Las herramientas de Faustus para listar, guardar, exportar, insertar y eliminar estas láminas están preparadas. Su registro en el puente y el enlace con wh_undo están pendientes en esta rama.
 
 ## Portada local de mapas generados —2365
 
