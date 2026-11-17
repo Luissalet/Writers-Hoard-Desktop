@@ -2,6 +2,29 @@
 
 En Source compartido, pegar varios párrafos en bloques de texto raíz consecutivos o dentro de un mismo elemento de lista conserva el texto de ambos extremos y el formato del portapapeles. Si pegas en un encabezado, el primer bloque conserva su nivel y los siguientes son párrafos normales. Un solo Deshacer recupera el contenido anterior. El pegado lee la selección visible al llegar el evento, aunque acabe de cambiar con el teclado.
 
+## Continuidad del manuscrito: viajes y libro de estado
+
+Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pestañas.
+
+- **Viajes.** Cada personaje aparece donde lo ponen los sucesos de historia del mapa que lo nombran y, en capítulos
+  sin suceso, las ubicaciones del libro de estado con punto de mapa. Cada tramo entre apariciones seguidas se calcula
+  con el motor de viajes del mundo (terreno, modo habitual del personaje, estación de la fecha, ritmo y perfil del
+  mundo) y se compara con los días del calendario propio: imposible, muy justo (más del 75 % de los días), holgado o
+  sin datos (capítulo sin fecha, otro mundo, sin ruta, mundo generándose). Enlaces al capítulo, al mapa y a la ficha;
+  un tramo imposible ofrece la fecha mínima del capítulo de destino y «Usar esa fecha» (con Deshacer). Un tramo se
+  marca como intencionado con una nota. En el mapa, `?trail=<id de ficha>` (botón «Mapa») dibuja el rastro del
+  personaje con los tramos imposibles en rojo y los justos en ámbar.
+- **Libro de estado.** Por personaje y capítulo: está en, aprende, actúa sabiendo, consigue, pierde o entrega (a otro
+  personaje), usa, estado físico, muere, revive, aparece. Las líneas viven en la ficha del personaje y se acumulan
+  hasta el capítulo elegido: dónde está, qué sabe, qué lleva, estado físico y si vive. Comprobaciones: usa o entrega
+  un objeto que no lleva, aparece tras morir (también en sucesos del mapa), actúa sabiendo algo antes de aprenderlo,
+  dos sitios a la vez. Los hallazgos se marcan como intencionados con nota. La ubicación del libro alimenta los viajes.
+- **Juez.** El modo Estado de la historia puede proponer una línea del libro por hallazgo; solo se escribe al pulsar
+  «Añadir al libro», o se descarta.
+- **MCP.** `wh_travel_check`, `wh_character_state`, `wh_state_ledger`, `wh_state_ledger_add`,
+  `wh_state_ledger_remove` y `wh_continuity_mark` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
+- **No hace todavía:** la línea de tiempo no muestra los tramos; la voz por personaje está descrita en `OBJETIVOS.md`.
+
 ## Imágenes en documentos Source compartidos — 2114
 
 El perfil optativo de imágenes admite PNG en el cuerpo raíz. El editor y el SDK conservan la fuente y el tamaño por separado, con Deshacer por autor. Compartir contenido envía los archivos a la otra biblioteca antes de mostrar el cambio. El ZIP conserva las versiones necesarias para recuperar imágenes. MCP importa y consulta los bytes y captura cambios por canal con el mismo writer Source. El perfil optativo de 2161 añade un canal de alineación izquierda, centro o derecha y su acción `rich-image-align`. Deshacerlo conserva tamaño y fuente de otras personas. El perfil 2164 permite PNG, JPEG y WebP con sus bytes originales en el editor, el SDK y MCP. 2167 inserta también en una celda lógica mediante `rich-table-cell-image-insert` y la captura de celda. [Imágenes en celdas](tasks/vvd1095/verification-image-cells2167.md). [Formatos de imagen](tasks/vvd1095/verification-image-formats2164.md). [Alineación y pruebas](tasks/vvd1095/verification-image-alignment2161.md). [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).

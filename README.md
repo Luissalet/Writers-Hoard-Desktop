@@ -17,6 +17,7 @@ It is also the Writer plugin of the Hoard family. It absorbs the former interact
 - Native document engine (Rust) for DOCX, PDF and other formats, a Changes panel with anchored proposals, named editorial styles, headers and footers, local Spanish spelling and optional grammar (LanguageTool, needs Java 17+), and a document check against documentation rules.
 - Suggested continuation (ghost text): off by default, local models only, Tab to accept.
 - Notes with to-do lists and kanban boards, outlines, diary, storyboards, a video planner, beta-reading and a POV audit.
+- Continuity: every character's journeys checked against the chapters' world dates with the route engine (impossible legs marked on the map, earliest valid date offered), and a chapter-by-chapter state ledger of where each character is, what they know and carry, their condition and whether they live, with contradiction checks.
 - Imports: Markdown folders from Obsidian, Notion, World Anvil and Campfire, mixed documents, pasted text, text PDFs and ePub manuscripts.
 
 **Worldbuilding**
