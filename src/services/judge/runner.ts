@@ -1,3 +1,4 @@
+import { ledgerProposalValue } from './ledgerProposal';
 import { db } from '@/db';
 import { buildProjectEditorialContext } from '@/services/editorialProfile';
 import { compareManuscriptOrder } from '@/engines/writings/chapterOrder';
@@ -113,6 +114,7 @@ interface ModelFinding {
   confidence?: unknown;
   contextLimits?: unknown;
   suggestion?: unknown;
+  ledger?: unknown;
 }
 
 interface ModelEnvelope {
@@ -365,7 +367,7 @@ function modeInstruction(mode: JudgeMode): string {
     return 'Model the reader at this exact point. kind must be one of knows, suspects, promised, open. Never use knowledge outside the provided earlier evidence.';
   }
   if (mode === 'story-state') {
-    return 'Debug story state without inventing. kind must be one of confirmed, hypothesis, contradiction, missing, not-applicable.';
+    return 'Debug story state without inventing. kind must be one of confirmed, hypothesis, contradiction, missing, not-applicable. When the target states a concrete change to one character, add ledger: {"character":"name as written","aspect":"location|learns|gains|loses|condition|dies|appears","value":"the place, fact, object or condition in a few words"}.';
   }
   return 'Critique decisions through the named lens and/or continuity. Never score quality. A suggestion is optional and must be a minimal before/after replacement.';
 }
@@ -666,7 +668,9 @@ async function validateFindings(
       updatedAt: now,
     };
     const evidenceFingerprint = await findingFingerprint(partial);
-    valid.push({ ...partial, id: generateId('finding'), evidenceFingerprint });
+    // A proposal for the state ledger rides along; it never changes the finding's identity.
+    const ledgerProposal = input.mode === 'story-state' ? ledgerProposalValue(candidate.ledger) : undefined;
+    valid.push({ ...partial, id: generateId('finding'), evidenceFingerprint, ...(ledgerProposal ? { ledgerProposal } : {}) });
   }
   return { valid, invalid };
 }

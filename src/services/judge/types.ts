@@ -164,6 +164,15 @@ export interface JudgeSuggestion {
   rationale: string;
 }
 
+export const JUDGE_LEDGER_ASPECTS = ['location', 'learns', 'gains', 'loses', 'condition', 'dies', 'appears'] as const;
+export interface JudgeLedgerProposal {
+  /** The character as the text names them. */
+  character: string;
+  aspect: (typeof JUDGE_LEDGER_ASPECTS)[number];
+  value: string;
+  status?: 'accepted' | 'dismissed';
+}
+
 export interface JudgeFinding {
   id: string;
   runId: string;
@@ -182,6 +191,8 @@ export interface JudgeFinding {
   suggestion?: JudgeSuggestion;
   defence?: string;
   status: JudgeFindingStatus;
+  /** story-state: a concrete change offered to the state ledger; written only when the author accepts it. */
+  ledgerProposal?: JudgeLedgerProposal;
   /** Stable while both pieces of evidence stay identical. */
   evidenceFingerprint: string;
   createdAt: number;
