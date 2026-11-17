@@ -754,7 +754,8 @@ export async function testContinuityEraBridge(): Promise<string[]> {
   const root = (id: string, title: string) => ({ id: `${projectId}-${id}`, projectId, title, createdAt: now, updatedAt: now });
   const shared: CodexEntry = { ...root('person', 'Shared character'), type: 'character', fields: {}, content: '', tags: [], relations: [] };
   const exclusive = { ...shared, ...root('traveller', 'Era traveller') };
-  const first = { ...root('one', 'Departure'), chapter: 1, status: 'draft' as const, content: '', wordCount: 0, tags: [] };
+  const first = { ...root('one', 'Departure'), chapter: 1, status: 'draft' as const, content: '<p>—Vuelve pronto —dijo Shared character.</p>', wordCount: 0, tags: [] };
+  const eraContent = '<p>—Ya he vuelto —dijo Era traveller.</p><hr><p>Cruzó el patio.</p>';
   const second = { ...first, ...root('two', 'Arrival'), chapter: 2 };
   const call = async <T>(tool: string, args: Record<string, unknown>): Promise<T> => {
     const spec = getBridgeTool(tool);
@@ -777,6 +778,7 @@ export async function testContinuityEraBridge(): Promise<string[]> {
     await saveWorldEra(projectId, { id: eraId, name: 'Named era', description: '', revision: 0, createdAt: now, updatedAt: now }, null);
     await mutateEraRows(scope, [
       { table: 'codexEntries', id: exclusive.id, row: { ...exclusive } },
+      { table: 'writings', id: first.id, changes: { content: eraContent } },
       { table: 'writings', id: second.id, changes: { chapter: 4 } },
     ]);
 
@@ -819,7 +821,23 @@ export async function testContinuityEraBridge(): Promise<string[]> {
     assert((await call<StateResult>('wh_character_state', { ...named, writingId: second.id })).character === 'A later title',
       'The continuity undo also restored unrelated Codex properties');
     assert((await ledger(base)).characters[0]?.lines.map(({ fact }) => fact).join() === 'Base fact', 'Continuity undo leaked into Base');
-    return ['Continuity bridge filters era-only characters, reads era ledgers and state, and restores an era removal with guarded undo'];
+    type VoiceResult = { dialogue: Array<{ speakerId: string }> };
+    const voice = (args: { projectId: string; eraId?: string }) => call<VoiceResult>('wh_voice_profile', { ...args, includeLines: true });
+    assert((await voice({ projectId })).dialogue[0]?.speakerId === shared.id, 'Base voice did not read Base');
+    assert((await voice(scope)).dialogue[0]?.speakerId === exclusive.id, 'Voice did not use the era prose and its exclusive Codex card');
+
+    type PacingResult = { scenes: Array<{ tension: number | null }> };
+    const pacing = (args: { projectId: string; eraId?: string }) => call<PacingResult>('wh_pacing', { ...args, writingId: first.id });
+    assert((await pacing({ projectId })).scenes.length === 1 && (await pacing(scope)).scenes.length === 2, 'Pacing did not split the era prose');
+    const tensionWrite = await call<{ __audit: Record<string, unknown> }>('wh_pacing_set_tension', {
+      ...scope, writingId: first.id, sceneIndex: 0, tension: 0,
+    });
+    assert((await pacing(scope)).scenes[0]?.tension === 0, 'Pacing lost an explicit zero tension');
+    assert((await pacing({ projectId })).scenes[0]?.tension == null, 'Setting era tension changed Base');
+    assert((await runBridgeTool('__undo', { entry: auditEntry('wh_pacing_set_tension', tensionWrite.__audit) })).ok, 'Undo did not restore era scene tension');
+    assert((await pacing(scope)).scenes[0]?.tension == null, 'Undo left manual tension on the era scene');
+
+    return ['Novelist tools use era-only cards, prose and ledgers, with scoped undo for continuity and pacing'];
   } finally {
     for (const table of [db.worldEraVariants, db.writings, db.codexEntries]) await table.where('projectId').equals(projectId).delete();
     await db.projects.delete(projectId);
@@ -836,5 +854,5 @@ export async function testAiBridgeContracts(): Promise<string> {
   await testStorySessionImport();
   await testCopilotScopeLeak();
   await testContinuityEraBridge();
-  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, story session import, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope, era continuity and guarded undo`;
+  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, story session import, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope, named-era novelist tools and guarded undo`;
 }
