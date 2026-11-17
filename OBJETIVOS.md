@@ -4,16 +4,12 @@
 
 El verificador de viajes y el libro de estado están entregados (panel «Continuidad», rastro en el mapa, carriles de
 viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel_check`, `wh_character_state`,
-`wh_state_ledger*`, `wh_continuity_mark`). Queda:
+`wh_state_ledger*`, `wh_continuity_mark`). Voz, ritmo y deriva ya leen la época activa. El ritmo admite tensión manual
+por escena y la voz resuelve pronombres con el género indicado en la ficha. Queda:
 
-- **Voz por personaje.** Entregada (panel, ficha, prueba ciega, `wh_voice_*`). Queda: atribuir por pronombre
-  («—dijo ella») con el género de la ficha y probar la descripción con el modelo global de las Sparks en vivo.
-- **Radiografía de ritmo.** Entregada (panel con curva y beats, avisos, `wh_pacing`). Queda: una tensión por escena
-  guardada por el autor que la curva pueda superponer al ritmo calculado.
+- **Voz por personaje.** Queda probar la generación de la descripción con el modelo global de las Sparks en vivo.
 - **Deriva del plan.** Entregada (panel, propuesta con Deshacer, `wh_plan_drift*`). Queda la comparación semántica
   opcional con el modelo global (qué sucede, no solo quién y dónde) cuando los nombres no bastan.
-- **Épocas en voz, ritmo y deriva.** Continuidad ya lee y escribe la época con nombre activa; voz, ritmo y deriva
-  leen todavía la base compartida.
 - **Origen de las estaciones.** El año del calendario empieza en invierno por defecto; el tiempo atmosférico (#3337)
   cuenta desde el equinoccio norte. Acordar un origen común y que los dos usen `seasonOfDate`.
 - **Puntos del libro de estado.** Ya se busca cualquier lugar con nombre del mundo; faltan las fichas de lugar del
