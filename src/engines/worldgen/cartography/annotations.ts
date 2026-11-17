@@ -7,6 +7,7 @@
 // dragged without paying for a re-render of the sheet, and — the real reason —
 // it is annotation, not cartography. A route drawn INTO the map would be a road.
 
+import { drawHistoryLayer } from './historyLayer';
 import { mapMetric, metricCellKmOf} from '../core/geoScale';
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawContourLines } from './contourLayer';
@@ -30,6 +31,8 @@ export interface CartoAnnotations {
   contours?: { intervalM: number; color?: string };
   /** The trade lens: sites and this month's shipments. */
   trade?: TradeLayer;
+  /** The history lens: the realms of one year, washed over the land they held. */
+  history?: import('./historyLayer').HistoryLayer;
   /** The author's named zones (outline, wash or hatching, and the name). */
   zones?: import('../core/zones').WorldZone[];
   /** Story events to show, already filtered for the view (drawn last, over the fog). */
@@ -98,6 +101,9 @@ export function drawAnnotations(
 
   // ---- the ground's own lines, under the reader's fog and everything else ---
   if (ann.contours) drawContourLines(ctx, world, ann.contours.intervalM, sx, sy, k, { color: ann.contours.color });
+
+  // ---- the realms of a past year, under the author's own marks ----------------
+  if (ann.history) drawHistoryLayer(ctx, ann.history, sx(0), sy, k, W, world.domain?.topology !== 'finite');
 
   // ---- the author's zones -----------------------------------------------------
   // `sx` may wrap round the seam: lay the outline out linearly from the origin, as the fog does.
