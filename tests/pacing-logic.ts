@@ -1,6 +1,6 @@
 // Pure checks for the pacing x-ray: scene split, word shares, pace, flags.
 import assert from 'node:assert/strict';
-import { buildPacing, measure, paceOf, splitScenes } from '@/engines/writings/pacing/pacing';
+import { buildPacing, curveValue, measure, paceOf, sceneAnchor, splitScenes } from '@/engines/writings/pacing/pacing';
 
 const repeat = (s: string, n: number) => Array.from({ length: n }, () => s).join('\n');
 const still = 'La casa era vieja y las paredes estaban cubiertas de musgo que brillaba bajo la luna.';
@@ -38,5 +38,56 @@ export function runPacingLogicTests(): string[] {
   assert.equal(report.scenes[0].quote.startsWith('La casa era vieja'), true);
   assert.deepEqual(buildPacing([{ writingId: 'w1', chapter: 1, title: 'Uno', text: repeat(fight, 3) }]).flags, []);
   passed.push('the report places scenes on the manuscript axis and flags flat and lopsided stretches');
+
+  const reviewSource = {
+    writingId: 'review', chapter: 1, title: 'La muralla',
+    text: [
+      'La vieja muralla de piedra gris cubría por entero aquel largo camino hasta el mar.',
+      'La silenciosa muralla de piedra cubría todo el camino gris.',
+      'La ladera silenciosa tenía una sombra gris.',
+      'La sala oscura tenía cortinas de lana.',
+      'El patio silencioso tenía un arco bajo.',
+    ].join('\n***\n'),
+  };
+  const review = buildPacing([reviewSource]);
+  assert.deepEqual(review.scenes.map(curveValue), [0.10, 0.13, 0.15, 0.15, 0.15]);
+  assert.deepEqual(review.flags.filter((f) => f.kind === 'flat').map((f) => f.sceneIds), [['review#1', 'review#2', 'review#3', 'review#4']]);
+  passed.push('a short initial run cannot hide the four nearly equal scenes that follow it');
+
+  const manual = buildPacing([{ ...reviewSource, sceneTension: [
+    { ...review.scenes[2].anchor, value: 0.8 },
+    { ...review.scenes[4].anchor, value: 0 },
+  ] }]);
+  assert.deepEqual(manual.scenes.map(curveValue), [0.10, 0.13, 0.8, 0.15, 0]);
+  assert.deepEqual(manual.scenes.map((s) => s.pace), review.scenes.map((s) => s.pace));
+  assert.deepEqual(manual.chapters, review.chapters);
+  assert.equal(manual.flags.some((f) => f.kind === 'flat'), false);
+  passed.push('manual tension includes explicit zero and drives the curve without replacing measured pace');
+
+  const reordered = buildPacing([{
+    ...reviewSource,
+    text: ['Escena nueva.', ...splitScenes(reviewSource.text).reverse().map((p) => p.join('\n'))].join('\n***\n'),
+    sceneTension: [{ ...review.scenes[2].anchor, value: 0.8 }],
+  }]);
+  assert.deepEqual(reordered.scenes.map((s) => s.tension), [undefined, undefined, undefined, 0.8, undefined, undefined]);
+  const edited = buildPacing([{
+    ...reviewSource,
+    text: 'Una escena añadida.\n***\nComienzo reescrito.\nFin de la escena.',
+    sceneTension: [{ ...sceneAnchor(['Comienzo anterior.', 'Fin de la escena.'], 0), value: 0.8 }],
+  }]);
+  assert.deepEqual(edited.scenes.map((s) => s.tension), [undefined, 0.8]);
+  passed.push('manual tension follows reordered scenes and survives rewriting one boundary');
+
+  const overlap = buildPacing([{
+    ...reviewSource,
+    text: Array.from({ length: 7 }, () => still).join('\n***\n'),
+    sceneTension: [0.10, 0.10, 0.10, 0.13, 0.14, 0.16, 0.16].map((value, index) => ({ ...sceneAnchor([still], index), value })),
+  }]);
+  assert.deepEqual(overlap.flags.map((f) => f.sceneIds), [
+    ['review#0', 'review#1', 'review#2', 'review#3', 'review#4'],
+    ['review#3', 'review#4', 'review#5', 'review#6'],
+  ]);
+  passed.push('flat stretches can overlap and include the full spread of 0.04');
+
   return passed;
 }

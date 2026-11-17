@@ -4,6 +4,13 @@
 import { db } from '@/db';
 import { htmlToText } from '@/engines/_shared/anchoring/htmlToText';
 import { buildPacing, type PacingReport } from '@/engines/writings/pacing/pacing';
+import { listEraRows } from '@/services/worldEras/store';
+import type { Writing } from '@/types';
+
+/** Keep the editor's horizontal rules alongside the manuscript's text breaks. */
+export function pacingText(content: string | undefined): string {
+  return htmlToText((content ?? '').replace(/<hr\b[^>]*>/gi, '<p>***</p>'));
+}
 
 export interface PacingBeat {
   id: string;
@@ -20,19 +27,21 @@ export interface ProjectPacing extends PacingReport {
   /** Chapter label by writing id. */
   titles: Record<string, string>;
   beats: PacingBeat[];
-  /** Tension is not stored per scene or chapter in this app, so the curve uses the computed pace alone. */
-  tension: null;
+  /** Author-set values by scene id, or null when the entire curve uses measured pace. */
+  tension: Record<string, number> | null;
 }
 
-export async function buildPacingReport(projectId: string, outlineId?: string): Promise<ProjectPacing> {
+export async function buildPacingReport(projectId: string, outlineId?: string, eraId?: string): Promise<ProjectPacing> {
   const [writings, outlines, beats] = await Promise.all([
-    db.writings.where('projectId').equals(projectId).toArray(),
+    eraId ? listEraRows<Writing>({ projectId, eraId }, 'writings') : db.writings.where('projectId').equals(projectId).toArray(),
     db.outlines.where('projectId').equals(projectId).toArray(),
     db.outlineBeats.where('projectId').equals(projectId).toArray(),
   ]);
   const ordered = [...writings].sort((a, b) => (a.chapter ?? 1e9) - (b.chapter ?? 1e9) || a.title.localeCompare(b.title));
-  // The editor's scene break is a horizontal rule; it becomes a break line before the text is read.
-  const report = buildPacing(ordered.map((w) => ({ writingId: w.id, chapter: typeof w.chapter === 'number' ? w.chapter : null, title: w.title, text: htmlToText((w.content ?? '').replace(/<hr\b[^>]*>/gi, '<p>***</p>')) })));
+  const report = buildPacing(ordered.map((w) => ({
+    writingId: w.id, chapter: typeof w.chapter === 'number' ? w.chapter : null, title: w.title,
+    text: pacingText(w.content), sceneTension: w.sceneTension,
+  })));
   // A chapter starts where its first scene starts.
   const starts = new Map<string, number>();
   let done = 0;
@@ -46,9 +55,10 @@ export async function buildPacingReport(projectId: string, outlineId?: string): 
     const at = linked ?? (typeof b.storyPosition === 'number' ? Math.max(0, Math.min(1, b.storyPosition / 100)) : undefined);
     return at === undefined ? [] : [{ id: b.id, outlineId: b.outlineId, title: b.title, level: b.level, at: Math.round(at * 1e4) / 1e4, ...(b.linkedWritingId ? { writingId: b.linkedWritingId } : {}) }];
   }).sort((a, b) => a.at - b.at || a.title.localeCompare(b.title));
+  const tension = report.scenes.flatMap((scene) => scene.tension === undefined ? [] : [[scene.id, scene.tension] as const]);
   return {
     ...report, projectId,
     titles: Object.fromEntries(ordered.map((w) => [w.id, typeof w.chapter === 'number' ? `${w.chapter}. ${w.title}` : w.title])),
-    beats: placed, tension: null,
+    beats: placed, tension: tension.length ? Object.fromEntries(tension) : null,
   };
 }
