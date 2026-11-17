@@ -9,6 +9,7 @@ import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
 import Modal from '@/components/common/Modal';
 import CodexEntryForm from './CodexEntryForm';
 import CharacterConnections from './CharacterConnections';
+import CharacterVoice from '@/engines/writings/components/voice/CharacterVoice';
 import CodexCardFaces from './CodexCardFaces';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -419,6 +420,11 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                 entry={selectedEntry}
                 appearances={appearanceIndex?.get(selectedEntry.id)}
               />
+            )}
+
+            {/* How they speak: same voice report as the panel beside the manuscript */}
+            {selectedEntry.type === 'character' && !playerView && (
+              <CharacterVoice projectId={projectId} characterId={selectedEntry.id} />
             )}
 
             </>} notes={<>

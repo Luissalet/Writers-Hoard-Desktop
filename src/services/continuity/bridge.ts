@@ -4,6 +4,7 @@ import { assertEngineEnabled, BridgeError, optBoolean, optNumber, optString, req
 import type { TravelMode } from '@/engines/worldgen/core/travel';
 import { buildContinuityReport, characterStateAt, dayText, type ContinuityReport } from './report';
 import { addLedgerEntry, removeLedgerEntry, setIntentional, setTravelMode, type ContinuityReceipt } from './ledgerOps';
+import { VOICE_HANDLERS } from '@/services/voice/bridge';
 
 function audited<T extends object>(projectId: string, receipt: ContinuityReceipt, summary: string, result: T): T {
   return withAudit(result, { projectId, entityId: receipt.characterId, kind: 'update', summary, before: receipt.before ? { continuity: receipt.before } : { __absent: ['continuity'] } });
@@ -113,4 +114,6 @@ export const CONTINUITY_HANDLERS = {
     const receipt = await setIntentional(projectId, characterId, findingId!, note.trim() ? note : null);
     return audited(projectId, receipt, note.trim() ? 'Mark a continuity finding as intended' : 'Unmark a continuity finding', { findingId, intended: note.trim() || null });
   }),
+  // The novelist checks that read the manuscript beside continuity.
+  ...VOICE_HANDLERS,
 };

@@ -183,6 +183,11 @@ export interface CodexEntry {
    * how they travel and the continuity findings marked as intended.
    */
   continuity?: import('@/engines/writings/continuity/types').CharacterContinuity;
+  /**
+   * Only meaningful on `character` entries: how they speak, in prose, as the
+   * author kept it from the voice profile (the statistics are computed, not stored).
+   */
+  voice?: { description: string; at: number; model?: string };
   createdAt: number;
   updatedAt: number;
 }
