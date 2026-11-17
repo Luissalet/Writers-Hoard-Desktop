@@ -4,6 +4,7 @@ import { WorldDateField } from '@/engines/timeline/components/WorldDateField';
 import { useWorldCalendar, worldDateText } from '@/engines/timeline/useWorldCalendar';
 import { parseWorldDate, validateWorldRange, type WorldDate } from '@/engines/timeline/worldCalendar';
 import type { Writing } from '@/types';
+import ChapterWorldContext from '@/engines/worldgen/components/ChapterWorldContext';
 
 interface ChapterWorldDateProps {
   projectId: string;
@@ -67,6 +68,7 @@ export default function ChapterWorldDate({ projectId, writing, onUpdate }: Chapt
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" data-testid="chapter-world-date">
       <WorldDateField calendar={calendar} label={t('writings.worldDate')} value={start} onChange={setStart} testId="chapter-world-date-start" />
       <WorldDateField calendar={calendar} label={t('writings.worldDateEnd')} value={end} onChange={setEnd} optional testId="chapter-world-date-end" />
+      <div className="sm:col-span-2"><ChapterWorldContext projectId={projectId} writingId={writing.id} /></div>
     </div>
   );
 }

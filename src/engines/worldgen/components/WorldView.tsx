@@ -1,3 +1,7 @@
+import { describeWorldPresence } from '../placeCards';
+import type { WeatherDate } from '../core/weather';
+import WorldPresence from './WorldPresence';
+import { WorldWeatherDate } from './WorldWeather';
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
 import {preparePlaceImages,webPlaceImageAdapter,type PlaceImagePainter} from '../cartography/placeImages';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -381,6 +385,10 @@ export default function WorldView({
     selectPanelTab(tab);
     setToolsOpen(true);
   }, []);
+  const [weatherText, setWeatherText] = useState('');
+  const [weatherDate, setWeatherDate] = useState<WeatherDate>();
+  const [presencePoint, setPresencePoint] = useState<{ x: number; y: number } | null>(null);
+  const inspectGround = useCallback((x: number, y: number) => { setPresencePoint({ x, y }); setSelectedSpatialKey(null); setPanelTab('places'); }, [setPanelTab]);
   const [atlasKey, setAtlasKey] = useState<string | null>(null);
   const [selectedSpatialKey, setSelectedSpatialKey] = useState<string | null>(null);
   // The journey: two ends, the route between them, and the world at another
@@ -845,6 +853,12 @@ export default function WorldView({
     [selectedSpatialKey, spatialEntities, data, geography],
   );
 
+  const presenceCard = useMemo(() => {
+    const point = selectedSpatialEntity ?? presencePoint;
+    if (panelTab !== 'places' || !data || geography?.depth !== 'full' || !point) return null;
+    return describeWorldPresence(data, geography, point, weatherDate, session.current?.serialize() ?? world.edits);
+  }, [panelTab, data, geography, selectedSpatialEntity, presencePoint, weatherDate, world.edits, paintRev]); // eslint-disable-line react-hooks/exhaustive-deps -- PaintSession mutates live fields; paintRev is its invalidation token.
+
   if (focusSpatial && focusSpatial.token !== consumedSpatialToken) {
     const entity = spatialEntities.find((candidate) => candidate.key === focusSpatial.id);
     if (entity && data) {
@@ -915,7 +929,7 @@ export default function WorldView({
    * an improvement on no roads.
    */
   const needsFullGeo = view === 'carta' || view === 'map' || skin3D === 'dibujado' || skin3D === 'pintado'
-    || panelTab === 'atlas' || panelTab === 'journey';
+    || panelTab === 'atlas' || panelTab === 'journey' || panelTab === 'places';
   /**
    * The 2D and the 3D need the geography for their GROUND, not only for dots:
    * the satellite tile fetcher bails without it (`Map2D` → `regionClient`), so
@@ -2743,11 +2757,12 @@ export default function WorldView({
               onSelectLabel={setSelectedLabelKey}
               onSelectStory={setSelectedStoryId}
               onPlaceStory={paintable ? placeStory : undefined}
+              onInspectGround={inspectGround}
               onPickGround={journeyPick && panelTab === 'journey' ? pickJourneyPoint : null}
               onPickCell={tradePlacing ? (x, y) => {
                 const site = normalizeTradeSite({ id: `site-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`, kind: tradePlacing.kind, x: Math.floor(x), y: Math.floor(y), size: tradePlacing.size, placeId: null });
                 if (!applyEdit(tradeSiteEdit(site))) toast.error(t('worldgen.story.busy'));
-              } : null}
+              } : panelTab === 'places' && !brushIsOut ? inspectGround : null}
               onMoveStory={paintable ? (id, x, y) => updateStory(id, { x, y }) : undefined}
               onMapMenu={paintable && !measuring && !tradePlacing ? setWorldMenu : undefined}
               measuring={measuring}
@@ -2804,6 +2819,7 @@ export default function WorldView({
                 onViewportChange={setViewport}
                 flyTarget={flyTarget}
                 flyMark={flyMark}
+                onInspectGround={inspectGround}
                 onInspect={panelTab === 'atlas' && data && geography
                   ? ((x, y) => {
                     // Anything with a name, not only the dots: a click on the
@@ -2812,7 +2828,7 @@ export default function WorldView({
                     const p = placeAt(buildAtlas(data, geography), data, x, y, 10);
                     setAtlasKey(p ? p.key : null);
                   })
-                  : undefined}
+                  : panelTab === 'places' ? inspectGround : undefined}
               />
             )
           )}
@@ -2857,6 +2873,8 @@ export default function WorldView({
                 revision={paintRev}
                 flyTarget={flyTarget}
                 flyMark={flyMark}
+                onInspectGround={inspectGround}
+                inspectingGround={panelTab === 'places'}
                 onPickSettlement={pickSettlement}
                 onPickWaypoint={(id) => {
                   setSelectedWaypointId(id);
@@ -3025,6 +3043,7 @@ export default function WorldView({
             <PanelTab active={panelTab === 'places'} onClick={() => setPanelTab('places')} label={t('worldgen.panel.place')} />
           </div>
           <div className="flex-1 overflow-y-auto p-3">
+            {(panelTab === 'places' || panelTab === 'journey') && <div className="mb-4"><WorldWeatherDate projectId={projectId} value={weatherText} onTextChange={setWeatherText} onChange={setWeatherDate} /></div>}
             {panelTab === 'regions' ? (
               <SavedRegionsPanel
                 regions={savedRegions}
@@ -3042,7 +3061,9 @@ export default function WorldView({
                 }}
               />
             ) : panelTab === 'places' ? (
-              selectedSpatialEntity && data ? (
+              <div className="space-y-5">
+              {presenceCard && <WorldPresence card={presenceCard} title={selectedSpatialEntity?.name} />}
+              {selectedSpatialEntity && data ? (
                 <SpatialEntityInspector
                   projectId={projectId}
                   worldId={world.id}
@@ -3103,9 +3124,9 @@ export default function WorldView({
                 />
               ) : (
                 <p className="text-[11px] text-text-muted">
-                  {t('worldgen.panel.placeEmpty')}
+                  {!presenceCard && t('worldgen.panel.placeEmpty')}
                 </p>
-              )
+              )}</div>
             ) : panelTab === 'atlas' ? (
               data && geography ? (
                 <AtlasPanel
@@ -3146,6 +3167,7 @@ export default function WorldView({
             ) : panelTab === 'journey' ? (
               data && geography ? (
               <JourneyPanel
+                weatherDate={weatherDate}
                   key={journeySelectionKey}
                   initialSelection={selectionOwner.value}
                   onSelectionChange={(selection) => { if (journeySelection.current === selectionOwner) selectionOwner.value = selection; }}
