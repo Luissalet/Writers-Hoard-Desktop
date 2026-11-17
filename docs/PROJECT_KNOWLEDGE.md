@@ -575,6 +575,19 @@ overwritten or treated as disposable.
 - Ledger map points: `services/continuity/worldPlaces.ts` searches the atlas, painted labels and named stamps of
   every project world (`openWorldForReading`, the locator's folding and ranking) or takes typed `x, y` cells.
 
+## Voice by character
+
+- Pure core in `src/engines/writings/voice/`: `dialogue.ts` (dash and quote dialogue split into speech and asides;
+  attribution `tag` / `beat` / `turn` / `scene` with Codex names, aliases from `readAliases` and unique first names)
+  and `profile.ts` (`buildProfiles`, `findOutliers` with leave-one-out word likelihood, length z and address form,
+  seeded `blindSample`, `scoreBlind`). Tests: `tests/voice-logic.ts`, run by `npm run test:continuity`.
+- `services/voice/report.ts` reads writings (`htmlToText`), character cards and Dialog Scene `dialog` blocks; the
+  panel (`writings/components/voice/VoicePanel.tsx`), the Codex section (`CharacterVoice.tsx` in `CodexEntryList`)
+  and the bridge (`services/voice/bridge.ts`, registered through the continuity tool arrays) share it.
+- Storage: only `codexEntries.voice` (`{description, at, model?}`), written by `services/voice/ops.ts` with Undo; no
+  ids inside, so backups and duplicates carry it as is.
+- `WritingsView` reads `&quote=` on `?writing=` deep links and selects that passage (same path as the Judge).
+
 ## Local world authoring — scoped source update (2026-10-21)
 
 This section updates only the local authoring extension; the earlier verification

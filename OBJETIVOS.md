@@ -6,13 +6,8 @@ El verificador de viajes y el libro de estado están entregados (panel «Continu
 viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel_check`, `wh_character_state`,
 `wh_state_ledger*`, `wh_continuity_mark`). Queda:
 
-- **Voz por personaje (Ágora writers #3333).** Perfil de los diálogos de cada personaje sacado del manuscrito
-  (atribución por la acotación «dijo X» y por los bloques de Dialog Scene): longitud media de frase y su dispersión,
-  léxico propio frente al del resto (palabras con mayor razón de frecuencia), muletillas y expresiones repetidas,
-  tratamiento tú/usted/vos, signos (exclamaciones, preguntas, puntos suspensivos). Marcar las líneas cuya huella se
-  parece más a otro personaje que al suyo, con enlace a la frase. Prueba ciega: mezclar líneas sin atribución y que el
-  autor adivine de quién es cada una, con la puntuación final. Determinista, sin modelo; herramientas
-  `wh_voice_profile` y `wh_voice_outliers`.
+- **Voz por personaje.** Entregada (panel, ficha, prueba ciega, `wh_voice_*`). Queda: atribuir por pronombre
+  («—dijo ella») con el género de la ficha y probar la descripción con el modelo global de las Sparks en vivo.
 - **Radiografía de ritmo (#3334).** Por escena y capítulo: diálogo, narración y descripción, longitud y densidad de
   acción, en una curva sobre los beats del esquema que señale tramos planos o desequilibrados.
 - **Deriva del plan (#3335).** Comparar cada capítulo con el beat que debía cumplir y proponer actualizar el esquema.
