@@ -321,9 +321,10 @@ text after a user click.
 `core/weather.ts` owns `world-weather/1`, a pure, stateless daily atmosphere over
 existing temperature/rainfall/SST/current fields. `weatherAt` requires an exact
 project-calendar date and returns local solar hours, polar states, the calendar's
-own moon states and a cloud-attenuated relative night-light index. Year phase uses
-actual leap-year length; finite windows sample absolute carrier coordinates.
-Fixed tilt and the northward equinox at year start are explicit model assumptions.
+own moon states and a cloud-attenuated relative night-light index. Finite windows
+sample absolute carrier coordinates.
+The calendar's season determines thermal and solar forcing at each latitude.
+The model uses a fixed axial tilt and omits seasonal forcing in seasonless worlds.
 
 `placeCards.ts` extends the incumbent card operations with
 `describeWorldPresence`, reusing biome/economic site fitness, the existing language

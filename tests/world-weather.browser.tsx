@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { db } from '@/db';
 import type { Project, Writing } from '@/types';
-import { defaultWorldCalendar, fromDayNumber, moonsOn, toDayNumber, type WorldCalendar } from '@/engines/timeline/worldCalendar';
+import { defaultWorldCalendar, fromDayNumber, moonsOn, seasonOfDate, toDayNumber, type WorldCalendar } from '@/engines/timeline/worldCalendar';
 import { Biome, DEFAULT_PARAMS, type WorldData } from '@/engines/worldgen/core/types';
 import { weatherAt, weatherTravelFactor, validateWeatherDate } from '@/engines/worldgen/core/weather';
 import { planRoute } from '@/engines/worldgen/core/travel';
@@ -83,16 +83,34 @@ export async function testWorldWeather(): Promise<string[]> {
   }
   tests.push('seeded weather, exact dates, leap days, negative years, custom day and multiple calendar moons');
   const planet = { ...world, params: { ...world.params, worldKm: undefined } };
-  const summer = { calendar: weatherCalendar, date: { year: 1, month: 2, day: 1 } };
+  const summer = { calendar: weatherCalendar, date: { year: 1, month: 3, day: 1 } };
   const north = weatherAt(planet, { x: 1, y: 0 }, summer), south = weatherAt(planet, { x: 1, y: 31 }, summer);
   assert(north.sun.state === 'polarDay' && south.sun.state === 'polarNight', 'Polar day/night incorrect');
-  assert(north.season === 'summer' && south.season === 'winter', 'Hemispheric seasons incorrect');
+  assert(north.season === 'summer' && south.season === north.season, 'Reported season must match the calendar at either pole');
+  const unequal: WorldCalendar = { ...weatherCalendar, leap: undefined, months: [
+    { name: 'Long', days: 90 }, { name: 'Short', days: 10 }, { name: 'Harvest', days: 10 }, { name: 'Frost', days: 10 },
+  ] };
+  const shortMonth = { year: 1, month: 2, day: 1 };
+  const unequalQuarter = weatherAt(world, point, { calendar: unequal, date: shortMonth });
+  assert(unequalQuarter.season === 'autumn' && unequalQuarter.season === seasonOfDate(unequal, shortMonth), 'Calendar quarters must be divided by days');
+  const forcedWinter: WorldCalendar = { ...weatherCalendar, seasons: { mode: 'months', starts: { winter: 3, spring: 4, summer: 1, autumn: 2 } } };
+  const southCalendar: WorldCalendar = { ...weatherCalendar, seasons: { mode: 'quarters', hemisphere: 'south' } };
+  const noSeasons: WorldCalendar = { ...weatherCalendar, seasons: { mode: 'none' } };
+  const polarPoint = { x: 1, y: 0 };
+  for (const calendar of [forcedWinter, southCalendar]) {
+    const winter = weatherAt(planet, polarPoint, { calendar, date: summer.date });
+    assert(winter.season === seasonOfDate(calendar, summer.date) && winter.season === 'winter', 'Calendar overrides must move winter');
+    assert(winter.temperatureC < north.temperatureC && winter.sun.state === 'polarNight', 'Calendar overrides must also move temperature and daylight');
+  }
+  const seasonless = weatherAt(planet, polarPoint, { calendar: noSeasons, date: summer.date });
+  assert(seasonless.season === null && seasonless.sun.daylightHours === 15, 'A seasonless world must omit seasonal forcing');
+  assert(equal(seasonless.moons, north.moons), 'Calendar seasons must not alter lunar phases');
   assert(equal(weatherAt(world, { x: -1, y: 14 }, context), weatherAt(world, { x: 63, y: 14 }, context)), 'Legacy longitude seam is not deterministic');
   const warmer = structuredClone(world); warmer.temperature.fill(28);
   assert(Math.abs(weatherAt(warmer, point, context).temperatureC - first.temperatureC - 10) < 0.001, 'Mean climate not respected');
   const moonless = weatherAt(world, point, { ...context, calendar: { ...weatherCalendar, moons: [] } });
   assert(moonless.nightLight === 0 && moonless.moons.length === 0, 'Moonless world has invented light');
-  tests.push('climate offsets, hemispheres, polar sky, longitude seam and moonless nights');
+  tests.push('climate offsets, calendar quarters, month starts, hemispheres, seasonless sky, longitude seam and moons');
   const crop = { ...fixture(), width: 32, height: 16, domain: { version: 1 as const, topology: 'finite' as const, revision: 1,
     source: { width: 64, height: 32, baseCellKm: 1000 / 64, sourceKey: 'unit' }, bounds: { x: 8, y: 8, width: 32, height: 16 }, catalogue: { version: 1 as const, sourceKey: 'unit', entries: [] } } };
   assert(equal(weatherAt(crop, { x: 7, y: 6 }, context), first), 'Finite crop moved weather at the same absolute carrier point');
@@ -119,6 +137,18 @@ export async function testWorldWeather(): Promise<string[]> {
   assert(dated.weather?.baseHours === ordinary.hours && dated.stages.length >= ordinary.stages.length, 'Weather duration/stages inconsistent');
   assert(Math.abs((dated.stretches ?? []).reduce((sum, p) => sum + p.hours, 0) - dated.hours) < 0.00001, 'Dated stretches do not sum to hours');
   assert(weatherTravelFactor(first, 'ship') >= 1, 'Weather accelerated sea travel unexpectedly');
+  const sheetSea = structuredClone(crop);
+  sheetSea.elevation.fill(-0.1);
+  sheetSea.biome.fill(Biome.Ocean);
+  const harbour = 7 * sheetSea.width + 31;
+  sheetSea.elevation[harbour] = 0.2;
+  sheetSea.biome[harbour] = Biome.TemperateForest;
+  const maritime = { mode: 'ship' as const, season: 'autumn' as const, via: [{ x: 31.75, y: 7 }] };
+  const from = { x: 26, y: 7 }, to = { x: 28, y: 9 };
+  const ordinarySea = planRoute(sheetSea, geo, from, to, maritime);
+  const datedSea = planRoute(sheetSea, geo, from, to, { ...maritime, weather: context });
+  assert(ordinarySea.cells.includes(harbour) && equal(ordinarySea.cells, datedSea.cells), 'Dated route lost the terminal at the finite edge');
+  assert(Number.isFinite(datedSea.hours) && datedSea.hours >= ordinarySea.hours, 'Dated route stalled or skipped the terminal step');
   tests.push('weather opt-in preserves path, charges daily delays, updates stages and consistent terrain times');
   const ids = await seedWorldWeather();
   const args = { ...ids, key: ids.placeKey, date: context.date };

@@ -1898,9 +1898,9 @@ Las consultas son de lectura y un mundo sin preparar responde `pending`. No hace
 falta crear una tarjeta de Códex para consultar el entorno de un punto.
 
 El modelo ficticio `world-weather/1` es reproducible desde la semilla y campos del
-mundo. Tiene inclinación axial fija de 23,44 grados, primer día en el equinoccio de
-primavera del norte y horas solares locales de la duración propia del día. El
-índice de luz lunar considera nubes, sin órbitas, horizontes o lux físicos.
+mundo. La estación del calendario gobierna la variación térmica y solar según la
+latitud, con inclinación axial fija de 23,44 grados y la duración propia del día.
+El índice de luz lunar considera nubes, sin órbitas, horizontes o lux físicos.
 [Contrato de las fichas](../src/engines/worldgen/PLACE-CARDS.md).
 
 ## 28. Mapas: aspecto, viaje, medidas, épocas y rótulos (Ágora 1095)
