@@ -274,6 +274,8 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     if (seat.founded > year) seat.founded = year;
     const prior = seat.owner;
     setOwner(si, pi, year);
+    // A realm gets a generation to settle before its seat can be taken.
+    seat.holdUntil = Math.max(seat.holdUntil ?? -Infinity, year + 30);
     ev({ year, kind: 'polity-founded', polity: p.key, place: p.seat, ...(prior >= 0 ? { other: polities[prior].key } : {}), ...(p.migrantsFrom ? { langId: p.langId } : {}), ...at(seat) });
     if (prior >= 0 && polities[prior].realm === undefined && nodesOf(prior).length === 0) collapse(prior, year, -1, r);
     newRuler(pi, year, 'founding', r);
