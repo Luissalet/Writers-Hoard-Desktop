@@ -1,6 +1,5 @@
 // AI bridge handlers for the world history simulation.
 import { db } from '@/db';
-import { worldgenScopeOperations } from '../era';
 import { assertEngineEnabled, BridgeError, optBoolean, optNumber, optString, requireString, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import { formatWorldDate } from '@/engines/timeline/worldCalendar';
@@ -9,7 +8,7 @@ import { openWorldForReading } from '../bridgeAccess';
 import type { GeneratedWorld } from '../types';
 import { historyInputFrom } from './fromGeography';
 import { normalizeHistorySettings, ownerAt, politiesAt, simulateHistory } from './simulate';
-import { acceptedKeys, acceptProposals, historyRecordOf, saveHistorySettings, sendHistoryToTimeline } from './store';
+import { acceptedKeys, acceptProposals, historyRecordOf, readHistoryWorld, saveHistorySettings, sendHistoryToTimeline } from './store';
 import { eventText, historyNames, historyProposals, ruinCauseText, type HistoryLang, type HistoryNames, type ProposalGroup } from './text';
 import type { HistoryEvent, HistoryInput, HistoryPin, HistorySettings, WorldHistory } from './types';
 
@@ -21,7 +20,7 @@ async function loadWorld(args: ToolArgs): Promise<GeneratedWorld> {
   const owner = projectId ?? base?.projectId;
   if (eraId && !owner) throw new BridgeError('bad-args', 'Pass projectId for a world that exists only in an era.');
   const world = eraId && owner
-    ? await worldgenScopeOperations({ projectId: owner, eraId }).worlds.getOne(worldId)
+    ? await readHistoryWorld({ projectId: owner, eraId }, worldId)
     : base ?? await db.generatedWorlds.get(worldId);
   if (!world) throw new BridgeError('not-found', `No generated world with id "${worldId}" in this scope.`);
   if (projectId && world.projectId !== projectId) throw new BridgeError('bad-args', `World "${worldId}" does not belong to project "${projectId}".`);
@@ -64,7 +63,7 @@ function summary(b: Built) {
     worldId: b.world.id, settings: h.settings, startYear: h.startYear, endYear: h.endYear,
     span: `${b.names.year(h.startYear)} – ${b.names.year(h.endYear)}`,
     realms: h.polities.map((p) => ({ key: p.key, name: p.name, founded: b.names.year(p.founded), ...(p.fell !== undefined ? { fell: b.names.year(p.fell), ...(p.fellTo ? { fellTo: p.fellTo } : {}) } : { standing: true }), language: b.names.lang(p.langId), seat: b.names.place(p.seat), dynasties: p.dynasties.length, ...(p.migrantsFrom ? { migrantsFrom: p.migrantsFrom } : {}) })),
-    ruins: h.ruins.map((r) => ({ key: r.ruin, name: r.name, founded: b.names.year(r.founded), fell: b.names.year(r.fell), cause: ruinCauseText(r.cause, b.lang), ...(r.by ? { by: r.by } : {}), ...(r.polity ? { realm: r.polity } : {}) })),
+    ruins: h.ruins.map((r) => ({ key: r.ruin, name: r.name, eventId: r.eventId, founded: b.names.year(r.founded), fell: b.names.year(r.fell), cause: ruinCauseText(r.cause, b.lang), ...(r.by ? { by: r.by } : {}), ...(r.polity ? { realm: r.polity } : {}) })),
     substrateNames: h.toponyms.map((t) => ({ place: t.place, name: t.name, language: b.names.lang(t.langId), rulersLanguage: b.names.lang(t.rulerLangId), since: b.names.year(t.since), ...(t.alternative ? { inRulersLanguage: t.alternative } : {}) })),
     counts: { events: h.events.length, wars: h.events.filter((e) => e.kind === 'war').length, realms: h.polities.length, ruinsExplained: h.ruins.length },
     notes: h.notes,
@@ -140,7 +139,7 @@ export const WORLD_HISTORY_HANDLERS = {
       return {
         key: pl.key, name: pl.name, ...(h.founded[pl.key] !== undefined ? { founded: built.names.year(h.founded[pl.key]) } : { founded: `≤ ${built.names.year(h.startYear)}` }),
         holders: (h.owners[pl.key] ?? []).map((o) => ({ realm: o.polity ? built.names.polity(o.polity) : null, key: o.polity || null, from: built.names.year(o.from) })),
-        ...(ruin ? { ruin: { fell: built.names.year(ruin.fell), cause: ruinCauseText(ruin.cause, built.lang), ...(ruin.by ? { by: built.names.polity(ruin.by) } : {}) } } : {}),
+        ...(ruin ? { ruin: { eventId: ruin.eventId, realm: ruin.polity ?? null, fell: built.names.year(ruin.fell), cause: ruinCauseText(ruin.cause, built.lang), ...(ruin.by ? { by: built.names.polity(ruin.by) } : {}) } } : {}),
         ...(sub ? { substrate: { language: built.names.lang(sub.langId), rulersLanguage: built.names.lang(sub.rulerLangId), since: built.names.year(sub.since), inRulersLanguage: sub.alternative } } : {}),
         events: pick((e) => e.place === pl.key || e.toPlace === pl.key),
       };
