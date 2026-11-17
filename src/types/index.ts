@@ -178,6 +178,11 @@ export interface CodexEntry {
    * read it; nothing else does.
    */
   revealed?: CodexReveal;
+  /**
+   * Only meaningful on `character` entries: the chapter-by-chapter state ledger,
+   * how they travel and the continuity findings marked as intended.
+   */
+  continuity?: import('@/engines/writings/continuity/types').CharacterContinuity;
   createdAt: number;
   updatedAt: number;
 }
