@@ -190,3 +190,82 @@ export async function testWorldHistoryStore(): Promise<string[]> {
   }
   return out;
 }
+
+/** The bridge tools over a real generated world: simulate, read a realm and a place, propose, accept, send to the timeline. */
+export async function testWorldHistoryBridge(): Promise<string[]> {
+  const { db } = await import('@/db');
+  const { normalizeParams } = await import('@/engines/worldgen/core/types');
+  const { WORLD_HISTORY_HANDLERS: H } = await import('@/engines/worldgen/history/bridge');
+  const { WORLD_HISTORY_TOOLS } = await import('@/engines/worldgen/history/bridgeManifest');
+  const out: string[] = [];
+  for (const tool of WORLD_HISTORY_TOOLS) {
+    const first = tool.description.split('\n')[0];
+    assert(first.length <= 110 && first.includes(' · '), `${tool.name}: first line in EN · ES within 110 (${first.length})`);
+  }
+  const projectId = `hist-${crypto.randomUUID()}`, worldId = crypto.randomUUID(), now = Date.now();
+  const engines = ['worldgen', 'codex', 'timeline'];
+  await db.projects.add({ id: projectId, title: 'H', mode: 'custom', type: 'standalone', color: '#888', description: '', status: 'draft', enabledEngines: engines, engineOrder: engines, createdAt: now, updatedAt: now });
+  const params = normalizeParams({ seed: 'bridge-history', width: 512 });
+  await db.generatedWorlds.add({ id: worldId, projectId, title: 'W', params, createdAt: now, updatedAt: now });
+  // Bridge reads never forge a world: they read its snapshot, as the app leaves it.
+  const { generateWorld } = await import('@/engines/worldgen/core/pipeline');
+  const { paramsKey } = await import('@/engines/worldgen/useWorldGeneration');
+  const { saveSnapshot } = await import('@/engines/worldgen/snapshots');
+  await saveSnapshot(worldId, paramsKey(params), generateWorld(params));
+  type R = Record<string, unknown> & { pending?: boolean };
+  const call = async (name: keyof typeof H, args: Record<string, unknown>): Promise<R> => {
+    for (let i = 0; i < 120; i++) {
+      const r = await (H[name] as (a: Record<string, unknown>) => Promise<R>)({ projectId, worldId, lang: 'en', ...args });
+      if (!r.pending) return r;
+      await new Promise((ok) => setTimeout(ok, 1000));
+    }
+    throw Error(`${name} stayed pending: ${JSON.stringify(await (H[name] as (a: Record<string, unknown>) => Promise<R>)({ projectId, worldId, ...args }))}`);
+  };
+  try {
+    const sim = await call('wh_world_history_simulate', { seed: 'one', centuries: 5, aggression: 0.7, endYear: 900 });
+    const realms = sim.realms as { key: string; name: string }[];
+    assert(sim.simulated && realms.length > 0 && (sim.counts as { events: number }).events > 0, 'Simulated');
+    const audit = sim.__audit as { before: unknown; kind: string };
+    assert(audit.kind === 'update' && JSON.stringify(audit.before) === '{"__absent":["history"]}', 'Undo restores the world row');
+    assert((await db.generatedWorlds.get(worldId))!.history!.settings.seed === 'one', 'Settings stored');
+    const again = await call('wh_world_history', {});
+    assert(JSON.stringify(again.realms) === JSON.stringify(sim.realms), 'Reading gives the same history');
+    const realm = await call('wh_world_history', { realm: realms[0].name });
+    assert(realm.key === realms[0].key && Array.isArray(realm.dynasties), 'A realm by name');
+    const ruins = sim.ruins as { key: string }[];
+    if (ruins.length) {
+      const place = await call('wh_world_history', { place: ruins[0].key });
+      assert(place.ruin && Array.isArray(place.holders), 'A ruin has its fall');
+    }
+    const yearView = await call('wh_world_history', { year: 700 });
+    assert(Array.isArray(yearView.standing), 'Realms standing in a year');
+    const props = await call('wh_world_history_proposals', { groups: ['realm'] });
+    const list = props.proposals as { key: string; accepted: boolean }[];
+    assert(list.length === realms.length && list.every((p) => !p.accepted), 'One open card per realm');
+    const acc = await call('wh_world_history_accept', { keys: [list[0].key] });
+    const accAudit = acc.__audit as { kind: string; entityIds: string[]; table: string };
+    assert(accAudit.kind === 'create' && accAudit.entityIds.length === 1 && accAudit.table === 'codexEntries', 'Accepting is an undoable create');
+    // Re-simulating with another aggression keeps the accepted card.
+    await call('wh_world_history_simulate', { aggression: 0.2 });
+    const after = await call('wh_world_history_proposals', { groups: ['realm'] });
+    assert((after.proposals as { key: string; accepted: boolean }[]).find((p) => p.key === list[0].key)?.accepted, 'Still accepted after re-simulating');
+    const tl = await call('wh_world_history_to_timeline', {});
+    assert(tl.createdTimeline && (tl.eventsAdded as number) > 0, 'Sent to a new timeline');
+    const tl2 = await call('wh_world_history_to_timeline', {});
+    assert(!tl2.createdTimeline && tl2.eventsAdded === 0, 'Nothing sent twice');
+    // Engine off: writes refuse.
+    await db.projects.update(projectId, { enabledEngines: ['worldgen'] });
+    let refused = false;
+    try { await call('wh_world_history_accept', { all: true }); } catch { refused = true; }
+    assert(refused, 'Accepting refuses with the Codex off');
+    out.push(`realms ${realms.length}, events ${(sim.counts as { events: number }).events}, ruins ${ruins.length}, timeline ${tl.eventsAdded}`);
+  } finally {
+    await db.codexEntries.where('projectId').equals(projectId).delete();
+    await db.timelineEvents.where('projectId').equals(projectId).delete();
+    await db.timelines.where('projectId').equals(projectId).delete();
+    await db.generatedWorlds.delete(worldId);
+    await db.worldSnapshots.where('worldId').equals(worldId).delete().catch(() => undefined);
+    await db.projects.delete(projectId);
+  }
+  return out;
+}
