@@ -13,7 +13,10 @@ export const PACING_HANDLERS = {
     return {
       projectId, words: report.words, tension: report.tension,
       chapters: report.chapters.filter((c) => !writingId || c.writingId === writingId).map((c) => ({ ...c, label: report.titles[c.writingId] })),
-      scenes: scenes.map(({ anchor: _anchor, ...scene }) => ({ ...scene, chapterTitle: report.titles[scene.writingId] })),
+      scenes: scenes.map(({ id, writingId, chapter, index, quote, words, dialogue, narration, description, action, sentence, pace, tension, at }) => ({
+        id, writingId, chapter, index, quote, words, dialogue, narration, description, action, sentence, pace, tension, at,
+        chapterTitle: report.titles[writingId],
+      })),
       flags: report.flags.filter((flag) => flag.sceneIds.some((id) => keep.has(id))),
       beats: report.beats,
     };
