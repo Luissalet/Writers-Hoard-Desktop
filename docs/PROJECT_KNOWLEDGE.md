@@ -318,6 +318,15 @@ text after a user click.
 
 ### Worldgen
 
+Worldgen stores in-world cartographer plates in the generated world recipe. The
+modules in src/engines/worldgen/inWorldMaps derive knowledge from a culture or
+named atlas place, the economy at the chosen calendar date and known trade
+lanes. They reuse reader-fog states for chapter reveals and ordered manual
+corrections, and derive foreign place names from the cartographer's language.
+The plate uses cartography themes and exports SVG, PNG and single-page PDF. The
+Codex backlink follows the linked entry in the same era. Local manuscript
+insertion places a raster copy at the start of a chapter.
+
 The world viewport is shared across 2D, 3D, and regional sheets. Semantic zoom
 uses planetary, continental, regional, and local tiers with hysteresis,
 deterministic label decluttering, and tier-specific feature budgets. Close
