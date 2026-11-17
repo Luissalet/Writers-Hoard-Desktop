@@ -89,6 +89,20 @@ export interface WorldCalendar {
   leap?: WorldLeapRule;
   /** Which day of this calendar falls on which Gregorian day (YYYY-MM-DD): lets dates convert to and from the Earth calendar. */
   correlation?: { date: WorldDate; earth: string };
+  /** When each season starts. Absent: the year in four equal quarters, the first one winter. */
+  seasons?: WorldSeasons;
+}
+
+export const WORLD_SEASONS = ['winter', 'spring', 'summer', 'autumn'] as const;
+export type WorldSeason = (typeof WORLD_SEASONS)[number];
+
+export interface WorldSeasons {
+  /** quarters: four equal parts of the year, winter first · months: each season starts on the first day of a month · none: the world has no seasons. */
+  mode: 'quarters' | 'months' | 'none';
+  /** 1-based month each season starts in, as the northern hemisphere sees it. */
+  starts?: Record<WorldSeason, number>;
+  /** south: the same months, with winter and summer, spring and autumn swapped. */
+  hemisphere?: 'north' | 'south';
 }
 
 export interface WorldDate {
@@ -210,6 +224,17 @@ export function validateWorldCalendar(input: unknown): string[] {
   if (cal.correlation !== undefined && cal.correlation !== null) {
     const c = cal.correlation as { date?: WorldDate; earth?: unknown };
     if (!c.date || !isInt(c.date.year) || !isInt(c.date.month) || !isInt(c.date.day) || typeof c.earth !== 'string' || !/^-?\d{1,6}-\d{2}-\d{2}$/.test(c.earth)) errors.push('correlation needs a full date of this calendar and an Earth date YYYY-MM-DD.');
+  }
+  if (cal.seasons !== undefined && cal.seasons !== null) {
+    const s = cal.seasons as Partial<WorldSeasons>;
+    if (s.mode !== 'quarters' && s.mode !== 'months' && s.mode !== 'none') errors.push('seasons.mode must be quarters, months or none.');
+    if (s.hemisphere !== undefined && s.hemisphere !== 'north' && s.hemisphere !== 'south') errors.push('seasons.hemisphere must be north or south.');
+    if (s.mode === 'months') {
+      const starts = s.starts as Partial<Record<WorldSeason, unknown>> | undefined;
+      const count = Array.isArray(cal.months) ? cal.months.length : 0;
+      if (!starts || !WORLD_SEASONS.every((season) => isInt(starts[season]) && (starts[season] as number) >= 1 && (starts[season] as number) <= count)) errors.push('seasons.starts needs an existing month for winter, spring, summer and autumn.');
+      else if (new Set(WORLD_SEASONS.map((season) => starts[season])).size !== 4) errors.push('Each season must start in a different month.');
+    }
   }
   if (cal.leap !== undefined && cal.leap !== null) {
     const l = cal.leap;
@@ -500,4 +525,31 @@ export function validateWorldRange(cal: WorldCalendar, start: WorldDate, end?: W
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
+}
+
+const SOUTH: Record<WorldSeason, WorldSeason> = { winter: 'summer', summer: 'winter', spring: 'autumn', autumn: 'spring' };
+
+/**
+ * The season a date falls in, as the calendar's seasons say; null when the
+ * world has no seasons. Without settings the year is split in four equal
+ * quarters starting with winter.
+ */
+export function seasonOfDate(cal: WorldCalendar, date: WorldDate): WorldSeason | null {
+  const settings = cal.seasons;
+  if (settings?.mode === 'none') return null;
+  const months = monthsInYear(cal, date.year);
+  const month = date.month ?? months[0];
+  let season: WorldSeason;
+  if (settings?.mode === 'months' && settings.starts) {
+    const starts = settings.starts;
+    // The season whose first month is the latest at or before this one; before the earliest start, the year's last season goes on.
+    const order = [...WORLD_SEASONS].sort((a, b) => starts[a] - starts[b]);
+    season = [...order].reverse().find((key) => starts[key] <= month) ?? order[order.length - 1];
+  } else {
+    const index = Math.max(0, months.indexOf(month));
+    const length = daysInMonth(cal, date.year, month) || 1;
+    const share = (index + ((date.day ?? 1) - 1) / length) / Math.max(1, months.length);
+    season = WORLD_SEASONS[Math.min(3, Math.floor(Math.max(0, Math.min(0.9999, share)) * 4))];
+  }
+  return settings?.hemisphere === 'south' ? SOUTH[season] : season;
 }

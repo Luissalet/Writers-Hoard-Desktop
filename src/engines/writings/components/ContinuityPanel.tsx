@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BookUser, ChevronDown, ChevronRight, Footprints, Map as MapIcon, RefreshCw, Undo2 } from 'lucide-react';
@@ -10,6 +10,7 @@ import type { TravelMode } from '@/engines/worldgen/core/travel';
 import { useContinuityReport } from '@/services/continuity/useContinuityReport';
 import { characterStateAt, dayText, type ContinuityReport } from '@/services/continuity/report';
 import { addLedgerEntry, removeLedgerEntry, revertContinuity, setIntentional, setTravelMode, type ContinuityReceipt } from '@/services/continuity/ledgerOps';
+import { parseCellPoint, searchWorldPlaces, type WorldPlaceHit } from '@/services/continuity/worldPlaces';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import type { Writing } from '@/types';
 
@@ -64,7 +65,7 @@ export default function ContinuityPanel({ projectId, writing, onUpdateWriting }:
           <h2 className="text-xs font-bold text-text-primary">{t('continuity.title')}</h2>
           {report && <ProblemCount report={report} writingId={writing.id} />}
         </button>
-        <button type="button" onClick={refresh} className="rounded p-1 text-text-dim hover:bg-elevated hover:text-text-primary" aria-label={t('continuity.loading')} title={t('continuity.loading')}>
+        <button type="button" onClick={refresh} className="rounded p-1 text-text-dim hover:bg-elevated hover:text-text-primary" aria-label={t('continuity.refresh')} title={t('continuity.refresh')}>
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
         </button>
       </div>
@@ -88,7 +89,7 @@ export default function ContinuityPanel({ projectId, writing, onUpdateWriting }:
           {!report ? <p className="text-[10px] text-text-dim">{t('continuity.loading')}</p>
             : tab === 'travel'
               ? <TravelTab report={report} projectId={projectId} writingId={writing.id} run={run} receiptUndo={receiptUndo} onUpdateWriting={onUpdateWriting} />
-              : <StateTab report={report} projectId={projectId} writing={writing} run={run} receiptUndo={receiptUndo} />}
+              : <StateTab report={report} projectId={projectId} eraId={scope.eraId} writing={writing} run={run} receiptUndo={receiptUndo} />}
         </div>
       )}
     </section>
@@ -136,7 +137,7 @@ function IntentionalControl({ note, onSave, onClear, testId }: { note?: string; 
 }
 
 function TravelTab({ report, projectId, writingId, run, receiptUndo, onUpdateWriting }: { report: ContinuityReport; projectId: string; writingId: string; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void>; onUpdateWriting: ContinuityPanelProps['onUpdateWriting'] }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const [all, setAll] = useState(false);
   const writings = useLiveQuery(() => db.writings.where('projectId').equals(projectId).toArray(), [projectId]);
@@ -166,7 +167,7 @@ function TravelTab({ report, projectId, writingId, run, receiptUndo, onUpdateWri
               <p className="text-[10px] text-text-muted">{leg.from.label} ({chapterName(report, leg.from.writingId)}) → {leg.to.label} ({chapterName(report, leg.to.writingId)})</p>
               {leg.neededDays !== null && (
                 <p className="text-[10px] text-text-muted">
-                  {leg.availableDays !== null ? fill(t('continuity.days'), { needed: leg.neededDays, available: leg.availableDays }) : `${leg.neededDays} d`}{leg.km !== null ? ` · ${leg.km} km` : ''}
+                  {leg.availableDays !== null ? fill(t('continuity.days'), { needed: leg.neededDays.toLocaleString(locale), available: leg.availableDays.toLocaleString(locale) }) : `${leg.neededDays.toLocaleString(locale)} d`}{leg.km !== null ? ` · ${leg.km.toLocaleString(locale)} km` : ''}
                 </p>
               )}
               {leg.minStart !== undefined && report.calendar && (
@@ -228,7 +229,7 @@ function describeLine(report: ContinuityReport, line: LedgerEntry, t: (key: stri
   return `${t(`continuity.kind.${line.kind}`)}${what ? `: ${what}` : ''}`;
 }
 
-function StateTab({ report, projectId, writing, run, receiptUndo }: { report: ContinuityReport; projectId: string; writing: ContinuityPanelProps['writing']; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void> }) {
+function StateTab({ report, projectId, eraId, writing, run, receiptUndo }: { report: ContinuityReport; projectId: string; eraId?: string; writing: ContinuityPanelProps['writing']; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void> }) {
   const { t } = useTranslation();
   const [characterId, setCharacterId] = useState('');
   const current = report.characters.find((c) => c.id === characterId) ?? report.characters[0];
@@ -276,7 +277,7 @@ function StateTab({ report, projectId, writing, run, receiptUndo }: { report: Co
             </li>
           ))}
         </ul>
-        <AddLine report={report} projectId={projectId} characterId={current.id} writingId={writing.id} run={run} receiptUndo={receiptUndo} />
+        <AddLine report={report} projectId={projectId} eraId={eraId} characterId={current.id} writingId={writing.id} run={run} receiptUndo={receiptUndo} />
       </div>
 
       <div className="space-y-1 border-t border-border pt-2">
@@ -306,7 +307,7 @@ function Row({ label, value }: { label: string; value?: string }) {
   );
 }
 
-function AddLine({ report, projectId, characterId, writingId, run, receiptUndo }: { report: ContinuityReport; projectId: string; characterId: string; writingId: string; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void> }) {
+function AddLine({ report, projectId, eraId, characterId, writingId, run, receiptUndo }: { report: ContinuityReport; projectId: string; eraId?: string; characterId: string; writingId: string; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void> }) {
   const { t } = useTranslation();
   const [kind, setKind] = useState<LedgerKind>('location');
   const [label, setLabel] = useState('');
@@ -317,6 +318,25 @@ function AddLine({ report, projectId, characterId, writingId, run, receiptUndo }
   const [item, setItem] = useState('');
   const [toId, setToId] = useState('');
   const [text, setText] = useState('');
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [foundPlaces, setPlaceHits] = useState<WorldPlaceHit[]>([]);
+  const [placeSearching, setPlaceSearching] = useState(false);
+  const [worldPick, setWorldPick] = useState<{ label: string; worldId: string; x: number; y: number } | null>(null);
+  const [coordWorld, setCoordWorld] = useState('');
+  const typedPoint = parseCellPoint(placeQuery);
+  const placeHits = placeQuery.trim() && !typedPoint ? foundPlaces : [];
+  useEffect(() => {
+    if (!placeQuery.trim() || parseCellPoint(placeQuery)) return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      setPlaceSearching(true);
+      void searchWorldPlaces(projectId, placeQuery, { eraId, limit: 12 })
+        .then((result) => { if (live) setPlaceHits(result.hits); })
+        .catch(() => { if (live) setPlaceHits([]); })
+        .finally(() => { if (live) setPlaceSearching(false); });
+    }, 250);
+    return () => { live = false; window.clearTimeout(timer); setPlaceSearching(false); };
+  }, [placeQuery, projectId, eraId]);
   const codex = useLiveQuery(() => db.codexEntries.where('projectId').equals(projectId).toArray(), [projectId]);
   const seeds = useLiveQuery(() => db.seeds.where('projectId').equals(projectId).toArray(), [projectId]);
   // Map points the story already uses: story event places and ledger points.
@@ -328,14 +348,14 @@ function AddLine({ report, projectId, characterId, writingId, run, receiptUndo }
   const items = (codex ?? []).filter((e) => e.type === 'item');
   const knownFacts = useMemo(() => [...new Set(report.placed.filter((p) => p.entry.kind === 'learns' && p.entry.fact).map((p) => p.entry.fact!))], [report]);
   const submit = () => void run(t('continuity.add'), async () => {
-    const picked = points.find(([key]) => key === point)?.[1];
+    const picked = worldPick ?? points.find(([key]) => key === point)?.[1];
     const entry: Partial<LedgerEntry> = { writingId, kind, source: 'author' };
     if (kind === 'location') entry.place = { label: label || picked?.label || '', ...(picked ? { worldId: picked.worldId, x: picked.x, y: picked.y } : {}) };
     if (kind === 'learns' || kind === 'actsOn') { entry.fact = fact; if (seedId) entry.seedId = seedId; }
     if (kind === 'gains' || kind === 'loses' || kind === 'uses') { if (itemId) entry.itemId = itemId; if (item) entry.item = item; if (kind === 'loses' && toId) entry.toId = toId; }
     if (text) entry.text = text;
     const receipt = await addLedgerEntry(projectId, characterId, entry);
-    setLabel(''); setPoint(''); setFact(''); setSeedId(''); setItemId(''); setItem(''); setToId(''); setText('');
+    setLabel(''); setPoint(''); setWorldPick(null); setPlaceQuery(''); setFact(''); setSeedId(''); setItemId(''); setItem(''); setToId(''); setText('');
     return receiptUndo(receipt);
   });
   return (
@@ -350,6 +370,46 @@ function AddLine({ report, projectId, characterId, writingId, run, receiptUndo }
             <option value="">{t('continuity.field.noMapPoint')}</option>
             {points.map(([key, p]) => <option key={key} value={key}>{p.label} ({Math.round(p.x)}, {Math.round(p.y)})</option>)}
           </select>
+          {report.worlds.length > 0 && (
+            <div className="space-y-1">
+              <input data-testid="continuity-place-search" value={placeQuery} onChange={(e) => setPlaceQuery(e.target.value)} placeholder={t('continuity.field.searchPlace')} aria-label={t('continuity.field.searchPlace')} className={input} />
+              {placeSearching && <p className="text-[10px] text-text-dim">{t('continuity.field.searching')}</p>}
+              {typedPoint && (
+                <div className="flex items-center gap-1">
+                  {report.worlds.length > 1 && (
+                    <select value={coordWorld || report.worlds[0].id} onChange={(e) => setCoordWorld(e.target.value)} className={input} aria-label={t('continuity.field.world')}>
+                      {report.worlds.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                  )}
+                  <button type="button" data-testid="continuity-place-point" className={linkButton} onClick={() => {
+                    const worldId = coordWorld || report.worlds[0].id;
+                    setWorldPick({ label: label || `${typedPoint.x}, ${typedPoint.y}`, worldId, x: typedPoint.x, y: typedPoint.y });
+                    setPlaceQuery('');
+                  }}>{fill(t('continuity.field.usePoint'), { x: typedPoint.x, y: typedPoint.y })}</button>
+                </div>
+              )}
+              {placeHits.length > 0 && (
+                <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-border bg-deep p-1" data-testid="continuity-place-hits">
+                  {placeHits.map((hit) => (
+                    <li key={`${hit.worldId}|${hit.key}`}>
+                      <button type="button" data-testid="continuity-place-hit" className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-text-primary hover:bg-elevated"
+                        onClick={() => { setWorldPick({ label: hit.name, worldId: hit.worldId, x: hit.x, y: hit.y }); if (!label) setLabel(hit.name); setPlaceQuery(''); setPlaceHits([]); }}>
+                        <span className="truncate">{hit.name}</span>
+                        <span className="shrink-0 text-[10px] text-text-dim">{report.worlds.length > 1 ? `${report.worlds.find((w) => w.id === hit.worldId)?.name ?? ''} · ` : ''}{Math.round(hit.x)}, {Math.round(hit.y)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!placeSearching && placeQuery.trim() && !typedPoint && !placeHits.length && <p className="text-[10px] text-text-dim">{t('continuity.field.noPlaces')}</p>}
+              {worldPick && (
+                <p data-testid="continuity-place-picked" className="flex items-center justify-between gap-2 rounded bg-elevated px-1.5 py-0.5 text-[10px] text-text-muted">
+                  <span className="truncate">{fill(t('continuity.field.pickedPlace'), { place: worldPick.label, x: Math.round(worldPick.x), y: Math.round(worldPick.y) })}</span>
+                  <button type="button" className={linkButton} onClick={() => setWorldPick(null)}>{t('continuity.field.clearPlace')}</button>
+                </p>
+              )}
+            </div>
+          )}
         </>
       )}
       {(kind === 'learns' || kind === 'actsOn') && (

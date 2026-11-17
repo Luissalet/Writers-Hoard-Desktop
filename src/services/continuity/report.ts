@@ -3,14 +3,14 @@
 // the chapter panel, the map trail and the AI bridge, so all three show the same data.
 import { db } from '@/db';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
-import { formatWorldDate, fromDayNumber, monthsInYear, daysInMonth, toDayNumber, toLastDayNumber, validateWorldRange, type WorldCalendar } from '@/engines/timeline/worldCalendar';
+import { formatWorldDate, fromDayNumber, seasonOfDate, toDayNumber, toLastDayNumber, validateWorldRange, type WorldCalendar } from '@/engines/timeline/worldCalendar';
 import { worldgenScopeOperations } from '@/engines/worldgen/era';
 import { deserializeEdits } from '@/engines/worldgen/core/edits';
 import { storyEventsFrom, type StoryEvent } from '@/engines/worldgen/core/storyEvents';
 import type { GeneratedWorld } from '@/engines/worldgen/types';
 import type { Season, TravelMode } from '@/engines/worldgen/core/travel';
 import { checkLedger, placeLedger, stateAt, type CharacterState, type PlacedLine, type Presence, type StateFinding } from '@/engines/writings/continuity/ledger';
-import { chapterOfEvent, collectAppearances, judgeLeg, legsOf, seasonOfYearShare, type Appearance, type LegEstimate, type TravelLeg } from '@/engines/writings/continuity/travel';
+import { chapterOfEvent, collectAppearances, judgeLeg, legsOf, type Appearance, type LegEstimate, type TravelLeg } from '@/engines/writings/continuity/travel';
 import type { ChapterRef, CharacterContinuity, LedgerEntry } from '@/engines/writings/continuity/types';
 import type { CodexEntry, Writing } from '@/types';
 
@@ -45,15 +45,14 @@ export function chapterRefs(writings: readonly Writing[], calendar: WorldCalenda
     .sort((a, b) => (a.chapter ?? 1e9) - (b.chapter ?? 1e9) || a.title.localeCompare(b.title));
 }
 
-/** Season a day falls in: the calendar year in quarters, starting in winter. */
+/**
+ * Season a day falls in, from the calendar's season settings (by default the
+ * year in quarters starting in winter). A world without seasons travels as in summer.
+ */
 export function seasonOfDay(calendar: WorldCalendar | null, day: number | null): Season {
   if (!calendar || day === null) return 'summer';
   try {
-    const date = fromDayNumber(calendar, day);
-    const months = monthsInYear(calendar, date.year);
-    const index = Math.max(0, months.indexOf(date.month ?? months[0]));
-    const length = daysInMonth(calendar, date.year, date.month ?? months[0]) || 1;
-    return seasonOfYearShare((index + ((date.day ?? 1) - 1) / length) / Math.max(1, months.length));
+    return seasonOfDate(calendar, fromDayNumber(calendar, day)) ?? 'summer';
   } catch { return 'summer'; }
 }
 

@@ -4,6 +4,9 @@ import { checkLedger, normalizeLedgerEntry, placeLedger, stateAt } from '@/engin
 import { collectAppearances, judgeLeg, legsOf, seasonOfYearShare } from '@/engines/writings/continuity/travel';
 import type { ChapterRef, LedgerEntry } from '@/engines/writings/continuity/types';
 import type { StoryEvent } from '@/engines/worldgen/core/storyEvents';
+import { remapIntentionalKey, remapIntentionalMarks, remapStoryEditsJson } from '@/engines/writings/continuity/duplicateKeys';
+import { travelTimelineItems, VERDICT_COLORS, writingIdOfTimelineEvent } from '@/engines/writings/continuity/timelineLanes';
+import { defaultWorldCalendar, seasonOfDate, validateWorldCalendar } from '@/engines/timeline/worldCalendar';
 
 const chapters: ChapterRef[] = [
   { writingId: 'w1', chapter: 1, title: 'One', start: 100, end: 100 },
@@ -85,5 +88,45 @@ export function runContinuityLogicTests(): string[] {
   assert.throws(() => normalizeLedgerEntry({ id: 'x', writingId: 'w1', kind: 'location', place: { label: 'A', x: 1, y: 2 } }), /worldId/);
   assert.throws(() => normalizeLedgerEntry({ id: 'x', writingId: 'w1', kind: 'uses' }), /itemId/);
   passed.push('ledger lines are validated');
+
+  // Duplicating a project: intended marks and story events follow the new ids.
+  const ids = { world: (id: string) => ({ W: 'W2' } as Record<string, string>)[id], codex: (id: string) => ({ ana: 'ana2', bo: 'bo2' } as Record<string, string>)[id], writing: (id: string) => ({ w1: 'w1b' } as Record<string, string>)[id] };
+  assert.equal(remapIntentionalKey('event:W:a>event:W:b', ids), 'event:W2:a>event:W2:b');
+  assert.equal(remapIntentionalKey('event:W:a>ledger:sl-1', ids), 'event:W2:a>ledger:sl-1');
+  assert.equal(remapIntentionalKey('after-death:bo:event:W:z', ids), 'after-death:bo2:event:W2:z');
+  assert.equal(remapIntentionalKey('two-places:ana:sl-1:sl-2', ids), 'two-places:ana2:sl-1:sl-2');
+  assert.equal(remapIntentionalKey('item-not-carried:other:sl-9', ids), 'item-not-carried:other:sl-9');
+  assert.deepEqual(remapIntentionalMarks({ 'event:W:a>event:W:b': 'magic' }, ids), { 'event:W2:a>event:W2:b': 'magic' });
+  const v2 = JSON.stringify({ v: 2, edits: [{ kind: 'story', id: 'a', who: ['ana', 'x'], writingId: 'w1' }, { kind: 'river', pts: [] }] });
+  assert.deepEqual(JSON.parse(remapStoryEditsJson(v2, ids)).edits[0], { kind: 'story', id: 'a', who: ['ana2', 'x'], writingId: 'w1b' });
+  const v3 = JSON.stringify({ v: 3, legacy: { json: v2, count: 2 }, steps: [{ kind: 'edit', edit: { kind: 'story', id: 'b', who: ['bo'] } }] });
+  const v3out = JSON.parse(remapStoryEditsJson(v3, ids));
+  assert.deepEqual(JSON.parse(v3out.legacy.json).edits[0].who, ['ana2', 'x']);
+  assert.deepEqual(v3out.steps[0].edit.who, ['bo2']);
+  assert.equal(remapStoryEditsJson('[{"kind":"river"}]', ids), '[{"kind":"river"}]');
+  passed.push('duplicate remaps the ids inside intended marks and story events');
+
+  // Seasons: quarters by default, months, hemisphere and none.
+  const cal = defaultWorldCalendar();
+  assert.equal(seasonOfDate(cal, { year: 1, month: 1, day: 1 }), 'winter');
+  assert.equal(seasonOfDate(cal, { year: 1, month: 7, day: 10 }), 'summer');
+  const byMonth = { ...cal, seasons: { mode: 'months' as const, starts: { winter: 12, spring: 3, summer: 6, autumn: 9 } } };
+  assert.deepEqual(validateWorldCalendar(byMonth), []);
+  assert.equal(seasonOfDate(byMonth, { year: 1, month: 1, day: 5 }), 'winter');
+  assert.equal(seasonOfDate(byMonth, { year: 1, month: 3, day: 1 }), 'spring');
+  assert.equal(seasonOfDate(byMonth, { year: 1, month: 12, day: 1 }), 'winter');
+  assert.equal(seasonOfDate({ ...byMonth, seasons: { ...byMonth.seasons, hemisphere: 'south' } }, { year: 1, month: 7, day: 1 }), 'winter');
+  assert.equal(seasonOfDate({ ...cal, seasons: { mode: 'none' } }, { year: 1, month: 7, day: 1 }), null);
+  assert.ok(validateWorldCalendar({ ...cal, seasons: { mode: 'months', starts: { winter: 1, spring: 1, summer: 6, autumn: 9 } } }).length > 0);
+  passed.push('the season of a date follows the calendar settings');
+
+  // Timeline lanes: one per traveller, a band per dated leg, coloured by verdict.
+  const lanes = travelTimelineItems(cal, [{ ...judgeLeg('ana', apps[0], apps[1], [{ writingId: 'w1', chapter: 1, title: 'One', start: 0, end: 0 }, { writingId: 'w2', chapter: 2, title: 'Two', start: 2, end: 3 }], { days: 10, km: 100 }) }],
+    [{ writingId: 'w1', chapter: 1, title: 'One', start: 0, end: 0 }, { writingId: 'w2', chapter: 2, title: 'Two', start: 2, end: 3 }], { ana: 'Ana' }, 'p', { lane: (n) => `Travel ${n}`, verdict: (v) => v, intended: 'Intended' });
+  assert.equal(lanes.lanes.length, 1);
+  assert.equal(lanes.lanes[0].title, 'Travel Ana');
+  assert.equal(lanes.events[0].color, VERDICT_COLORS.impossible);
+  assert.equal(writingIdOfTimelineEvent(lanes.events[0].id), 'w2');
+  passed.push('travel legs become timeline bands that open the destination chapter');
   return passed;
 }
