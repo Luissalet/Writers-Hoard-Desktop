@@ -130,6 +130,15 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId, what: summary };
   }
 
+  if (entry.tool === 'wh_plan_drift_apply' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__planDrift' in entry.before) {
+    const { revertBeatProposal } = await import('@/services/planDrift/ops');
+    const receipt = (entry.before as { __planDrift: import('@/services/planDrift/ops').DriftReceipt }).__planDrift;
+    try {
+      await revertBeatProposal(entry.projectId, receipt);
+    } catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId, what: summary };
+  }
+
   if (entry.tool === 'wh_create_place_card' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__placeCard' in entry.before) {
     const { undoPlaceCard } = await import('@/engines/worldgen/placeCards');
     try {

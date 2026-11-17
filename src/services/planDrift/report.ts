@@ -8,6 +8,9 @@ import { storyEventsFrom } from '@/engines/worldgen/core/storyEvents';
 import { readAliases } from '@/services/codexReference/aliases';
 import { checkDrift, type DriftReport } from '@/engines/writings/planDrift/drift';
 import { t } from '@/i18n/useTranslation';
+import { listEraRows } from '@/services/worldEras/store';
+import type { CodexEntry, Writing } from '@/types';
+import type { GeneratedWorld } from '@/engines/worldgen/types';
 import type { OutlineBeat } from '@/engines/outline/types';
 
 export interface ProjectDrift extends DriftReport {
@@ -17,15 +20,16 @@ export interface ProjectDrift extends DriftReport {
   outlines: Record<string, string>;
 }
 
-export async function buildDriftReport(projectId: string, outlineId?: string): Promise<ProjectDrift> {
+export async function buildDriftReport(projectId: string, outlineId?: string, eraId?: string): Promise<ProjectDrift> {
+  const scope = { projectId, eraId };
   const [writings, codex, outlines, beats, seeds, payoffs, worlds] = await Promise.all([
-    db.writings.where('projectId').equals(projectId).toArray(),
-    db.codexEntries.where('projectId').equals(projectId).toArray(),
+    eraId ? listEraRows<Writing>(scope, 'writings') : db.writings.where('projectId').equals(projectId).toArray(),
+    eraId ? listEraRows<CodexEntry>(scope, 'codexEntries') : db.codexEntries.where('projectId').equals(projectId).toArray(),
     db.outlines.where('projectId').equals(projectId).toArray(),
     db.outlineBeats.where('projectId').equals(projectId).toArray(),
     db.seeds.where('projectId').equals(projectId).toArray(),
     db.payoffs.where('projectId').equals(projectId).toArray(),
-    db.generatedWorlds.where('projectId').equals(projectId).toArray(),
+    eraId ? listEraRows<GeneratedWorld>(scope, 'generatedWorlds') : db.generatedWorlds.where('projectId').equals(projectId).toArray(),
   ]);
   const story = outlines.filter((o) => o.kind !== 'session' && (!outlineId || o.id === outlineId));
   const storyIds = new Set(story.map((o) => o.id));
