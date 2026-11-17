@@ -32,7 +32,6 @@ Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pest
   «Añadir al libro», o se descarta.
 - **MCP.** `wh_travel_check`, `wh_character_state`, `wh_state_ledger`, `wh_state_ledger_add`,
   `wh_state_ledger_remove` y `wh_continuity_mark` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
-- **No hace todavía:** la deriva del plan está descrita en `OBJETIVOS.md`.
 
 ## Voz por personaje
 
@@ -69,6 +68,23 @@ Panel «Radiografía de ritmo» junto al capítulo abierto (debajo de Voz por pe
   diálogo, escena larga sin diálogo, escena tres veces más larga que la mediana.
 - **Tensión.** La app no guarda tensión por escena ni por capítulo, así que la curva usa el ritmo calculado.
 - **MCP.** `wh_pacing` (lectura).
+
+## Deriva del plan
+
+Panel «Deriva del plan» junto al capítulo abierto (debajo de Radiografía de ritmo): el camino de vuelta de «escribir
+el capítulo de este beat».
+
+- **Comparación.** Cada beat de los esquemas de historia frente al capítulo enlazado: personajes, lugares y otras
+  fichas del Códex que nombra el beat (nombre o alias), y las semillas y pagos enlazados al beat; en el capítulo, los
+  nombres del texto, los sucesos del mapa contados en él y las promesas por enlace o por su título en el texto.
+  Estado: lo cumple, se ha desviado (menos de la mitad de lo que nombra el beat) o sin capítulo. Dice qué falta y qué
+  trae además el capítulo. Determinista, sin modelo.
+- **Vistas.** «Este capítulo» (sus beats) y «Todo el esquema» (beats desviados, sin capítulo o con propuesta, y los
+  capítulos que ningún beat enlaza), con enlaces al beat y al capítulo.
+- **Actualizar el esquema desde el capítulo.** Propuesta con el antes y el después: el título del capítulo si el beat
+  se ha desviado (si no, el del beat) y una descripción hecha con la sinopsis del capítulo (o su comienzo) y quién y
+  dónde aparece. Solo se escribe al pulsar «Actualizar el beat», con Deshacer.
+- **MCP.** `wh_plan_drift` (lectura) y `wh_plan_drift_apply` (escritura, con Deshacer).
 
 ## Imágenes en documentos Source compartidos — 2114
 

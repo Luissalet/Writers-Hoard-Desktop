@@ -10,7 +10,8 @@ viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel
   («—dijo ella») con el género de la ficha y probar la descripción con el modelo global de las Sparks en vivo.
 - **Radiografía de ritmo.** Entregada (panel con curva y beats, avisos, `wh_pacing`). Queda: una tensión por escena
   guardada por el autor que la curva pueda superponer al ritmo calculado.
-- **Deriva del plan (#3335).** Comparar cada capítulo con el beat que debía cumplir y proponer actualizar el esquema.
+- **Deriva del plan.** Entregada (panel, propuesta con Deshacer, `wh_plan_drift*`). Queda la comparación semántica
+  opcional con el modelo global (qué sucede, no solo quién y dónde) cuando los nombres no bastan.
 - **Puntos del libro de estado.** Ya se busca cualquier lugar con nombre del mundo; faltan las fichas de lugar del
   Códex enlazadas a un lugar del mapa (dependen de la ficha «estar allí», #3339).
 - **Juez.** La propuesta de línea del modo Estado de la historia se ha probado aceptándola desde el servicio; falta una

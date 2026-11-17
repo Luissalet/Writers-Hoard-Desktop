@@ -598,6 +598,17 @@ overwritten or treated as disposable.
 - UI: `writings/components/pacing/PacingPanel.tsx` (SVG curve); jumps use `handleJudgeNavigate`, beats open
   `/outline?outline=&beat=`. Bridge: `wh_pacing` through the continuity tool arrays. Nothing is stored.
 
+## Plan drift
+
+- Pure core `src/engines/writings/planDrift/drift.ts`: `checkDrift(beats, chapters, entities, promises, events)`
+  names what a beat expects with the voice name index (names, aliases, unique first names), compares it with the
+  chapter text, story events (`who` by `writingId`) and seeds/payoffs (`linkedBeatId`, found by `linkedWritingId` or
+  title in the text); status `kept` / `drifted` (< 0.5) / `unwritten`; `proposal` from synopsis or opening plus who
+  and where; `unplanned` chapters. Tests: `tests/drift-logic.ts`.
+- `services/planDrift/report.ts` reads story outlines only (not session outlines); `ops.ts` writes the proposal
+  through `outline/operations.updateBeat` and reverts it if the beat is unchanged since. Panel:
+  `writings/components/planDrift/DriftPanel.tsx`. Bridge: `wh_plan_drift`, `wh_plan_drift_apply`.
+
 ## Local world authoring — scoped source update (2026-10-21)
 
 This section updates only the local authoring extension; the earlier verification
