@@ -16,7 +16,10 @@ Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pest
   personaje con los tramos imposibles en rojo y los justos en ámbar. En la línea de tiempo (vista Carriles), cada
   viajero tiene un carril de solo lectura «Viajes · <nombre>» con una banda por tramo, del día de salida al de
   llegada, en el color del veredicto (gris si es intencionado); un clic abre el capítulo de destino.
-- **Estaciones.** El calendario del mundo dice cuándo empieza cada estación: el año en cuartos empezando por el
+- **Épocas.** Con una época con nombre activa, el informe lee los capítulos y fichas de esa época y el libro de estado
+  escribe en su versión de la ficha (Deshacer en la misma época). Un tramo sin ruta posible para el medio de viaje
+  cuenta como problema y se puede marcar como intencionado.
+- **Estaciones.** El calendario del mundo dice cuándo empieza cada estación: el año en cuartos por días empezando por el
   invierno (por defecto), cada estación desde un mes, hemisferio sur (invierno y verano cambiados) o sin estaciones
   (se viaja como en verano). Se ajusta en «Calendario del mundo» (sección Estaciones).
 - **Libro de estado.** Por personaje y capítulo: está en, aprende, actúa sabiendo, consigue, pierde o entrega (a otro

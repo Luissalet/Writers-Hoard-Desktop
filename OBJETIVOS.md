@@ -12,6 +12,10 @@ viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel
   guardada por el autor que la curva pueda superponer al ritmo calculado.
 - **Deriva del plan.** Entregada (panel, propuesta con Deshacer, `wh_plan_drift*`). Queda la comparación semántica
   opcional con el modelo global (qué sucede, no solo quién y dónde) cuando los nombres no bastan.
+- **Épocas en voz, ritmo y deriva.** Continuidad ya lee y escribe la época con nombre activa; voz, ritmo y deriva
+  leen todavía la base compartida.
+- **Origen de las estaciones.** El año del calendario empieza en invierno por defecto; el tiempo atmosférico (#3337)
+  cuenta desde el equinoccio norte. Acordar un origen común y que los dos usen `seasonOfDate`.
 - **Puntos del libro de estado.** Ya se busca cualquier lugar con nombre del mundo; faltan las fichas de lugar del
   Códex enlazadas a un lugar del mapa (dependen de la ficha «estar allí», #3339).
 - **Juez.** La propuesta de línea del modo Estado de la historia se ha probado aceptándola desde el servicio; falta una
