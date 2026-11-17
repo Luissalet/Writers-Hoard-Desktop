@@ -748,13 +748,14 @@ export async function testContinuityEraBridge(): Promise<string[]> {
   const now = Date.now();
   const project: Project = {
     id: projectId, title: 'Continuity demo', description: '', mode: 'custom', type: 'standalone',
-    color: '#777777', status: 'draft', enabledEngines: ['codex', 'writings'], engineOrder: ['codex', 'writings'],
+    color: '#777777', status: 'draft', enabledEngines: ['codex', 'writings', 'outline'], engineOrder: ['codex', 'writings', 'outline'],
     createdAt: now, updatedAt: now,
   };
   const root = (id: string, title: string) => ({ id: `${projectId}-${id}`, projectId, title, createdAt: now, updatedAt: now });
   const shared: CodexEntry = { ...root('person', 'Shared character'), type: 'character', fields: {}, content: '', tags: [], relations: [] };
   const exclusive = { ...shared, ...root('traveller', 'Era traveller') };
-  const first = { ...root('one', 'Departure'), chapter: 1, status: 'draft' as const, content: '<p>—Vuelve pronto —dijo Shared character.</p>', wordCount: 0, tags: [] };
+  const gate: CodexEntry = { ...shared, ...root('gate', 'North gate'), type: 'location' };
+  const first = { ...root('one', 'Departure'), chapter: 1, status: 'draft' as const, content: '<p>—Vuelve pronto —dijo Shared character.</p><p>North gate stood open.</p>', wordCount: 0, tags: [] };
   const eraContent = '<p>—Ya he vuelto —dijo Era traveller.</p><hr><p>Cruzó el patio.</p>';
   const second = { ...first, ...root('two', 'Arrival'), chapter: 2 };
   const call = async <T>(tool: string, args: Record<string, unknown>): Promise<T> => {
@@ -773,7 +774,7 @@ export async function testContinuityEraBridge(): Promise<string[]> {
 
   try {
     await db.projects.add(project);
-    await db.codexEntries.add(shared);
+    await db.codexEntries.bulkAdd([shared, gate]);
     await db.writings.bulkAdd([first, second]);
     await saveWorldEra(projectId, { id: eraId, name: 'Named era', description: '', revision: 0, createdAt: now, updatedAt: now }, null);
     await mutateEraRows(scope, [
@@ -837,9 +838,22 @@ export async function testContinuityEraBridge(): Promise<string[]> {
     assert((await runBridgeTool('__undo', { entry: auditEntry('wh_pacing_set_tension', tensionWrite.__audit) })).ok, 'Undo did not restore era scene tension');
     assert((await pacing(scope)).scenes[0]?.tension == null, 'Undo left manual tension on the era scene');
 
-    return ['Novelist tools use era-only cards, prose and ledgers, with scoped undo for continuity and pacing'];
+    const outline = root('outline', 'Story outline');
+    const beat = { ...root('beat', 'North gate'), description: 'Arrive at North gate.', outlineId: outline.id,
+      level: 'beat' as const, status: 'outlined' as const, linkedWritingId: first.id, order: 0 };
+    await db.outlines.add(outline);
+    await db.outlineBeats.add(beat);
+    type DriftResult = { beats: Array<{ status: string; proposal?: { title: string } }> };
+    assert((await call<DriftResult>('wh_plan_drift', { projectId })).beats[0]?.status === 'kept', 'Drift could not read the Base prose');
+    const eraDrift = (await call<DriftResult>('wh_plan_drift', scope)).beats[0];
+    assert(eraDrift?.status === 'drifted' && eraDrift.proposal?.title === first.title, 'Drift did not use the era prose');
+    const applied = await call<{ __audit: Record<string, unknown> }>('wh_plan_drift_apply', { ...scope, beatId: beat.id });
+    assert((await db.outlineBeats.get(beat.id))?.title === first.title, 'Scoped proposal did not update the shared outline beat');
+    assert((await runBridgeTool('__undo', { entry: auditEntry('wh_plan_drift_apply', applied.__audit) })).ok, 'Undo did not restore the shared outline beat');
+    assert((await db.outlineBeats.get(beat.id))?.title === beat.title, 'Scoped proposal left a change to the shared outline');
+    return ['Novelist tools use era-only cards, prose and ledgers, with undo for continuity, pacing and drift'];
   } finally {
-    for (const table of [db.worldEraVariants, db.writings, db.codexEntries]) await table.where('projectId').equals(projectId).delete();
+    for (const table of [db.worldEraVariants, db.writings, db.codexEntries, db.outlineBeats, db.outlines]) await table.where('projectId').equals(projectId).delete();
     await db.projects.delete(projectId);
   }
 }
