@@ -8,6 +8,7 @@ import {WORLD_FOLDER_IMPORT_HANDLERS} from '@/services/worldFolderImport/bridge'
 import {PROJECT_PIN_HANDLERS} from '@/services/projectPin/bridge';
 import {PROJECT_DUPLICATE_HANDLERS} from '@/services/projectDuplicate/bridge';
 import {WRITING_TOOL_DOCK_HANDLERS} from '@/engines/writings/toolDock/bridge';
+import { CONTINUITY_HANDLERS } from '@/services/continuity/bridge';
 import {readLibraryCreationContext} from '@/components/project/workspace/library/createCodex';
 import { WORLD_GRAPH_QUERY_HANDLERS } from '@/engines/codex/worldGraph/bridge';
 import { VISUAL_SEARCH_HANDLERS } from '@/services/visualSearch/bridge';
@@ -400,6 +401,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...PROJECT_PIN_HANDLERS,
   ...PROJECT_DUPLICATE_HANDLERS,
   ...WRITING_TOOL_DOCK_HANDLERS,
+  ...CONTINUITY_HANDLERS,
   ...WORLD_GRAPH_QUERY_HANDLERS,
   ...ENTITY_DETECTION_HANDLERS,
   ...PARALLEL_DRAFT_HANDLERS,
