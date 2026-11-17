@@ -121,7 +121,7 @@ export default {
   'continuity.noFindings': 'No contradictions in the state ledger.',
   'continuity.finding.item-not-carried': '{character} uses or hands over “{detail}” without carrying it',
   'continuity.finding.after-death': '{character} appears after dying in {other}',
-  'continuity.finding.knows-before-learning': '{character} acts on “{detail}”, which they only learn in {other}',
+  'continuity.finding.knows-before-learning': '{character} acts on “{detail}” before learning it in {other}.',
   'continuity.finding.two-places': '{character} is in two places at once: {detail}',
   'continuity.fromJudge': 'From Judge',
   'continuity.proposal': 'Proposal for the state ledger',
