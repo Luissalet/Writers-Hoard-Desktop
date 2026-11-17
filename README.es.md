@@ -17,6 +17,7 @@ Es además el plugin Writer de la familia Hoard. Absorbe como módulos independi
 - Motor de documentos nativo (Rust) para DOCX, PDF y otros formatos, panel de Cambios con propuestas ancladas, estilos editoriales con nombre, encabezados y pies, ortografía local en español y gramática opcional (LanguageTool, requiere Java 17+), y una comprobación de documentos contra reglas de documentación.
 - Continuación sugerida (texto fantasma): desactivada por defecto, solo con modelos locales, Tab para aceptarla.
 - Notas con listas de tareas y tableros kanban, esquemas, diario, storyboards, planificador de vídeo, lectura beta y auditoría de punto de vista.
+- Continuidad: los viajes de cada personaje comprobados contra las fechas del mundo de los capítulos con el motor de rutas (tramos imposibles marcados en el mapa y fecha mínima válida propuesta) y libro de estado por capítulo: dónde está cada personaje, qué sabe, qué lleva, su estado físico y si vive, con comprobación de contradicciones.
 - Importaciones: carpetas Markdown de Obsidian, Notion, World Anvil y Campfire, documentos mixtos, texto pegado, PDF con texto y manuscritos ePub.
 
 **Construcción de mundos**

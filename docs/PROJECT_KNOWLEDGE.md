@@ -551,6 +551,21 @@ Always inspect `git status` first. The repository often contains deliberate
 uncommitted work, staged alternatives, and archived experiments that must not be
 overwritten or treated as disposable.
 
+## Continuity: travel check and state ledger
+
+- Pure core in `src/engines/writings/continuity/`: `types.ts` (ledger line, `CharacterContinuity`, `ChapterRef`),
+  `travel.ts` (appearances from story events `who` plus ledger map points, legs, verdict against calendar days,
+  earliest valid start) and `ledger.ts` (normalize, story-order placing with gifts, `stateAt`, `checkLedger`).
+  Tests: `npm run test:continuity` (`tests/continuity-logic.ts`).
+- Storage: `codexEntries.continuity` on character cards (no Dexie version; backups, project deletion and duplicate
+  carry it; duplicate remaps the ids inside ledger lines through `projectDuplicate/remap.ts`).
+- `src/services/continuity/report.ts` builds one report (chapters with day ranges, appearances, legs planned with
+  `planRoute` on `openWorldForReading`, ledger findings, intended marks). Consumers: `ContinuityPanel` in the
+  Writings side column, `useCharacterTrail` → `WorldView` annotations (`TrailPoint.impossible/tight` drawn by
+  `cartography/readerTrail.ts`), and the bridge tools in `services/continuity/bridge.ts`.
+- Judge `story-state` findings may carry `ledgerProposal` (`services/judge/ledgerProposal.ts`); accepting it
+  goes through `services/continuity/judgeProposals.ts` into the same ledger writer.
+
 ## Local world authoring — scoped source update (2026-10-21)
 
 This section updates only the local authoring extension; the earlier verification

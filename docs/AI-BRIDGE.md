@@ -2824,3 +2824,36 @@ Source draft field projection (task1890): `wh_local_tool_open_document_query` ad
 ### Ephemeral Source presence
 
 `wh_local_tool_presence_query` is readonly. Pass `projectId`, optional `eraId`, `namespace` and `documentId`. It reports `status` and the existing host instances with room/peer snapshots, including stable person IDs and identified connections. It does not open a document, choose/create a profile, join a session, publish state, receive causal document updates or save anything. No active host produces an unavailable empty projection. Project/era and Source identity are revalidated after asynchronous reads; retired host bindings are excluded. The tool uses the ordinary bridge and manifest; its API keys are readers of the same people, not separate collaborator identities. The SSE presence transport uses the renderer listener, independently of the optional MCP8766 switch.
+
+## Continuidad: verificador de viajes y libro de estado
+
+Las seis herramientas leen un único informe (`src/services/continuity/report.ts`), el mismo que pinta el panel
+«Continuidad» junto al manuscrito y el rastro del personaje en el mapa.
+
+- `wh_travel_check` (lectura): `projectId`, `eraId`, `characterId` y `onlyProblems` opcionales. Cada tramo une dos
+  apariciones seguidas de un personaje: sucesos de historia del mapa que lo nombran en `who` y, en capítulos sin
+  suceso, ubicaciones del libro de estado con punto de mapa. La ruta sale del motor de viajes del mundo (terreno,
+  modo habitual del personaje, estación de la fecha: el año en cuartos empezando en invierno, ritmo y perfil del
+  mundo) y se compara con los días entre el primer día del capítulo de salida y el último del de llegada, ambos
+  incluidos. Veredictos: `impossible`, `tight` (más del 75 % de los días), `comfortable`, `unknown` con `reason`
+  (`undated`, `other-world`, `no-route`, `pending`: el mundo se está generando, volver a preguntar). Un tramo
+  imposible trae `earliestStart`, la primera fecha en que podría empezar el capítulo de destino conservando su
+  duración. `intended` lleva la nota de un tramo marcado como intencionado.
+- `wh_character_state` (lectura): `characterId` y `chapter` o `writingId`. Acumula el libro hasta ese capítulo:
+  última ubicación, hechos aprendidos, objetos conseguidos menos perdidos (lo entregado con `toId` pasa al
+  receptor), último estado físico, si vive y desde qué capítulo está muerto.
+- `wh_state_ledger` (lectura): líneas de cada personaje y comprobaciones deterministas: `item-not-carried`,
+  `after-death` (también sucesos del mapa posteriores a la muerte), `knows-before-learning`, `two-places`.
+- `wh_state_ledger_add` / `wh_state_ledger_remove` (escritura, deshacer genérico): la línea vive en la ficha del
+  personaje (`codexEntries.continuity.ledger`). Tipos: `location`, `learns`, `actsOn`, `gains`, `loses`, `uses`,
+  `condition`, `dies`, `revives`, `appears`.
+- `wh_continuity_mark` (escritura, deshacer genérico): `findingId` + `note` marca un tramo o hallazgo como
+  intencionado (nota vacía quita la marca); `travelMode` fija cómo viaja el personaje.
+
+Las escrituras se rechazan con el Códex desactivado. El modo `story-state` del Juez puede devolver una
+propuesta `ledger` por hallazgo; se guarda en el hallazgo y solo se escribe en el libro cuando el autor pulsa
+«Añadir al libro».
+
+```json
+{"projectId":"p","characterId":"codex_ana","writingId":"wr_2","kind":"loses","itemId":"codex_espada","toId":"codex_bo"}
+```
