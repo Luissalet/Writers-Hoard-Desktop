@@ -216,9 +216,9 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     p.reignEnd = year + roundStep(8 + r() * 30);
   };
 
-  const raze = (ni: number, year: number, cause: RuinCause, by: number) => {
+  /** `holder`: whose it was when it fell (by default, whoever holds it now). */
+  const raze = (ni: number, year: number, cause: RuinCause, by: number, holder = nodes[ni].owner) => {
     const n = nodes[ni];
-    const holder = n.owner;
     n.razed = year;
     setOwner(ni, -1, year);
     ruins.push({ ruin: n.key, name: n.name, founded: n.founded, fell: year, cause, ...(holder >= 0 ? { polity: polities[holder].key } : {}), ...(by >= 0 ? { by: polities[by].key } : {}) });
@@ -235,14 +235,14 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     const seatIndex = byKey.get(p.seat)!;
     const seat = nodes[seatIndex];
     ev({ year, kind: 'collapse', polity: p.key, ...(by >= 0 ? { other: polities[by].key } : {}), place: p.seat, ...at(seat) });
-    for (const ni of nodesOf(pi)) {
-      if (by >= 0) setOwner(ni, by, year);
-      else setOwner(ni, -1, year);
-    }
     // A seat that is a ruin today does not outlive its realm.
     if (!seat.standing && seat.razed === undefined && !(seat.shieldUntil !== undefined && seat.shieldUntil > year)) {
       const flood = seat.condition === 'flooded' || seat.condition === 'drowned';
-      raze(seatIndex, year, by >= 0 ? (seat.condition === 'burnt' ? 'sack' : 'conquest') : flood ? 'flood' : 'collapse', by);
+      raze(seatIndex, year, by >= 0 ? (seat.condition === 'burnt' ? 'sack' : 'conquest') : flood ? 'flood' : 'collapse', by, pi);
+    }
+    for (const ni of nodesOf(pi)) {
+      if (by >= 0) setOwner(ni, by, year);
+      else setOwner(ni, -1, year);
     }
     // Some peoples leave: a migration to a place a good way off.
     if (p.realm === undefined && r() < 0.55) {
