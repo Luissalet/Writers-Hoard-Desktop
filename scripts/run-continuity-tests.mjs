@@ -10,6 +10,7 @@ const cacheDirectory = path.join(projectRoot, 'node_modules', '.cache', 'writers
 const suites = [
   ['continuity-logic.ts', 'runContinuityLogicTests'],
   ['voice-logic.ts', 'runVoiceLogicTests'],
+  ['pacing-logic.ts', 'runPacingLogicTests'],
 ];
 
 await fs.mkdir(cacheDirectory, { recursive: true });
