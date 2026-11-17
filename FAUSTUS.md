@@ -13,17 +13,26 @@ Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pest
   sin datos (capítulo sin fecha, otro mundo, sin ruta, mundo generándose). Enlaces al capítulo, al mapa y a la ficha;
   un tramo imposible ofrece la fecha mínima del capítulo de destino y «Usar esa fecha» (con Deshacer). Un tramo se
   marca como intencionado con una nota. En el mapa, `?trail=<id de ficha>` (botón «Mapa») dibuja el rastro del
-  personaje con los tramos imposibles en rojo y los justos en ámbar.
+  personaje con los tramos imposibles en rojo y los justos en ámbar. En la línea de tiempo (vista Carriles), cada
+  viajero tiene un carril de solo lectura «Viajes · <nombre>» con una banda por tramo, del día de salida al de
+  llegada, en el color del veredicto (gris si es intencionado); un clic abre el capítulo de destino.
+- **Estaciones.** El calendario del mundo dice cuándo empieza cada estación: el año en cuartos empezando por el
+  invierno (por defecto), cada estación desde un mes, hemisferio sur (invierno y verano cambiados) o sin estaciones
+  (se viaja como en verano). Se ajusta en «Calendario del mundo» (sección Estaciones).
 - **Libro de estado.** Por personaje y capítulo: está en, aprende, actúa sabiendo, consigue, pierde o entrega (a otro
   personaje), usa, estado físico, muere, revive, aparece. Las líneas viven en la ficha del personaje y se acumulan
   hasta el capítulo elegido: dónde está, qué sabe, qué lleva, estado físico y si vive. Comprobaciones: usa o entrega
   un objeto que no lleva, aparece tras morir (también en sucesos del mapa), actúa sabiendo algo antes de aprenderlo,
-  dos sitios a la vez. Los hallazgos se marcan como intencionados con nota. La ubicación del libro alimenta los viajes.
+  dos sitios a la vez. Los hallazgos se marcan como intencionados con nota. La ubicación del libro alimenta los viajes;
+  su punto de mapa se elige entre los que ya usa la historia, buscando cualquier lugar con nombre del mundo (atlas,
+  rótulos y sellos propios, sin tildes) o escribiendo `x, y`.
+- **Duplicar proyecto.** Las marcas de intencionado y los sucesos de historia del mapa (quién está y en qué capítulo)
+  siguen a los ids nuevos de mundos, fichas y capítulos.
 - **Juez.** El modo Estado de la historia puede proponer una línea del libro por hallazgo; solo se escribe al pulsar
   «Añadir al libro», o se descarta.
 - **MCP.** `wh_travel_check`, `wh_character_state`, `wh_state_ledger`, `wh_state_ledger_add`,
   `wh_state_ledger_remove` y `wh_continuity_mark` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
-- **No hace todavía:** la línea de tiempo no muestra los tramos; la voz por personaje está descrita en `OBJETIVOS.md`.
+- **No hace todavía:** la voz por personaje, la radiografía de ritmo y la deriva del plan están descritas en `OBJETIVOS.md`.
 
 ## Imágenes en documentos Source compartidos — 2114
 

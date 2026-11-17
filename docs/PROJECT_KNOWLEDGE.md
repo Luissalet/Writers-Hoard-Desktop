@@ -565,6 +565,15 @@ overwritten or treated as disposable.
   `cartography/readerTrail.ts`), and the bridge tools in `services/continuity/bridge.ts`.
 - Judge `story-state` findings may carry `ledgerProposal` (`services/judge/ledgerProposal.ts`); accepting it
   goes through `services/continuity/judgeProposals.ts` into the same ledger writer.
+- Duplicate: `continuity/duplicateKeys.ts` rewrites the ids inside intended-mark keys (world and character ids)
+  and inside story edits of `generatedWorlds.edits` (`who`, `writingId`; v2, v3 and the nested legacy list).
+- Timeline: `continuity/timelineLanes.ts` turns legs into read-only lanes (`manuscript-lane:travel:<characterId>`)
+  passed to `SwimLaneView` as `manuscript.extraLanes`; band ids are `ms:<writingId>#leg:<legId>` and open the
+  destination chapter (`writingIdOfTimelineEvent`).
+- Seasons: `WorldCalendar.seasons` (`quarters` default, `months` with `starts`, `none`; `hemisphere: 'south'`
+  swaps them). `seasonOfDate` in `timeline/worldCalendar.ts` is the one function; `report.ts` `seasonOfDay` uses it.
+- Ledger map points: `services/continuity/worldPlaces.ts` searches the atlas, painted labels and named stamps of
+  every project world (`openWorldForReading`, the locator's folding and ranking) or takes typed `x, y` cells.
 
 ## Local world authoring — scoped source update (2026-10-21)
 
