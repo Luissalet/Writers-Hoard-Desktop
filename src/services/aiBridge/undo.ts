@@ -112,6 +112,15 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId, what: summary };
   }
 
+  if (entry.tool === 'wh_pacing_set_tension' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__sceneTension' in entry.before) {
+    const { undoSceneTension } = await import('@/services/pacing/tensionOps');
+    const receipt = (entry.before as { __sceneTension: import('@/services/pacing/tensionOps').SceneTensionReceipt }).__sceneTension;
+    try {
+      await undoSceneTension({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, receipt);
+    } catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId, what: summary };
+  }
+
   if (entry.tool === 'wh_voice_describe' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__voiceDescription' in entry.before) {
     const { revertVoiceDescription } = await import('@/services/voice/ops');
     const receipt = (entry.before as { __voiceDescription: import('@/services/voice/ops').VoiceReceipt }).__voiceDescription;

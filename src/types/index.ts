@@ -585,6 +585,8 @@ export interface Writing {
   /** Explicit chapter sidecar; missing/null inherits the project default. */
   toolDock?: import('@/engines/writings/toolDock/types').ToolDockLayout | null;
   manuscriptSource?: import('@/engines/writings/manuscriptReview/sourceTypes').ManuscriptWritingSource;
+  /** Author-set scene tension with prose boundary anchors. */
+  sceneTension?: import('@/engines/writings/pacing/pacing').SceneTension[];
   id: string;
   projectId: string;
   title: string;
