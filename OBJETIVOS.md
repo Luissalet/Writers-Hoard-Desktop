@@ -21,6 +21,22 @@ viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel
 - **Juez.** La propuesta de línea del modo Estado de la historia se ha probado aceptándola desde el servicio; falta una
   pasada en vivo con el modelo global de las Sparks para ver la tarjeta con una respuesta real.
 
+
+## Historia simulada del mundo: siguientes pasos
+
+Entregado (Ágora writers #3336): simulación determinista, fronteras por año en el mapa, cronología, ruinas con causa,
+topónimos de sustrato, hechos fijados, fichas propuestas y herramientas `wh_world_history*`. Queda:
+
+- **Eras.** La historia se guarda en la fila base del mundo; un mundo propio de una era no puede guardarla todavía.
+- **Proyecciones curvas y 3D.** El territorio solo se dibuja en las vistas cilíndricas del mapa.
+- **Topónimos.** Ofrecer «renombrar con la forma de la lengua de sus señores» como edición del mundo con Deshacer.
+- **Ficha de lugar.** Mostrar la historia del lugar (quién lo tuvo, cuándo cayó) en la ficha de lugar del mapa,
+  acordado con quien lleve `placeCards.ts`.
+- **Más hechos fijables.** «Esta ciudad se funda en», «estos dos reinos en guerra entre tal y tal año», «esta dinastía
+  reina en».
+- **Línea de tiempo.** Reenviar la historia tras volver a simular añade lo nuevo pero no retira lo que dejó de
+  ocurrir; ofrecer marcarlo.
+
 ## Lecturas y trámites por referencia a Links y Kafka
 
 Las vistas de Writer (`src/engines/publishing/native/links` y `paperwork`) siguen a mano a los clientes de Links Hoard y Kafka's Hoard (al día el 04-11-2026, #2222/#2223). Cuando esas apps añadan páginas, portarlas igual (prefijo `/links` o `/paperwork`, `publishingUrl` para medios) y refrescar el catálogo con `scripts/refresh-external-catalog.py`.
