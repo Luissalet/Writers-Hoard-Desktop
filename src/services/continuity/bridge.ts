@@ -35,7 +35,7 @@ export const CONTINUITY_HANDLERS = {
     if (characterId) await characterIn(projectId, characterId);
     const report = await buildContinuityReport(projectId, { eraId: optString(args, 'eraId'), characterId });
     const only = optBoolean(args, 'onlyProblems');
-    const legs = report.legs.filter((leg) => !only || leg.verdict === 'impossible' || leg.verdict === 'tight');
+    const legs = report.legs.filter((leg) => !only || leg.verdict === 'impossible' || leg.verdict === 'tight' || leg.reason === 'no-route');
     return {
       projectId, calendar: report.calendar?.name ?? null, pendingWorlds: report.pendingWorlds,
       legs: legs.map((leg) => ({
@@ -89,7 +89,7 @@ export const CONTINUITY_HANDLERS = {
     await characterIn(projectId, characterId);
     const { projectId: _p, characterId: _c, ...input } = args as Record<string, unknown>;
     void _p; void _c;
-    const receipt = await addLedgerEntry(projectId, characterId, { ...input, source: 'author' } as never);
+    const receipt = await addLedgerEntry(projectId, characterId, { ...input, source: 'author' } as never, optString(args, 'eraId'));
     return audited(projectId, receipt, `Add a ${receipt.entry.kind} line to the state ledger`, { added: true, line: receipt.entry });
   }),
 
@@ -97,7 +97,7 @@ export const CONTINUITY_HANDLERS = {
     const projectId = resolveProjectId(args);
     await assertEngineEnabled(projectId, 'codex');
     const characterId = requireString(args, 'characterId');
-    const receipt = await removeLedgerEntry(projectId, characterId, requireString(args, 'lineId'));
+    const receipt = await removeLedgerEntry(projectId, characterId, requireString(args, 'lineId'), optString(args, 'eraId'));
     return audited(projectId, receipt, 'Remove a state ledger line', { removed: true });
   }),
 
@@ -109,11 +109,11 @@ export const CONTINUITY_HANDLERS = {
     if (!findingId && !mode) throw new BridgeError('bad-args', 'Pass findingId (with note) or travelMode.');
     if (findingId && mode) throw new BridgeError('bad-args', 'Pass findingId or travelMode, one per call.');
     if (mode) {
-      const receipt = await setTravelMode(projectId, characterId, mode as TravelMode);
+      const receipt = await setTravelMode(projectId, characterId, mode as TravelMode, optString(args, 'eraId'));
       return audited(projectId, receipt, 'Set travel mode', { travelMode: mode });
     }
     const note = optString(args, 'note') ?? '';
-    const receipt = await setIntentional(projectId, characterId, findingId!, note.trim() ? note : null);
+    const receipt = await setIntentional(projectId, characterId, findingId!, note.trim() ? note : null, optString(args, 'eraId'));
     return audited(projectId, receipt, note.trim() ? 'Mark a continuity finding as intended' : 'Unmark a continuity finding', { findingId, intended: note.trim() || null });
   }),
   // The novelist checks that read the manuscript beside continuity.

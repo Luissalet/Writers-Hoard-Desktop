@@ -2,6 +2,7 @@
 // manuscript, world calendar, story events and Codex cards. One function feeds
 // the chapter panel, the map trail and the AI bridge, so all three show the same data.
 import { db } from '@/db';
+import { listEraRows } from '@/services/worldEras/store';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import { formatWorldDate, fromDayNumber, seasonOfDate, toDayNumber, toLastDayNumber, validateWorldRange, type WorldCalendar } from '@/engines/timeline/worldCalendar';
 import { worldgenScopeOperations } from '@/engines/worldgen/era';
@@ -104,9 +105,11 @@ export interface ReportOptions {
 }
 
 export async function buildContinuityReport(projectId: string, options: ReportOptions = {}): Promise<ContinuityReport> {
+  // A named era reads its own versions of the chapters and cards, like its calendar and worlds.
+  const scope = { projectId, eraId: options.eraId };
   const [writings, codex, resolved, worldRows] = await Promise.all([
-    db.writings.where('projectId').equals(projectId).toArray(),
-    db.codexEntries.where('projectId').equals(projectId).toArray(),
+    options.eraId ? listEraRows<Writing>(scope, 'writings') : db.writings.where('projectId').equals(projectId).toArray(),
+    options.eraId ? listEraRows<CodexEntry>(scope, 'codexEntries') : db.codexEntries.where('projectId').equals(projectId).toArray(),
     resolveWorldCalendar(projectId, undefined, options.eraId),
     worldgenScopeOperations({ projectId, eraId: options.eraId }).worlds.getAll(projectId) as Promise<GeneratedWorld[]>,
   ]);

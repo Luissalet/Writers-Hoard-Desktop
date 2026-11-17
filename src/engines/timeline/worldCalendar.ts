@@ -546,9 +546,10 @@ export function seasonOfDate(cal: WorldCalendar, date: WorldDate): WorldSeason |
     const order = [...WORLD_SEASONS].sort((a, b) => starts[a] - starts[b]);
     season = [...order].reverse().find((key) => starts[key] <= month) ?? order[order.length - 1];
   } else {
-    const index = Math.max(0, months.indexOf(month));
-    const length = daysInMonth(cal, date.year, month) || 1;
-    const share = (index + ((date.day ?? 1) - 1) / length) / Math.max(1, months.length);
+    // Quarters by days, not by month count: months of unequal length must not shift the seasons.
+    const first = toDayNumber(cal, { year: date.year, month: months[0], day: 1 });
+    const day = toDayNumber(cal, { year: date.year, month, day: date.day ?? 1 });
+    const share = (day - first) / Math.max(1, daysInYear(cal, date.year));
     season = WORLD_SEASONS[Math.min(3, Math.floor(Math.max(0, Math.min(0.9999, share)) * 4))];
   }
   return settings?.hemisphere === 'south' ? SOUTH[season] : season;
