@@ -22,7 +22,7 @@ import {
 
 export const HISTORY_STEP = 5;
 
-/** Settings brought into range; pins sorted and clamped to the span. */
+/** Settings brought into range; fixed facts keep their own years. */
 export function normalizeHistorySettings(raw: Partial<HistorySettings> | undefined): HistorySettings {
   const s = raw ?? {};
   const clamp = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -75,18 +75,18 @@ interface Live extends Polity {
 
 interface War { key: string; a: number; b: number; from: number; event: HistoryEvent }
 
-const roundStep = (y: number) => Math.round(y / HISTORY_STEP) * HISTORY_STEP;
+const roundStep = (years: number) => Math.round(years / HISTORY_STEP) * HISTORY_STEP;
 
 export function simulateHistory(input: HistoryInput, rawSettings: Partial<HistorySettings>): WorldHistory {
   const settings = normalizeHistorySettings(rawSettings);
   const { seed, aggression } = settings;
   const span = settings.centuries * 100;
-  const end = roundStep(settings.endYear);
+  const end = settings.endYear;
   const start = end - span;
   const rng = createRng(seed, 'history');
   const notes: string[] = [];
   const events: HistoryEvent[] = [];
-  const clampYear = (y: number) => Math.min(end, Math.max(start, roundStep(y)));
+  const onCadence = (year: number) => start + roundStep(year - start);
 
   // ---- places ---------------------------------------------------------------
   const nodes: Node[] = [];
@@ -121,7 +121,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
 
   // Founding years: capitals early, villages late, ruins in the older half.
   const share: Record<string, number> = { capital: 0.2, city: 0.5, town: 0.7, village: 0.9, ruin: 0.45 };
-  for (const n of nodes) n.founded = roundStep(start + rng() * (n.capitalOf >= 0 ? 0.2 : share[n.rank] ?? 0.8) * span);
+  for (const n of nodes) n.founded = onCadence(start + rng() * (n.capitalOf >= 0 ? 0.2 : share[n.rank] ?? 0.8) * span);
 
   // ---- realms ----------------------------------------------------------------
   const polities: Live[] = [];
@@ -140,7 +140,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
   const ruinNodes = nodes.filter((n) => !n.standing).sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
   const lostCount = Math.min(ruinNodes.length, Math.max(ruinNodes.length ? 1 : 0, Math.min(14, Math.round(ruinNodes.length * 0.35) + 1)));
   for (const seatNode of ruinNodes.slice(0, lostCount)) {
-    const fallBy = roundStep(seatNode.founded + 80 + rng() * Math.max(0, end - span * 0.05 - seatNode.founded - 80));
+    const fallBy = onCadence(seatNode.founded + 80 + rng() * Math.max(0, end - span * 0.05 - seatNode.founded - 80));
     addPolity({
       key: `lost:${seatNode.key}`, name: input.nameIn(seatNode.langId, `realm:${seatNode.key}`, 'realm'), langId: seatNode.langId,
       hue: Math.floor(rng() * 360), founded: seatNode.founded, seat: seatNode.key, fallBy: Math.min(end - HISTORY_STEP, fallBy),
@@ -148,34 +148,44 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
   }
 
   // ---- the author's fixed facts ---------------------------------------------
-  const fallPins: (HistoryPin & { kind: 'city-falls' })[] = [];
+  const fallPins = new Map<number, Extract<HistoryPin, { kind: 'city-falls' }>[]>();
+  const pinNote = (pin: HistoryPin, reason: string) => notes.push(`pin:${pin.id}:${reason}`);
   for (const pin of settings.pins) {
-    const year = clampYear(pin.year);
-    if (year !== roundStep(pin.year)) notes.push(`pin:${pin.id}:clamped`);
-    if (pin.kind === 'realm-exists') {
-      const pi = keyIndex.get(pin.polity);
-      if (pi === undefined) { notes.push(`pin:${pin.id}:unknown-realm`); continue; }
-      const p = polities[pi];
-      const seat = nodes[byKey.get(p.seat)!];
-      if (p.founded > year) { p.founded = Math.max(start, year - HISTORY_STEP); seat.founded = Math.min(seat.founded, p.founded); }
-      p.standUntil = Math.max(p.standUntil ?? -Infinity, year + HISTORY_STEP);
-      seat.holdUntil = Math.max(seat.holdUntil ?? -Infinity, p.standUntil);
-      if (p.fallBy !== undefined && p.fallBy <= year) p.fallBy = Math.min(end - HISTORY_STEP, year + HISTORY_STEP);
-    } else {
-      const ni = byKey.get(pin.place);
-      if (ni === undefined) { notes.push(`pin:${pin.id}:unknown-place`); continue; }
-      const n = nodes[ni];
-      if (n.founded >= year) n.founded = Math.max(start, year - 2 * HISTORY_STEP);
-      n.shieldUntil = year;
-      // A realm seated there falls with it, not before.
-      const seated = keyIndex.get(`lost:${n.key}`);
-      if (seated !== undefined) {
-        const p = polities[seated];
-        p.founded = Math.min(p.founded, n.founded);
-        p.fallBy = year;
-      }
-      fallPins.push({ ...pin, year });
+    const { year } = pin;
+    if (year < start || year > end) { pinNote(pin, 'outside-span'); continue; }
+    if (pin.kind !== 'realm-exists') continue;
+    const pi = keyIndex.get(pin.polity);
+    if (pi === undefined) { pinNote(pin, 'unknown-realm'); continue; }
+    const p = polities[pi];
+    if (p.fallBy !== undefined && year === end) { pinNote(pin, 'absent-today'); continue; }
+    const seat = nodes[byKey.get(p.seat)!];
+    if (p.founded > year) {
+      p.founded = Math.max(start, onCadence(year - HISTORY_STEP));
+      seat.founded = Math.min(seat.founded, p.founded);
     }
+    p.standUntil = Math.max(p.standUntil ?? -Infinity, year + 1);
+    seat.holdUntil = Math.max(seat.holdUntil ?? -Infinity, p.standUntil);
+    if (p.fallBy !== undefined) p.fallBy = Math.max(p.fallBy, p.standUntil);
+  }
+  for (const pin of [...settings.pins].sort((a, b) => a.year - b.year)) {
+    const { year } = pin;
+    if (pin.kind !== 'city-falls' || year < start || year > end) continue;
+    const ni = byKey.get(pin.place);
+    if (ni === undefined) { pinNote(pin, 'unknown-place'); continue; }
+    const n = nodes[ni];
+    const seated = keyIndex.get(`lost:${n.key}`);
+    const p = seated === undefined ? undefined : polities[seated];
+    if (p?.standUntil !== undefined && p.standUntil > year) { pinNote(pin, 'realm-protected'); continue; }
+    if (!n.standing && n.shieldUntil !== undefined) { pinNote(pin, 'earlier-fall'); continue; }
+    if (n.founded >= year) n.founded = Math.max(start, onCadence(year - 2 * HISTORY_STEP));
+    n.shieldUntil = year;
+    if (p) {
+      p.founded = Math.min(p.founded, n.founded);
+      p.fallBy = year;
+    }
+    const scheduled = fallPins.get(year) ?? [];
+    scheduled.push(pin);
+    fallPins.set(year, scheduled);
   }
 
   // ---- state helpers ---------------------------------------------------------
@@ -257,7 +267,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
           const mi = addPolity({
             key: `mig:${p.key}:${dest.n.key}`, name: input.nameIn(p.langId, `mig:${dest.n.key}`, 'realm'), langId: p.langId,
             hue: (p.hue + 40) % 360, founded: year, seat: dest.n.key, migrantsFrom: p.key,
-            fallBy: Math.min(end - HISTORY_STEP, roundStep(year + 60 + r() * 200)),
+            fallBy: Math.min(end - HISTORY_STEP, onCadence(year + 60 + r() * 200)),
           });
           found(mi, year, r);
         }
@@ -286,7 +296,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
   const truce = new Map<string, number>();
   const pairKey = (a: number, b: number) => (a < b ? `${a}|${b}` : `${b}|${a}`);
   const takeable = (n: Node, year: number) => n.razed === undefined && n.capitalOf < 0
-    && !(n.shieldUntil !== undefined && n.shieldUntil > year) && !(n.holdUntil !== undefined && n.holdUntil > year);
+    && !(n.shieldUntil !== undefined && n.shieldUntil >= year) && !(n.holdUntil !== undefined && n.holdUntil > year);
   /** The defender's place nearest an attacker's, across one edge. */
   const frontier = (att: number, def: number, year: number): number => {
     let best = -1, bc = Infinity;
@@ -347,66 +357,10 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
   // ---- the years -------------------------------------------------------------
   const order = polities.map((_, i) => i).sort((a, b) => polities[a].founded - polities[b].founded || a - b);
   let nextFound = 0;
-  for (let year = start; year < end; year += HISTORY_STEP) {
-    const r = createRng(seed, `history:${year}`);
-    // Places founded this step.
-    for (const n of nodes) {
-      if (n.founded !== year) continue;
-      if (n.rank === 'capital' || n.rank === 'city' || !n.standing) ev({ year, kind: 'city-founded', place: n.key, ...at(n) });
-    }
-    // Realms founded this step.
-    while (nextFound < order.length && polities[order[nextFound]].founded <= year) {
-      const pi = order[nextFound++];
-      if (!polities[pi].alive && polities[pi].fell === undefined) found(pi, Math.max(year, polities[pi].founded), r);
-    }
-    // Unclaimed places join the neighbour that reaches them most easily.
-    for (let i = 0; i < nodes.length; i++) {
-      const n = nodes[i];
-      if (n.owner >= 0 || n.founded > year || n.razed !== undefined) continue;
-      let best = -1, bs = 0;
-      for (const e of graph.edges[i]) {
-        const o = nodes[e.to].owner;
-        if (o < 0 || nodes[e.to].razed !== undefined || !polities[o].alive) continue;
-        const pull = (polities[o].realm !== undefined && polities[o].realm === n.realm ? 2 : 1) / e.cost;
-        if (pull > bs) { bs = pull; best = o; }
-      }
-      if (best >= 0 && r() < 0.35) {
-        setOwner(i, best, year);
-        if (n.rank === 'city' || n.rank === 'town' || !n.standing) ev({ year, kind: 'annexed', polity: polities[best].key, place: n.key, ...at(n) });
-      }
-    }
-    // New wars.
-    for (const [a, b] of neighbours()) {
-      if (wars.some((w) => pairKey(w.a, w.b) === pairKey(a, b))) continue;
-      if ((truce.get(pairKey(a, b)) ?? -Infinity) > year) continue;
-      if (r() >= 0.05 * Math.pow(aggression, 1.3)) continue;
-      const sa = strengthOf(a) * (0.5 + r()), sb = strengthOf(b) * (0.5 + r());
-      const [att, def] = sa >= sb ? [a, b] : [b, a];
-      const key = `war:${year}:${polities[att].key}:${polities[def].key}`;
-      const event = ev({ year, kind: 'war', polity: polities[att].key, other: polities[def].key, war: key, place: polities[def].seat });
-      wars.push({ key, a: att, b: def, from: year, event });
-    }
-    // Wars go on.
-    for (const w of [...wars]) {
-      const A = polities[w.a], B = polities[w.b];
-      if (!A.alive || !B.alive) { endWar(w, year); wars.splice(wars.indexOf(w), 1); continue; }
-      const sa = strengthOf(w.a), sb = strengthOf(w.b);
-      const roll = r();
-      if (roll < 0.55 * sa / (sa + sb + 1e-9) + 0.1) {
-        const t = frontier(w.a, w.b, year);
-        if (t >= 0) conquer(t, w.a, year, w.key, r);
-      } else if (roll > 0.85) {
-        const t = frontier(w.b, w.a, year);
-        if (t >= 0) conquer(t, w.b, year, w.key, r);
-      }
-      if (!A.alive || !B.alive || (year > w.from && r() < 0.25)) { endWar(w, year); wars.splice(wars.indexOf(w), 1); }
-    }
-    // The author's falls.
-    for (const pin of fallPins) {
-      if (pin.year < year || pin.year >= year + HISTORY_STEP) continue;
+  const applyFalls = (year: number, r: Rng) => {
+    for (const pin of fallPins.get(year) ?? []) {
       const ni = byKey.get(pin.place)!;
       const n = nodes[ni];
-      n.shieldUntil = undefined;
       if (n.razed !== undefined) { notes.push(`pin:${pin.id}:already-ruined`); continue; }
       let by = pin.by ? keyIndex.get(pin.by) ?? -1 : -1;
       if (by >= 0 && !polities[by].alive) { notes.push(`pin:${pin.id}:conqueror-not-standing`); by = -1; }
@@ -417,8 +371,71 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
         polities.forEach((p, pi) => { if (p.alive && pi !== n.owner) { const s = nodes[byKey.get(p.seat)!]; const d = Math.hypot(s.x - n.x, s.y - n.y); if (d < bd) { bd = d; by = pi; } } });
       }
       if (by < 0 || by === n.owner) { notes.push(`pin:${pin.id}:no-conqueror`); continue; }
-      conquer(ni, by, pin.year, undefined, r, pin.id);
+      conquer(ni, by, year, undefined, r, pin.id);
     }
+  };
+  const years = new Set(fallPins.keys());
+  // A protected lost realm may be due to fall between regular ticks.
+  for (const p of polities) if (p.fallBy !== undefined) years.add(p.fallBy);
+  for (let year = start; year <= end; year += HISTORY_STEP) years.add(year);
+  for (const year of [...years].sort((a, b) => a - b)) {
+    const regular = year < end && (year - start) % HISTORY_STEP === 0;
+    const r = createRng(seed, `history:${year}`);
+    if (regular) {
+      // Places founded this step.
+      for (const n of nodes) {
+        if (n.founded !== year) continue;
+        if (n.rank === 'capital' || n.rank === 'city' || !n.standing) ev({ year, kind: 'city-founded', place: n.key, ...at(n) });
+      }
+      // Realms founded this step.
+      while (nextFound < order.length && polities[order[nextFound]].founded <= year) {
+        const pi = order[nextFound++];
+        if (!polities[pi].alive && polities[pi].fell === undefined) found(pi, Math.max(year, polities[pi].founded), r);
+      }
+      // Unclaimed places join the neighbour that reaches them most easily.
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (n.owner >= 0 || n.founded > year || n.razed !== undefined) continue;
+        let best = -1, bs = 0;
+        for (const e of graph.edges[i]) {
+          const o = nodes[e.to].owner;
+          if (o < 0 || nodes[e.to].razed !== undefined || !polities[o].alive) continue;
+          const pull = (polities[o].realm !== undefined && polities[o].realm === n.realm ? 2 : 1) / e.cost;
+          if (pull > bs) { bs = pull; best = o; }
+        }
+        if (best >= 0 && r() < 0.35) {
+          setOwner(i, best, year);
+          if (n.rank === 'city' || n.rank === 'town' || !n.standing) ev({ year, kind: 'annexed', polity: polities[best].key, place: n.key, ...at(n) });
+        }
+      }
+      // New wars.
+      for (const [a, b] of neighbours()) {
+        if (wars.some((w) => pairKey(w.a, w.b) === pairKey(a, b))) continue;
+        if ((truce.get(pairKey(a, b)) ?? -Infinity) > year) continue;
+        if (r() >= 0.05 * Math.pow(aggression, 1.3)) continue;
+        const sa = strengthOf(a) * (0.5 + r()), sb = strengthOf(b) * (0.5 + r());
+        const [att, def] = sa >= sb ? [a, b] : [b, a];
+        const key = `war:${year}:${polities[att].key}:${polities[def].key}`;
+        const event = ev({ year, kind: 'war', polity: polities[att].key, other: polities[def].key, war: key, place: polities[def].seat });
+        wars.push({ key, a: att, b: def, from: year, event });
+      }
+      // Wars go on.
+      for (const w of [...wars]) {
+        const A = polities[w.a], B = polities[w.b];
+        if (!A.alive || !B.alive) { endWar(w, year); wars.splice(wars.indexOf(w), 1); continue; }
+        const sa = strengthOf(w.a), sb = strengthOf(w.b);
+        const roll = r();
+        if (roll < 0.55 * sa / (sa + sb + 1e-9) + 0.1) {
+          const t = frontier(w.a, w.b, year);
+          if (t >= 0) conquer(t, w.a, year, w.key, r);
+        } else if (roll > 0.85) {
+          const t = frontier(w.b, w.a, year);
+          if (t >= 0) conquer(t, w.b, year, w.key, r);
+        }
+        if (!A.alive || !B.alive || (year > w.from && r() < 0.25)) { endWar(w, year); wars.splice(wars.indexOf(w), 1); }
+      }
+    }
+    applyFalls(year, r);
     // Realms that must be gone.
     for (let pi = 0; pi < polities.length; pi++) {
       const p = polities[pi];
@@ -433,6 +450,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
         if (p.alive) collapse(pi, year, by, r);
       } else collapse(pi, year, -1, r);
     }
+    if (!regular) continue;
     // Reigns end; sometimes the house with them.
     for (let pi = 0; pi < polities.length; pi++) {
       const p = polities[pi];
@@ -446,16 +464,19 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
 
   // ---- settling into today's map --------------------------------------------
   const r = createRng(seed, 'history:end');
-  for (const w of wars) endWar(w, end - HISTORY_STEP);
+  for (const w of wars) endWar(w, end);
   for (let pi = 0; pi < polities.length; pi++) {
     const p = polities[pi];
-    if (p.alive && p.realm === undefined) collapse(pi, roundStep(end - HISTORY_STEP * (1 + Math.floor(r() * 4))), -1, r);
+    if (p.alive && p.realm === undefined) collapse(pi, end, -1, r);
   }
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
     if (!n.standing) {
       if (n.razed === undefined) {
-        const year = roundStep(end - HISTORY_STEP * (1 + Math.floor(r() * 6)));
+        const year = Math.max(
+          n.founded + 1, n.shieldUntil ?? start, owners[n.key]?.at(-1)?.from ?? start,
+          end - HISTORY_STEP * (1 + Math.floor(r() * 6)),
+        );
         const flood = n.condition === 'flooded' || n.condition === 'drowned';
         ev({ year, kind: flood ? 'flood' : 'abandoned', place: n.key, ...(n.owner >= 0 ? { polity: polities[n.owner].key } : {}), x: n.x, y: n.y });
         raze(i, year, flood ? 'flood' : 'abandoned', -1);
@@ -464,7 +485,10 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     }
     const target = n.realm >= 0 ? keyIndex.get(`realm:${n.realm}`) ?? -1 : -1;
     if (n.owner === target) continue;
-    const year = roundStep(end - HISTORY_STEP * (1 + Math.floor(r() * 4)));
+    const year = Math.max(
+      n.founded, owners[n.key]?.at(-1)?.from ?? start, Math.min(end, (n.shieldUntil ?? start - 1) + 1),
+      end - HISTORY_STEP * (1 + Math.floor(r() * 4)),
+    );
     if (target >= 0) {
       if (n.owner >= 0) ev({ year, kind: 'cession', polity: polities[n.owner].key, other: polities[target].key, place: n.key, x: n.x, y: n.y });
       else if (n.rank !== 'village') ev({ year, kind: 'annexed', polity: polities[target].key, place: n.key, x: n.x, y: n.y });
