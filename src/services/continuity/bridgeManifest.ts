@@ -1,6 +1,7 @@
 import { b, n, s, PROJECT_ID, type BridgeTool } from '@/services/aiBridge/schema';
 import { LEDGER_KINDS } from '@/engines/writings/continuity/types';
 import { VOICE_TOOLS } from '@/services/voice/bridgeManifest';
+import { PACING_TOOLS } from '@/services/pacing/bridgeManifest';
 
 const CHARACTER = s('Codex id of a character card.');
 const ERA = s('Named era; omit for Shared base.');
@@ -60,4 +61,5 @@ Intended means the author meant it (magic, an ellipsis). findingId is a leg id f
   },
   // The novelist checks that read the manuscript beside continuity.
   ...VOICE_TOOLS,
+  ...PACING_TOOLS,
 ];

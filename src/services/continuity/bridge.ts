@@ -5,6 +5,7 @@ import type { TravelMode } from '@/engines/worldgen/core/travel';
 import { buildContinuityReport, characterStateAt, dayText, type ContinuityReport } from './report';
 import { addLedgerEntry, removeLedgerEntry, setIntentional, setTravelMode, type ContinuityReceipt } from './ledgerOps';
 import { VOICE_HANDLERS } from '@/services/voice/bridge';
+import { PACING_HANDLERS } from '@/services/pacing/bridge';
 
 function audited<T extends object>(projectId: string, receipt: ContinuityReceipt, summary: string, result: T): T {
   return withAudit(result, { projectId, entityId: receipt.characterId, kind: 'update', summary, before: receipt.before ? { continuity: receipt.before } : { __absent: ['continuity'] } });
@@ -116,4 +117,5 @@ export const CONTINUITY_HANDLERS = {
   }),
   // The novelist checks that read the manuscript beside continuity.
   ...VOICE_HANDLERS,
+  ...PACING_HANDLERS,
 };
