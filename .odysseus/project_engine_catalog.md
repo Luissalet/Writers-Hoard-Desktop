@@ -22,6 +22,8 @@ Segunda revisión: mapa cenital inicial, herramientas adaptadas al ancho y selec
 
 `useJourneyComputation.ts` calcula ruta principal, comparaciones y paleogeografía en worker. `JourneyCreativeCapture` desarrolla un viaje o una noche como idea o escena; `journeyCreative.ts` guarda contenido, vínculo de procedencia y activación del motor en una transacción. El borrador conserva la receta y etapa de origen durante cambios del recorrido.
 
+La pesta?a Historia simula cronolog?as y territorios a partir de la geograf?a completa. Los hechos fijados se ejecutan en su a?o exacto, incluido el ?ltimo. Cada ?poca conserva ajustes, fichas aceptadas y l?nea temporal de su simulaci?n. Las ruinas enlazan al acontecimiento y a la ficha aceptada de su reino. `history/bridge.ts` expone las mismas operaciones por MCP con `eraId` opcional.
+
 ## Captura y referencias
 
 Notas conserva entradas hasta confirmar persistencia, evita envíos duplicados y activa el motor al trasladar una nota a un proyecto. Códice y Recortes conservan formularios ante fallo. Diario registra guardado pendiente al salir y mantiene el editor ante error. Galería abre imagen/álbum desde ancla y confirma la creación de álbum antes de cerrar. El adaptador de Anotaciones transmite proyecto explícito.
