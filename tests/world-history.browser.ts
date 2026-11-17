@@ -143,3 +143,50 @@ export async function testWorldHistory(): Promise<string[]> {
   out.push(`30 centuries in ${ms.toFixed(0)} ms`);
   return out;
 }
+
+/** Settings on the world row, accepted cards that survive a new simulation, a timeline that only grows. */
+export async function testWorldHistoryStore(): Promise<string[]> {
+  const { db } = await import('@/db');
+  const store = await import('@/engines/worldgen/history/store');
+  const out: string[] = [];
+  const projectId = `hist-${crypto.randomUUID()}`, worldId = crypto.randomUUID();
+  const now = Date.now();
+  await db.generatedWorlds.add({ id: worldId, projectId, title: 'W', params: { seed: 'w' } as never, createdAt: now, updatedAt: now });
+  try {
+    const input = makeInput();
+    const saved = await store.saveHistorySettings(projectId, worldId, { seed: 'alpha', centuries: 8, aggression: 0.6, endYear: 1200 });
+    assert(saved.before === undefined && saved.record.revision === 1 && saved.record.settings.seed === 'alpha', 'Settings stored');
+    const history = simulateHistory(input, saved.record.settings);
+    const names = historyNames(history, [...input.places, ...input.ruins], input.languages, (y) => `Y${y}`);
+    const props = historyProposals(history, names, 'es').filter((p) => p.group === 'realm' || p.group === 'dynasty');
+    const first = await store.acceptProposals(projectId, worldId, props.slice(0, 3));
+    assert(first.created.length === 3, 'Three cards written');
+    const tied = first.created.find((c) => c.relations.length);
+    assert(tied, 'Cards accepted together are tied to each other');
+    // Re-simulating with new settings keeps what was accepted and does not write it twice.
+    await store.saveHistorySettings(projectId, worldId, { aggression: 0.2 });
+    const again = await store.acceptProposals(projectId, worldId, props.slice(0, 5));
+    assert(again.created.length === 2 && again.skipped.length === 3, `Accepted cards are recognised: ${again.created.length}/${again.skipped.length}`);
+    assert((await db.codexEntries.where('projectId').equals(projectId).count()) === 5, 'Five cards in the Codex');
+    // A deleted card can be accepted again.
+    await db.codexEntries.delete(first.created[0].id);
+    const record = store.historyRecordOf((await db.generatedWorlds.get(worldId))!);
+    assert(!(await store.acceptedKeys(record)).has(props[0].key), 'A deleted card is no longer accepted');
+    // Timeline: the first send creates it, the second only adds what is missing.
+    const t1 = await store.sendHistoryToTimeline(projectId, worldId, history, names, 'es', 'Historia');
+    assert(t1.createdTimeline && t1.created.length > 0, 'Timeline created');
+    const ev = await db.timelineEvents.get(t1.created[0]);
+    assert(ev?.dateMode === 'world' && typeof ev.worldDate?.year === 'number', 'Events dated in the world calendar');
+    const t2 = await store.sendHistoryToTimeline(projectId, worldId, history, names, 'es', 'Historia');
+    assert(!t2.createdTimeline && t2.timelineId === t1.timelineId && t2.created.length === 0, 'Nothing sent twice');
+    await store.restoreHistoryRecord(projectId, worldId, saved.before);
+    assert((await db.generatedWorlds.get(worldId))!.history === undefined, 'Undo puts the row back');
+    out.push(`cards 5, timeline events ${t1.created.length}`);
+  } finally {
+    await db.generatedWorlds.delete(worldId);
+    await db.codexEntries.where('projectId').equals(projectId).delete();
+    await db.timelineEvents.where('projectId').equals(projectId).delete();
+    await db.timelines.where('projectId').equals(projectId).delete();
+  }
+  return out;
+}
