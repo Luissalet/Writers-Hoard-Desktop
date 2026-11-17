@@ -48,11 +48,17 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
   const [untilYear, setUntilYear] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [savedRevision, setSavedRevision] = useState<number>();
+  const refreshing = lens.pending || (savedRevision !== undefined && record.revision < savedRevision);
+  useEffect(() => {
+    if (savedRevision !== undefined && record.revision >= savedRevision) setSavedRevision(undefined);
+  }, [record.revision, savedRevision]);
 
   const save = async (patch: Partial<HistorySettings>) => {
     setBusy(true);
     try {
-      await saveHistorySettings(projectId, worldId, patch, lens.eraId);
+      const { record: saved } = await saveHistorySettings(projectId, worldId, patch, lens.eraId);
+      setSavedRevision(saved.revision);
       toast.success(t('worldgen.history.simulated'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -115,7 +121,7 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
     );
   }
 
-  const ctx: TabCtx = { lens, projectId, worldId, lang, busy, setBusy, save, history, names, input };
+  const ctx: TabCtx = { lens, projectId, worldId, lang, busy: busy || refreshing, setBusy, save, history, names, input };
   const standing = politiesAt(history, year);
   const summary = fill(t('worldgen.history.summary'), { realms: history.polities.length, events: history.events.length, ruins: history.ruins.length });
   return (
@@ -170,7 +176,7 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
           </select>
           <label className="flex items-center gap-1"><input type="checkbox" checked={untilYear} onChange={(e) => setUntilYear(e.target.checked)} />{t('worldgen.history.untilYear')}</label>
         </div>
-        <button type="button" className={btn} data-testid="history-to-timeline" disabled={busy || !canTimeline} title={canTimeline ? undefined : t('worldgen.history.timelineOff')}
+        <button type="button" className={btn} data-testid="history-to-timeline" disabled={busy || refreshing || !canTimeline} title={canTimeline ? undefined : t('worldgen.history.timelineOff')}
           onClick={async () => {
             setBusy(true);
             try {
