@@ -32,7 +32,7 @@ const engineTables:Record<string,string>={codex:'codexEntries','codex-entry':'co
   dictionary:'language',tables:'table',genealogy:'tree','relation-tree':'tree','character-sheets':'sheet',radar:'radar','model-viewer':'model',
   'board-node':'boardNodes','outline-beat':'outlineBeats','timeline-event':'timelineEvents','timeline-connection':'timelineConnections'};
 const refs:Record<string,Record<string,string>>={
-  codexEntries:{templateId:'template','referenceFields.*.*':'codexEntries','relations.*.targetId':'codexEntries'},
+  codexEntries:{templateId:'template','referenceFields.*.*':'codexEntries','relations.*.targetId':'codexEntries','continuity.ledger.*.writingId':'writings','continuity.ledger.*.itemId':'codexEntries','continuity.ledger.*.toId':'codexEntries','continuity.ledger.*.entryId':'codexEntries','continuity.ledger.*.seedId':'seeds','continuity.ledger.*.place.worldId':'generatedWorlds','continuity.ledger.*.place.entryId':'codexEntries'},
   timelineEvents:{timelineId:'timelines','bannerPreset.ownerTimelineId':'timelines',linkedEntryId:'codexEntries','linkedEntryIds.*':'codexEntries'},
   timelineConnections:{timelineId:'timelines',sourceEventId:'timelineEvents',targetEventId:'timelineEvents'},
   boardNodes:{boardId:'boards',layerId:'boardLayers','memberNodeIds.*':'boardNodes'},boardLayers:{boardId:'boards'},
