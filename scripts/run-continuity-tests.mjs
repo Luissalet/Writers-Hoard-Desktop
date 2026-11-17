@@ -11,6 +11,7 @@ const suites = [
   ['continuity-logic.ts', 'runContinuityLogicTests'],
   ['voice-logic.ts', 'runVoiceLogicTests'],
   ['pacing-logic.ts', 'runPacingLogicTests'],
+  ['drift-logic.ts', 'runDriftLogicTests'],
 ];
 
 await fs.mkdir(cacheDirectory, { recursive: true });
