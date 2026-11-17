@@ -80,6 +80,8 @@ import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
 import ContinuityPanel from './ContinuityPanel';
 import VoicePanel from './voice/VoicePanel';
+import type { DialogueAnchor } from '../voice/dialogue';
+import { navigateEditorToDialogue } from '../voice/navigation';
 import PacingPanel from './pacing/PacingPanel';
 import DriftPanel from './planDrift/DriftPanel';
 import ReferencePanel from './ReferencePanel';
@@ -621,6 +623,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     writingId: string;
     quote: string;
     start?: number;
+    dialogue?: DialogueAnchor;
     annotate: boolean;
   } | null>(null);
   // Flow or page, A4 or Letter: the writer's reading preferences (global).
@@ -1169,13 +1172,20 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   const deepLinkedDraft = useDeepLinkParam('draft');
   const deepLinkedCompare = useDeepLinkParam('compareWriting');
   const deepLinkedCompareDraft = useDeepLinkParam('compareDraft');
-  // `&quote=<text>` (a voice outlier opened from the Codex card) selects that passage once the chapter is open.
   const deepLinkedQuote = useDeepLinkParam('quote');
-  const quoteLinkKey = deepLinkedWritingId && deepLinkedQuote ? `${deepLinkedWritingId}\u0000${deepLinkedQuote}` : null;
+  const voiceParagraph = useDeepLinkParam('voiceParagraph');
+  const voiceColumn = useDeepLinkParam('voiceColumn');
+  const quoteLinkKey = deepLinkedWritingId && deepLinkedQuote
+    ? JSON.stringify([deepLinkedWritingId, deepLinkedQuote, voiceParagraph, voiceColumn]) : null;
   const [quoteLinkSeen, setQuoteLinkSeen] = useState<string | null>(null);
-  if (quoteLinkKey && quoteLinkKey !== quoteLinkSeen) {
+  if (quoteLinkKey !== quoteLinkSeen) {
     setQuoteLinkSeen(quoteLinkKey);
-    setPendingJudgeNavigation({ writingId: deepLinkedWritingId!, quote: deepLinkedQuote!, annotate: false });
+    if (deepLinkedWritingId && deepLinkedQuote) {
+      const dialogue = voiceParagraph != null && voiceColumn != null
+        && /^\d+$/.test(voiceParagraph) && /^\d+$/.test(voiceColumn)
+        ? { paragraph: Number(voiceParagraph), column: Number(voiceColumn), quote: deepLinkedQuote } : undefined;
+      setPendingJudgeNavigation({ writingId: deepLinkedWritingId, quote: deepLinkedQuote, dialogue, annotate: false });
+    }
   }
 
   const handleOpenWriting = useCallback((writing: Writing) => {
@@ -1619,9 +1629,10 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     return true;
   }, [t]);
 
-  const handleJudgeNavigate = useCallback((writingId: string, quote: string, start?: number) => {
+  const handleJudgeNavigate = useCallback((writingId: string, quote: string, start?: number, dialogue?: DialogueAnchor) => {
     if (openWriting?.id === writingId && liveEditor) {
-      if (!navigateEditorToQuote(liveEditor, quote, start)) toast.error(t('judge.action.passageMoved'));
+      const found = dialogue ? navigateEditorToDialogue(liveEditor, dialogue) : navigateEditorToQuote(liveEditor, quote, start);
+      if (!found) toast.error(t('judge.action.passageMoved'));
       return;
     }
     const target = writings.find(row => row.id === writingId);
@@ -1629,9 +1640,13 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
       toast.error(t('judge.action.sourceMissing'));
       return;
     }
-    setPendingJudgeNavigation({ writingId, quote, start, annotate: false });
+    setPendingJudgeNavigation({ writingId, quote, start, dialogue, annotate: false });
     void handleNavigateWriting(target);
   }, [handleNavigateWriting, liveEditor, openWriting?.id, t, writings]);
+
+  const handleVoiceNavigate = useCallback((writingId: string, anchor: DialogueAnchor) => {
+    handleJudgeNavigate(writingId, anchor.quote, undefined, anchor);
+  }, [handleJudgeNavigate]);
 
   const handleJudgeNavigateEntity = useCallback((engineId: string, entityId: string, quote: string) => {
     if (engineId === 'writings') {
@@ -1688,7 +1703,10 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     if (!pendingJudgeNavigation || !liveEditor || openWriting?.id !== pendingJudgeNavigation.writingId) return;
     const pending = pendingJudgeNavigation;
     const frame = window.requestAnimationFrame(() => {
-      if (!navigateEditorToQuote(liveEditor, pending.quote, pending.start)) {
+      const found = pending.dialogue
+        ? navigateEditorToDialogue(liveEditor, pending.dialogue)
+        : navigateEditorToQuote(liveEditor, pending.quote, pending.start);
+      if (!found) {
         toast.error(t('judge.action.passageMoved'));
       } else if (pending.annotate) {
         const body = stripHtml(editorRef.current.content);
@@ -2890,7 +2908,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
                 key={`voice-${openWriting.id}`}
                 projectId={projectId}
                 writingId={openWriting.id}
-                onOpenLine={handleJudgeNavigate}
+                onOpenLine={handleVoiceNavigate}
               />
               <PacingPanel
                 key={`pacing-${openWriting.id}`}

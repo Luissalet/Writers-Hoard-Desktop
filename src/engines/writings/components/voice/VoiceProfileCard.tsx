@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Sparkles, Undo2 } from 'lucide-react';
-import { db } from '@/db';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { VoiceProfile } from '@/engines/writings/voice/profile';
 import { describeVoice, type VoiceReport } from '@/services/voice/report';
-import { revertVoiceDescription, setVoiceDescription, type VoiceReceipt } from '@/services/voice/ops';
+import { readVoiceCard, revertVoiceDescription, setVoiceDescription, type VoiceReceipt } from '@/services/voice/ops';
 
 import { fillVoice, voiceButton } from './voiceUi';
 
@@ -23,7 +22,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 /** One character's voice: the computed profile and the description kept on their card. */
 export default function VoiceProfileCard({ report, profile, projectId }: { report: VoiceReport; profile: VoiceProfile; projectId: string }) {
   const { t, locale } = useTranslation();
-  const card = useLiveQuery(() => db.codexEntries.get(profile.characterId), [profile.characterId]);
+  const { eraId } = report;
+  const card = useLiveQuery(() => readVoiceCard(projectId, profile.characterId, eraId), [projectId, profile.characterId, eraId]);
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export default function VoiceProfileCard({ report, profile, projectId }: { repor
   const address = (['tu', 'usted', 'vos'] as const).filter((k) => profile.address[k] > 0).map((k) => `${t(`charVoice.address.${k}`)} ${profile.address[k]}`).join(' · ');
   const save = async (text: string | null, model?: string) => {
     setFailure(null);
-    try { setUndo(await setVoiceDescription(projectId, profile.characterId, text, model)); setDraft(null); }
+    try { setUndo(await setVoiceDescription(projectId, profile.characterId, text, model, eraId)); setDraft(null); }
     catch (e) { setFailure(e instanceof Error ? e.message : String(e)); }
   };
   return (
