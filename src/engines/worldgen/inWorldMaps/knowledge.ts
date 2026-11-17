@@ -3,9 +3,9 @@ import type { ReadableWorld } from '../bridgeAccess';
 import type { WorldEdit } from '../core/edits';
 import { placesFromSettlements, simulateEconomy, tradeSitesFrom } from '../core/economy';
 import { coinName, cognates } from '../core/language';
-import { generateName, type CultureId } from '../core/naming';
+import { cultureMap, generateName, type CultureId, type FeatureKind } from '../core/naming';
 import { FOG_HEARD, FOG_HIDDEN, FOG_SEEN, fogMask, fogShares, fogStrokeEdits } from '../core/readerFog';
-import { settlementCellCenter, type Settlement } from '../core/settlements';
+import { DEFAULT_HUMAN_PARAMS, settlementCellCenter, type Settlement } from '../core/settlements';
 import { findRoute, isOpenSea, simplifyRoute, type RoutePoint } from '../core/tradeRoutes';
 import type { WorldData } from '../core/types';
 import type { CartographerOrigin, InWorldMap } from './types';
@@ -13,7 +13,10 @@ import type { CartographerOrigin, InWorldMap } from './types';
 interface Origin {
   key: CartographerOrigin;
   name: string;
-  settlement: Settlement;
+  placeName: string;
+  at: RoutePoint;
+  culture: CultureId;
+  placeKey: string;
 }
 
 interface Route {
@@ -27,9 +30,10 @@ export function settlementKey(place: Settlement): string {
   return place.sourceKey ?? ('settlement:' + place.x + ',' + place.y);
 }
 
-export function mapOrigins({ geo }: ReadableWorld): Origin[] {
+export function mapOrigins({ data, geo, atlas }: ReadableWorld): Origin[] {
   const cultures = new Map<CultureId, Settlement>();
   const byId = new Map(geo.settlements.map(place => [place.id, place]));
+  const byKey = new Map(geo.settlements.map(place => [settlementKey(place), place]));
   for (const realm of geo.realms) {
     const capital = byId.get(realm.capital);
     if (capital && !cultures.has(realm.culture)) cultures.set(realm.culture, capital);
@@ -37,14 +41,18 @@ export function mapOrigins({ geo }: ReadableWorld): Origin[] {
   for (const place of geo.settlements) {
     if (!cultures.has(place.culture)) cultures.set(place.culture, place);
   }
+  const source = data.domain?.source, bounds = data.domain?.bounds;
+  const naming = cultureMap(data.params.seed, source?.width ?? data.width, source?.height ?? data.height, DEFAULT_HUMAN_PARAMS.cultureCount);
   return [
     ...Array.from(cultures, ([culture, settlement]): Origin => ({
       key: { kind: 'culture', id: culture },
       name: geo.languages.byId.get(geo.languageOf[culture])?.name ?? settlement.name,
-      settlement,
+      placeName: settlement.name, placeKey: settlementKey(settlement), at: settlementCellCenter(settlement), culture,
     })),
-    ...geo.settlements.map((settlement): Origin => ({
-      key: { kind: 'place', id: settlementKey(settlement) }, name: settlement.name, settlement,
+    ...atlas.places.filter(place => place.kind !== 'realm').map((place): Origin => ({
+      key: { kind: 'place', id: place.key }, name: place.name, placeName: place.name, placeKey: place.key,
+      at: settlementCellCenter(place),
+      culture: byKey.get(place.key)?.culture ?? naming.cultureAt(place.x + (bounds?.x ?? 0), place.y + (bounds?.y ?? 0)),
     })),
   ];
 }
@@ -76,8 +84,8 @@ export function cartographerRoutes(
   }, 24, month - 23).slice(-12);
   const radius = Math.max(2, Math.min(data.width, data.height * 2) * reach);
   const connected = new Set(geo.settlements.filter(place =>
-    distance(data, place, origin.settlement) <= radius
-    || (origin.key.kind === 'culture' && place.culture === origin.key.id && distance(data, place, origin.settlement) <= radius * 2),
+    distance(data, settlementCellCenter(place), origin.at) <= radius
+    || (origin.key.kind === 'culture' && place.culture === origin.key.id && distance(data, settlementCellCenter(place), origin.at) <= radius * 2),
   ).map(place => place.id));
   const lanes = new Map<string, { from: number; to: number; bySea: boolean; amount: number }>();
   for (const snapshot of snapshots) for (const movement of snapshot.movements) {
@@ -108,7 +116,7 @@ export function buildKnowledge(
 ) {
   const { width, height } = data;
   const wrap = data.domain?.topology !== 'finite';
-  const capital = settlementCellCenter(origin.settlement);
+  const capital = origin.at;
   const radius = Math.max(2, Math.min(width, height * 2) * map.reach);
   const mask = new Uint8Array(width * height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
@@ -148,29 +156,30 @@ export function buildKnowledge(
 
 export function cartographerLabels(world: ReadableWorld, origin: Origin, knowledge: ReturnType<typeof buildKnowledge>) {
   const { geo, data, atlas } = world;
-  const language = geo.languages.byId.get(geo.languageOf[origin.settlement.culture]);
+  const language = geo.languages.byId.get(geo.languageOf[origin.culture]);
   const settlements = new Map(geo.settlements.map(place => [settlementKey(place), place]));
   const features = new Map(geo.features.map(feature => [feature.sourceKey, feature]));
   return atlas.places.flatMap(place => {
-    if (place.kind !== 'settlement' && place.kind !== 'feature') return [];
+    if (place.kind === 'realm') return [];
+    const anchor = place.key === origin.placeKey;
     const known = knowledge.at(place.x, place.y);
-    if (known === FOG_HIDDEN || (known === FOG_HEARD && place.importance < 0.55)) return [];
+    if (known === FOG_HIDDEN || (!anchor && known === FOG_HEARD && place.importance < 0.55)) return [];
     const settlement = settlements.get(place.key);
     const feature = features.get(place.key);
     const etym = settlement?.etym ?? feature?.etym;
-    const local = settlement?.culture === origin.settlement.culture || (!!etym && etym.langId === language?.id);
+    const local = anchor || settlement?.culture === origin.culture || (!!etym && etym.langId === language?.id);
     let name = place.name;
     if (!local && language && etym) {
       name = cognates(etym, geo.languages, data.params.seed, place.key).find(cognate => cognate.langId === language.id)?.text ?? name;
     } else if (!local) {
-      const kind = settlement ? 'settlement' : feature?.kind;
+      const kind: FeatureKind | undefined = settlement ? 'settlement' : place.kind === 'landmark' ? (place.type as FeatureKind) : feature?.kind;
       const key = 'exonym:' + place.key;
       if (language) name = coinName(language, geo.languages.proto, key, data.params.seed, settlement && {
         heads: [settlement.port ? 'harbour' : settlement.river ? 'ford' : settlement.rank === 'capital' ? 'fort' : 'town'],
       }).text;
-      else if (kind) name = generateName(data.params.seed, key, { kind, culture: origin.settlement.culture });
+      else if (kind) name = generateName(data.params.seed, key, { kind, culture: origin.culture });
     }
-    return [{ key: place.key, ...settlementCellCenter(place), name, known, settlement: !!settlement,
-      capital: settlement?.id === origin.settlement.id, importance: place.importance }];
+    return [{ key: place.key, ...settlementCellCenter(place), name, known, settlement: anchor || !!settlement,
+      capital: anchor, importance: place.importance }];
   }).sort((a, b) => Number(b.capital) - Number(a.capital) || b.known - a.known || b.importance - a.importance);
 }

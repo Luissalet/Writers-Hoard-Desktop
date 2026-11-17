@@ -41,7 +41,7 @@ export function plateForMap(source: CartographerSource, map: InWorldMap, calenda
   const knowledge = buildKnowledge(source.world, origin, map, routes, source.edits);
   const labels = cartographerLabels(source.world, origin, knowledge);
   const plate = drawPlate(source.world.data, map, knowledge, routes, labels, {
-    origin: origin.key.kind === 'culture' ? origin.name + ' · ' + origin.settlement.name : origin.name,
+    origin: origin.key.kind === 'culture' ? origin.name + ' · ' + origin.placeName : origin.name,
     date: formatWorldDate(calendar, map.date),
     unknown: locale === 'es' ? 'Tierra incógnita' : 'Terra incognita',
   });
