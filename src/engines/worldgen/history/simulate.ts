@@ -303,12 +303,11 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     const n = nodes[ni];
     const def = n.owner;
     ev({ year, kind: 'conquest', polity: polities[att].key, ...(def >= 0 ? { other: polities[def].key } : {}), place: n.key, ...(war ? { war } : {}), ...(pinned ? { pinned } : {}), ...at(n) });
-    setOwner(ni, att, year);
     if (!n.standing && (pinned || r() < 0.15 + 0.5 * aggression)) {
       ev({ year, kind: 'sack', polity: polities[att].key, ...(def >= 0 ? { other: polities[def].key } : {}), place: n.key, ...(war ? { war } : {}), ...at(n) });
+      // Razed while still the defender's: the ruin remembers whose it was.
       raze(ni, year, 'sack', att);
-      if (def >= 0) ruins[ruins.length - 1].polity = polities[def].key;
-    }
+    } else setOwner(ni, att, year);
     if (def >= 0) {
       polities[def].lostWarAt = year;
       const p = polities[def];
