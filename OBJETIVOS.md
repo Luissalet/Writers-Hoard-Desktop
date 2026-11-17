@@ -212,6 +212,15 @@ Siguiente:
 - La fila C #1 sigue PARTIAL: un proyecto es un solo manuscrito; varias
   historias dentro de un mismo mundo pediría un cambio de modelo.
 
+## Mapas intramundo
+
+El objetivo de componer un mapa desde la perspectiva de una cultura o lugar
+queda cubierto con láminas fechadas, conocimiento basado en rutas comerciales,
+exónimos y correcciones manuales. La lámina se guarda con el mundo, enlaza con
+una ficha del Codex y se exporta en PNG, SVG o PDF o se inserta en un capítulo.
+La fecha consulta la economía estacional del mundo visible. La geografía
+histórica de otras épocas se elige con el selector de época del proyecto.
+
 ## Mapas — continuación del catálogo de VVD (Ágora 1095)
 
 Hecho en esta continuación (revisión independiente en rondas, ver
