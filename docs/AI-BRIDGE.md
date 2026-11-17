@@ -2833,8 +2833,10 @@ Las seis herramientas leen un único informe (`src/services/continuity/report.ts
 - `wh_travel_check` (lectura): `projectId`, `eraId`, `characterId` y `onlyProblems` opcionales. Cada tramo une dos
   apariciones seguidas de un personaje: sucesos de historia del mapa que lo nombran en `who` y, en capítulos sin
   suceso, ubicaciones del libro de estado con punto de mapa. La ruta sale del motor de viajes del mundo (terreno,
-  modo habitual del personaje, estación de la fecha: el año en cuartos empezando en invierno, ritmo y perfil del
-  mundo) y se compara con los días entre el primer día del capítulo de salida y el último del de llegada, ambos
+  modo habitual del personaje, estación de la fecha, ritmo y perfil del
+  mundo; las estaciones salen de `calendar.seasons` en `wh_world_calendar_set`: `{mode:'quarters'|'months'|'none',
+  starts?:{winter,spring,summer,autumn} (mes 1-based), hemisphere?:'south'}`, sin él el año en cuartos que empiezan
+  en invierno; sin estaciones se viaja como en verano) y se compara con los días entre el primer día del capítulo de salida y el último del de llegada, ambos
   incluidos. Veredictos: `impossible`, `tight` (más del 75 % de los días), `comfortable`, `unknown` con `reason`
   (`undated`, `other-world`, `no-route`, `pending`: el mundo se está generando, volver a preguntar). Un tramo
   imposible trae `earliestStart`, la primera fecha en que podría empezar el capítulo de destino conservando su
@@ -2848,7 +2850,8 @@ Las seis herramientas leen un único informe (`src/services/continuity/report.ts
   personaje (`codexEntries.continuity.ledger`). Tipos: `location`, `learns`, `actsOn`, `gains`, `loses`, `uses`,
   `condition`, `dies`, `revives`, `appears`.
 - `wh_continuity_mark` (escritura, deshacer genérico): `findingId` + `note` marca un tramo o hallazgo como
-  intencionado (nota vacía quita la marca); `travelMode` fija cómo viaja el personaje.
+  intencionado (nota vacía quita la marca); `travelMode` fija cómo viaja el personaje. Al duplicar el proyecto, las
+  marcas y los sucesos de historia del mapa pasan a los ids nuevos de mundos, fichas y capítulos.
 
 Las escrituras se rechazan con el Códex desactivado. El modo `story-state` del Juez puede devolver una
 propuesta `ledger` por hallazgo; se guarda en el hallazgo y solo se escribe en el libro cuando el autor pulsa

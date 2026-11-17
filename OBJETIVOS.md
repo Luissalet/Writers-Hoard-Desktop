@@ -2,8 +2,9 @@
 
 ## Carril novelista: continuidad, siguientes pasos
 
-El verificador de viajes y el libro de estado están entregados (panel «Continuidad», rastro en el mapa, herramientas
-`wh_travel_check`, `wh_character_state`, `wh_state_ledger*`, `wh_continuity_mark`). Queda:
+El verificador de viajes y el libro de estado están entregados (panel «Continuidad», rastro en el mapa, carriles de
+viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel_check`, `wh_character_state`,
+`wh_state_ledger*`, `wh_continuity_mark`). Queda:
 
 - **Voz por personaje (Ágora writers #3333).** Perfil de los diálogos de cada personaje sacado del manuscrito
   (atribución por la acotación «dijo X» y por los bloques de Dialog Scene): longitud media de frase y su dispersión,
@@ -12,11 +13,11 @@ El verificador de viajes y el libro de estado están entregados (panel «Continu
   parece más a otro personaje que al suyo, con enlace a la frase. Prueba ciega: mezclar líneas sin atribución y que el
   autor adivine de quién es cada una, con la puntuación final. Determinista, sin modelo; herramientas
   `wh_voice_profile` y `wh_voice_outliers`.
-- **Línea de tiempo.** Mostrar sobre el carril del manuscrito los tramos imposibles de cada personaje.
-- **Puntos del libro de estado.** Hoy el punto del mapa de una ubicación se elige entre los lugares que la historia ya
-  usa; añadir la búsqueda de cualquier lugar del mundo y las fichas de lugar enlazadas a un lugar del mapa.
-- **Duplicar proyecto.** Las marcas «intencionado» de tramos se guardan con ids de suceso que incluyen el id del mundo;
-  al duplicar, el mundo cambia de id y esas marcas dejan de aplicarse. Remapear las claves de `continuity.intentional`.
+- **Radiografía de ritmo (#3334).** Por escena y capítulo: diálogo, narración y descripción, longitud y densidad de
+  acción, en una curva sobre los beats del esquema que señale tramos planos o desequilibrados.
+- **Deriva del plan (#3335).** Comparar cada capítulo con el beat que debía cumplir y proponer actualizar el esquema.
+- **Puntos del libro de estado.** Ya se busca cualquier lugar con nombre del mundo; faltan las fichas de lugar del
+  Códex enlazadas a un lugar del mapa (dependen de la ficha «estar allí», #3339).
 - **Juez.** La propuesta de línea del modo Estado de la historia se ha probado aceptándola desde el servicio; falta una
   pasada en vivo con el modelo global de las Sparks para ver la tarjeta con una respuesta real.
 
