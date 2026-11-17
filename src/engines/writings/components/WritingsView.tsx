@@ -79,6 +79,7 @@ import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
 import ContinuityPanel from './ContinuityPanel';
+import VoicePanel from './voice/VoicePanel';
 import ReferencePanel from './ReferencePanel';
 import { referenceDockPx, useReferencePrefs } from './referencePrefs';
 import { useGhostText } from '@/components/editor/ghostText/useGhostText';
@@ -1166,6 +1167,14 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   const deepLinkedDraft = useDeepLinkParam('draft');
   const deepLinkedCompare = useDeepLinkParam('compareWriting');
   const deepLinkedCompareDraft = useDeepLinkParam('compareDraft');
+  // `&quote=<text>` (a voice outlier opened from the Codex card) selects that passage once the chapter is open.
+  const deepLinkedQuote = useDeepLinkParam('quote');
+  const quoteLinkKey = deepLinkedWritingId && deepLinkedQuote ? `${deepLinkedWritingId}\u0000${deepLinkedQuote}` : null;
+  const [quoteLinkSeen, setQuoteLinkSeen] = useState<string | null>(null);
+  if (quoteLinkKey && quoteLinkKey !== quoteLinkSeen) {
+    setQuoteLinkSeen(quoteLinkKey);
+    setPendingJudgeNavigation({ writingId: deepLinkedWritingId!, quote: deepLinkedQuote!, annotate: false });
+  }
 
   const handleOpenWriting = useCallback((writing: Writing) => {
     if(!canLeaveOwned())return;
@@ -2874,6 +2883,12 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
                 projectId={projectId}
                 writing={openWriting}
                 onUpdateWriting={handleMetaUpdate}
+              />
+              <VoicePanel
+                key={`voice-${openWriting.id}`}
+                projectId={projectId}
+                writingId={openWriting.id}
+                onOpenLine={handleJudgeNavigate}
               />
               <FootnotesPanel
                 editor={liveEditor}

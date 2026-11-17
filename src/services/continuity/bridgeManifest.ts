@@ -1,5 +1,6 @@
 import { b, n, s, PROJECT_ID, type BridgeTool } from '@/services/aiBridge/schema';
 import { LEDGER_KINDS } from '@/engines/writings/continuity/types';
+import { VOICE_TOOLS } from '@/services/voice/bridgeManifest';
 
 const CHARACTER = s('Codex id of a character card.');
 const ERA = s('Named era; omit for Shared base.');
@@ -57,4 +58,6 @@ Intended means the author meant it (magic, an ellipsis). findingId is a leg id f
     writes: true,
     schema: { type: 'object', properties: { projectId: PROJECT_ID, characterId: CHARACTER, findingId: s('Leg or finding id.'), note: s('Why it is intended; empty removes the mark.'), travelMode: s('Usual travel mode.', { enum: ['foot', 'horse', 'cart', 'boat', 'ship'] }) }, required: ['characterId'], additionalProperties: false },
   },
+  // The novelist checks that read the manuscript beside continuity.
+  ...VOICE_TOOLS,
 ];
