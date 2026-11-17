@@ -25,7 +25,7 @@ It is also the Writer plugin of the Hoard family. It absorbs the former interact
 
 **Worldbuilding**
 - Codex of typed cards with properties, aliases, private types, frozen cards, relations, a world graph, genealogy and family trees.
-- World generator and cartography: generated worlds with editable labels, stamps, roads, rivers, fog by chapter, journeys planned with the world's own pace, cities, regional sheets, a 3D view and hand-drawn or image-based classic maps with pins, regions, routes and a measuring tool.
+- World generator and cartography: generated worlds with editable labels, stamps, roads, rivers, fog by chapter, journeys planned with the world's own pace, cities, regional sheets, a 3D view and hand-drawn or image-based classic maps with pins, regions, routes and a measuring tool. Seeded weather and sky follow the world's calendar; narrator place references connect terrain, materials, food, languages, nearby markets and the chapter's setting. Dated weather can optionally delay journeys.
 - Timelines with custom calendars, moons, eras, repeats, banners and saved views; relation trees; radar charts; dictionaries and constructed-language glyphs; typed tables and spreadsheets with formulas and Excel import and export.
 - Annotations and comments with read state and board pins; boards with cards, audio and video.
 - Local tool SDK: author your own tools as Source documents with fields, indexes, tutorials, icons, translations and audio. See [docs/local-tool-sdk.md](docs/local-tool-sdk.md).
