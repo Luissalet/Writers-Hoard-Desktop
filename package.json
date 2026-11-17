@@ -34,6 +34,7 @@
     "test:reference:ui": "electron scripts/run-reference-ui.cjs",
     "test:ghost": "node scripts/run-ghost-text-tests.mjs && electron scripts/run-focused-browser-tests.cjs tests/ghost-text-editor.browser.tsx testGhostTextEditor 200000",
     "test:subscriptions": "node scripts/run-subscription-protocol-tests.mjs && node scripts/run-subscription-backend-tests.mjs && electron scripts/run-ai-settings-ui.cjs && electron scripts/run-focused-browser-tests.cjs tests/ai-bridge-connection.browser.tsx testAiBridgeConnection",
+    "test:continuity": "node scripts/run-continuity-tests.mjs",
     "test:worldcalendar": "node scripts/run-world-calendar-tests.mjs && electron scripts/run-focused-browser-tests.cjs tests/world-calendar-ui.browser.tsx testWorldCalendarUi 250000",
     "test:worldgen": "electron scripts/run-focused-browser-tests.cjs tests/worldgen-study.browser.ts testWorldgenStudy",
     "test:worldgen:large": "electron scripts/run-focused-browser-tests.cjs tests/worldgen-large-lifecycle.browser.ts testWorldgenLargeLifecycle 120000",
