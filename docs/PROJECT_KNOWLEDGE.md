@@ -588,6 +588,16 @@ overwritten or treated as disposable.
   ids inside, so backups and duplicates carry it as is.
 - `WritingsView` reads `&quote=` on `?writing=` deep links and selects that passage (same path as the Judge).
 
+## Pacing x-ray
+
+- Pure core `src/engines/writings/pacing/pacing.ts`: `splitScenes` (break lines), `measure` (dialogue through the
+  voice splitter; prose sentences classed as description when stative/imperfect forms outnumber action forms),
+  `paceOf`, `buildPacing` (scenes on a 0…1 word axis, chapters weighted by words, flags). Tests: `tests/pacing-logic.ts`.
+- `services/pacing/report.ts` turns the editor's `<hr>` scene breaks into break lines, places story-outline beats at
+  their linked chapter's start or `storyPosition`, and reports `tension: null` (no stored tension exists).
+- UI: `writings/components/pacing/PacingPanel.tsx` (SVG curve); jumps use `handleJudgeNavigate`, beats open
+  `/outline?outline=&beat=`. Bridge: `wh_pacing` through the continuity tool arrays. Nothing is stored.
+
 ## Local world authoring — scoped source update (2026-10-21)
 
 This section updates only the local authoring extension; the earlier verification

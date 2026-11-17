@@ -8,8 +8,8 @@ viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel
 
 - **Voz por personaje.** Entregada (panel, ficha, prueba ciega, `wh_voice_*`). Queda: atribuir por pronombre
   («—dijo ella») con el género de la ficha y probar la descripción con el modelo global de las Sparks en vivo.
-- **Radiografía de ritmo (#3334).** Por escena y capítulo: diálogo, narración y descripción, longitud y densidad de
-  acción, en una curva sobre los beats del esquema que señale tramos planos o desequilibrados.
+- **Radiografía de ritmo.** Entregada (panel con curva y beats, avisos, `wh_pacing`). Queda: una tensión por escena
+  guardada por el autor que la curva pueda superponer al ritmo calculado.
 - **Deriva del plan (#3335).** Comparar cada capítulo con el beat que debía cumplir y proponer actualizar el esquema.
 - **Puntos del libro de estado.** Ya se busca cualquier lugar con nombre del mundo; faltan las fichas de lugar del
   Códex enlazadas a un lugar del mapa (dependen de la ficha «estar allí», #3339).
