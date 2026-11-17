@@ -2898,3 +2898,36 @@ Las tres herramientas leen el mismo informe que el panel «Voz por personaje» y
   con texto que ningún beat enlaza. Sin modelo.
 - `wh_plan_drift_apply` (escritura, deshacer genérico): `beatId`; recalcula la propuesta y la escribe como título y
   descripción del beat; `title` y `description` sustituyen sus palabras. Rechaza un beat sin propuesta.
+
+## Historia simulada del mundo
+
+Cinco herramientas sobre `src/engines/worldgen/history/`. Todas leen el mundo con `openWorldForReading` en
+profundidad completa; si el mundo aún no tiene instantánea responden `pending` (volver a preguntar). Solo la fila
+base del mundo (sin `eraId`). Los años son absolutos del calendario del mundo y salen también como texto con ese
+calendario cuando el proyecto lo tiene. `lang` (`es`/`en`) elige el idioma de frases y fichas; por defecto, el de la
+aplicación.
+
+- `wh_world_history_simulate` (escritura, deshacer genérico: restaura `generatedWorlds.history`): `worldId` y
+  opcionales `seed`, `centuries` (1–30), `aggression` (0–1), `endYear`, `pins` (sustituye la lista). Los campos
+  omitidos conservan el valor guardado. Devuelve reinos, ruinas con causa y fecha, topónimos de sustrato, recuentos y
+  `notes` (`pin:<id>:clamped|unknown-realm|unknown-place|already-ruined|conqueror-not-standing|conqueror-already-holds|no-conqueror`).
+- `wh_world_history` (lectura): sin filtros, el resumen y los acontecimientos (`fromYear`, `toYear`, `kinds`,
+  `limit`); `realm` (clave o nombre): dinastías, gobernantes, lugares que tuvo y sus acontecimientos; `place` (clave
+  o nombre de asentamiento o ruina): quién lo tuvo y desde cuándo, su caída si es ruina, su sustrato; `year`: reinos en
+  pie y quién tenía cada lugar ese año.
+- `wh_world_history_proposals` (lectura): fichas propuestas con clave estable, tipo, campos, texto y `accepted`.
+  `groups` (`realm`, `dynasty`, `ruler`, `war`, `treaty`, `ruin`) y `onlyOpen` filtran.
+- `wh_world_history_accept` (escritura, deshacer genérico: borra las fichas creadas): `keys` o `all` (con `groups`
+  opcional). Las fichas aceptadas juntas quedan relacionadas; las ya aceptadas se saltan. Rechaza con el Códex o el
+  generador de mundos desactivados.
+- `wh_world_history_to_timeline` (escritura, deshacer genérico: borra la línea creada y sus eventos): crea la línea
+  de tiempo la primera vez (`title` opcional) y después añade solo los acontecimientos que no tiene. Fechas en el
+  calendario del mundo (`dateMode: 'world'`), guerras como rangos, enlaces a las fichas aceptadas de reino y guerra.
+  Rechaza con la línea de tiempo desactivada.
+
+Hechos fijados: `{"id":"p1","kind":"realm-exists","polity":"realm:2","year":740}` y
+`{"id":"p2","kind":"city-falls","place":"s:17","year":812,"by":"realm:0"}`.
+
+```json
+{"worldId":"w1","seed":"cronica","centuries":8,"aggression":0.6,"endYear":1200,"pins":[{"id":"p2","kind":"city-falls","place":"s:17","year":812}]}
+```

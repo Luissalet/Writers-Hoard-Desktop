@@ -611,6 +611,31 @@ overwritten or treated as disposable.
   through `outline/operations.updateBeat` and reverts it if the beat is unchanged since. Panel:
   `writings/components/planDrift/DriftPanel.tsx`. Bridge: `wh_plan_drift`, `wh_plan_drift_apply`.
 
+## World history simulation
+
+- Pure core in `src/engines/worldgen/history/`: `types.ts` (input, settings, pins, `WorldHistory`), `ground.ts`
+  (cell cost, k-nearest place graph with sampled terrain cost, binary heap), `simulate.ts` (`simulateHistory`,
+  `ownerAt`, `politiesAt`), `territory.ts` (`territoryAt`: multi-source spread over a coarse land grid, reach by
+  rank), `text.ts` (event sentences and Codex proposals in es/en), `fromGeography.ts` (flattens `WorldData` +
+  `HumanGeography`, names houses, rulers and new realms from each language's lexicon).
+- Model: steps of five years from `endYear - centuries*100`. Today's realms are founded at their capitals and
+  never fall; lost realms rise at the most important ruins and must fall before the end; every ruin gets a date
+  and a cause (`sack`, `conquest`, `flood`, `abandoned`, `collapse`). Wars between graph neighbours scale with
+  `aggression`. A fallen people may migrate and found a realm elsewhere. The last steps cede every settlement to
+  its realm on today's map, so the final borders are today's. `toponyms` lists names whose language differs from
+  their ruler's. Pins: `realm-exists` (seat protected until the year) and `city-falls` (place shielded until then,
+  then taken, by `by` when possible). Every draw comes from `createRng(seed, 'history…')`: same input and settings,
+  same history; proposal keys are stable for the same settings.
+- Storage: `generatedWorlds.history` (`store.ts`: settings, `accepted` proposal key → Codex id, `timelineId` and
+  event id → timeline event id). The history itself is never stored. Accepting and sending to the timeline only
+  add rows and skip what is already there; re-simulating never touches accepted cards.
+- UI: `useWorldHistory` (computed only while the History tab is open, from the full geography) and
+  `components/history/HistoryPanel.tsx`; the map layer is `cartography/historyLayer.ts` through
+  `CartoAnnotations.history` (cylindrical views). Strings register from `history/i18n.ts`.
+- Bridge: `history/bridgeManifest.ts` + `history/bridge.ts` (`wh_world_history*`). Base worlds only, no era scope.
+- Tests: `tests/world-history.browser.ts` (`testWorldHistory`, `testWorldHistoryStore`, `testWorldHistoryBridge`)
+  through `electron scripts/run-focused-browser-tests.cjs`.
+
 ## Local world authoring — scoped source update (2026-10-21)
 
 This section updates only the local authoring extension; the earlier verification
