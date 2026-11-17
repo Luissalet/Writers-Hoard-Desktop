@@ -1,6 +1,7 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
 import {preparePlaceImages,webPlaceImageAdapter,type PlaceImagePainter} from '../cartography/placeImages';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useCharacterTrail } from '@/services/continuity/useCharacterTrail';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring/registry';
 import { useWritings } from '@/engines/writings/hooks';
 import { shipmentPath } from '../core/tradeRoutes';
@@ -1125,6 +1126,9 @@ export default function WorldView({
     const done = storyKnownBy(storyEvents, readerChapter).filter((event) => event.status === 'happened');
     return done.length >= 2 ? done.map((event) => ({ x: event.x - 0.5, y: event.y - 0.5, ...(event.chapter !== undefined ? { chapter: event.chapter } : {}) })) : undefined;
   }, [readerView, readerTrail, storyEvents, readerChapter]);
+  // A character's trail from the continuity check (?trail=<Codex id>), impossible legs in red.
+  const [routeParams, setRouteParams] = useSearchParams();
+  const characterTrail = useCharacterTrail(projectId, world.id, routeParams.get('trail'));
 
   // The closed river crossings are replaced as a whole when one changes, so this reference tells when to redraw.
   const closedCrossingMarks = data?.painted?.blockedCrossingMarks;
@@ -1151,7 +1155,7 @@ export default function WorldView({
       active: rg.id === regionAt?.savedId,
     }));
     const closedCrossings = closedCrossingMarks;
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours && !closedCrossings?.length && !zones.length) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours && !closedCrossings?.length && !zones.length && !characterTrail) return undefined;
     return {
       contours,
       zones: zones.length ? zones : undefined,
@@ -1159,6 +1163,7 @@ export default function WorldView({
       fog: fogLayer,
       story: storyMarks,
       trade: tradeLayer,
+      trail: characterTrail?.points,
       pins,
       linked,
       regions: regions.length ? regions : undefined,
@@ -1174,7 +1179,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId, closedCrossingMarks, zones, kmScale, townDots, trail]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId, closedCrossingMarks, zones, kmScale, townDots, trail, characterTrail]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -2663,6 +2668,13 @@ export default function WorldView({
       {/* Stack tools below the map when the actual workspace is narrow. */}
       <div className={`grid gap-3 items-stretch ${toolsOpen ? '@min-[960px]:grid-cols-[minmax(0,1fr)_21rem]' : ''}`}>
         <div className="relative rounded-xl overflow-hidden border border-border bg-deep min-w-0 h-[max(420px,calc(100dvh-260px))]">
+          {characterTrail && (
+            <div className="absolute right-2 top-2 z-10 flex items-center gap-2 rounded bg-surface/90 px-2 py-1 text-[11px] text-text-primary shadow" data-testid="worldgen-character-trail" data-impossible={characterTrail.impossible}>
+              <span className="font-semibold">{t('continuity.trail.title').replace('{name}', characterTrail.name)}</span>
+              {characterTrail.impossible > 0 && <span className="text-red-400">{t('continuity.trail.impossible').replace('{count}', String(characterTrail.impossible))}</span>}
+              <button type="button" className="rounded px-1 text-text-muted hover:bg-elevated hover:text-text-primary" onClick={() => setRouteParams((params) => { const next = new URLSearchParams(params); next.delete('trail'); return next; }, { replace: true })}>{t('continuity.trail.close')}</button>
+            </div>
+          )}
           {data && view === 'map' && (
             // How much of the world the view takes in: the band (world, continent, region, local) and its width on the ground.
             <div className="pointer-events-none absolute left-2 top-2 z-10 rounded bg-surface/80 px-2 py-0.5 text-[10px] text-text-muted" data-testid="worldgen-view-band" data-tier={semanticProfile.tier}>
