@@ -25,6 +25,9 @@ import { BridgeError } from '@/services/aiBridge/tools/shared';
 import { applyProjectScope, validateToolArgs } from '@/services/aiRuntime/toolPolicy';
 import { deleteSeed } from '@/engines/seeds/operations';
 import { db } from '@/db';
+import { runBridgeTool } from '@/services/aiBridge/dispatch';
+import { mutateEraRows, saveWorldEra } from '@/services/worldEras/store';
+import type { CodexEntry, Project } from '@/types';
 import {
   pendingConfirmations,
   requestBridgeConfirmation,
@@ -738,6 +741,91 @@ async function testStorySessionImport(): Promise<void> {
   }
 }
 
+export async function testContinuityEraBridge(): Promise<string[]> {
+  const projectId = `continuity-era-${crypto.randomUUID()}`;
+  const eraId = 'named-era';
+  const scope = { projectId, eraId };
+  const now = Date.now();
+  const project: Project = {
+    id: projectId, title: 'Continuity demo', description: '', mode: 'custom', type: 'standalone',
+    color: '#777777', status: 'draft', enabledEngines: ['codex', 'writings'], engineOrder: ['codex', 'writings'],
+    createdAt: now, updatedAt: now,
+  };
+  const root = (id: string, title: string) => ({ id: `${projectId}-${id}`, projectId, title, createdAt: now, updatedAt: now });
+  const shared: CodexEntry = { ...root('person', 'Shared character'), type: 'character', fields: {}, content: '', tags: [], relations: [] };
+  const exclusive = { ...shared, ...root('traveller', 'Era traveller') };
+  const first = { ...root('one', 'Departure'), chapter: 1, status: 'draft' as const, content: '', wordCount: 0, tags: [] };
+  const second = { ...first, ...root('two', 'Arrival'), chapter: 2 };
+  const call = async <T>(tool: string, args: Record<string, unknown>): Promise<T> => {
+    const spec = getBridgeTool(tool);
+    assert(spec && validateToolArgs(spec.schema, args).ok, `${tool} did not accept its scope or input`);
+    const reply = await runBridgeTool(tool, args);
+    assert(reply.ok, `${tool}: ${reply.error}`);
+    return reply.result as T;
+  };
+  type AddResult = { line: { id: string } };
+  type TravelResult = { legs: Array<{ id: string; characterId: string }> };
+  type StateResult = { character: string; chapter: number; knows: Array<{ fact: string }> };
+  type LedgerResult = { characters: Array<{ characterId: string; lines: Array<{ id: string; fact?: string }> }> };
+  const add = (args: Record<string, unknown>) => call<AddResult>('wh_state_ledger_add', args);
+  const auditEntry = (tool: string, audit: Record<string, unknown>) => JSON.parse(JSON.stringify({ tool, eraId, ...audit }));
+
+  try {
+    await db.projects.add(project);
+    await db.codexEntries.add(shared);
+    await db.writings.bulkAdd([first, second]);
+    await saveWorldEra(projectId, { id: eraId, name: 'Named era', description: '', revision: 0, createdAt: now, updatedAt: now }, null);
+    await mutateEraRows(scope, [
+      { table: 'codexEntries', id: exclusive.id, row: { ...exclusive } },
+      { table: 'writings', id: second.id, changes: { chapter: 4 } },
+    ]);
+
+    const traveller = { ...scope, characterId: exclusive.id };
+    await add({ ...traveller, kind: 'location', writingId: first.id, place: { label: 'Gate', worldId: 'one', x: 1, y: 1 } });
+    await add({ ...traveller, kind: 'location', writingId: second.id, place: { label: 'Port', worldId: 'two', x: 2, y: 2 } });
+    const all = await call<TravelResult>('wh_travel_check', scope);
+    const filtered = await call<TravelResult>('wh_travel_check', traveller);
+    assert(filtered.legs.length === 1 && filtered.legs[0].characterId === exclusive.id && filtered.legs[0].id === all.legs[0]?.id,
+      'Travel lost the character who exists only in the named era when filtering');
+    assert((await runBridgeTool('wh_travel_check', { projectId, characterId: exclusive.id })).code === 'not-found',
+      'The era-only traveller leaked into Base');
+
+    const base = { projectId, characterId: shared.id };
+    const named = { ...base, eraId };
+    await add({ ...base, writingId: second.id, kind: 'learns', fact: 'Base fact' });
+    const eraLine = await add({ ...named, writingId: second.id, kind: 'learns', fact: 'Era fact' });
+    const baseState = await call<StateResult>('wh_character_state', { ...base, writingId: second.id });
+    const eraState = await call<StateResult>('wh_character_state', { ...named, writingId: second.id });
+    assert(baseState.chapter === 2 && baseState.knows.map(({ fact }) => fact).join() === 'Base fact', 'Base state was changed');
+    assert(eraState.chapter === 4 && eraState.knows.map(({ fact }) => fact).join() === 'Base fact,Era fact',
+      'The named-era state did not resolve its knowledge or chapter');
+    const ledger = (args: typeof base) => call<LedgerResult>('wh_state_ledger', args);
+    assert((await ledger(named)).characters[0]?.lines.length === 2 && (await ledger(base)).characters[0]?.lines.length === 1,
+      'The named-era ledger did not resolve its own lines');
+    assert((await ledger(traveller)).characters[0]?.lines.length === 2, 'The era-only character is missing from the filtered ledger');
+
+    const removal = await call<{ __audit: Record<string, unknown> }>('wh_state_ledger_remove', { ...named, lineId: eraLine.line.id });
+    assert((await ledger(named)).characters[0]?.lines.length === 1, 'Removal did not affect the named-era ledger');
+    const removeEntry = auditEntry('wh_state_ledger_remove', removal.__audit);
+    const later = await call<AddResult & { __audit: Record<string, unknown> }>('wh_state_ledger_add', {
+      ...named, writingId: second.id, kind: 'learns', fact: 'Later edit',
+    });
+    assert((await runBridgeTool('__undo', { entry: removeEntry })).code === 'cannot-undo', 'Undo would overwrite a later ledger edit');
+    assert((await runBridgeTool('__undo', { entry: auditEntry('wh_state_ledger_add', later.__audit) })).ok, 'Undo could not roll back the later ledger addition');
+    await mutateEraRows(scope, [{ table: 'codexEntries', id: shared.id, changes: { title: 'A later title' } }]);
+    assert((await runBridgeTool('__undo', { entry: removeEntry })).ok, 'Undo could not restore a ledger line removed in its era');
+    const restored = (await ledger(named)).characters[0];
+    assert(restored?.lines[1]?.id === eraLine.line.id && restored.lines[1].fact === 'Era fact', 'The exact era line did not return');
+    assert((await call<StateResult>('wh_character_state', { ...named, writingId: second.id })).character === 'A later title',
+      'The continuity undo also restored unrelated Codex properties');
+    assert((await ledger(base)).characters[0]?.lines.map(({ fact }) => fact).join() === 'Base fact', 'Continuity undo leaked into Base');
+    return ['Continuity bridge filters era-only characters, reads era ledgers and state, and restores an era removal with guarded undo'];
+  } finally {
+    for (const table of [db.worldEraVariants, db.writings, db.codexEntries]) await table.where('projectId').equals(projectId).delete();
+    await db.projects.delete(projectId);
+  }
+}
+
 export async function testAiBridgeContracts(): Promise<string> {
   testManifestHandlerParity();
   testToolGroupSelection();
@@ -747,5 +835,6 @@ export async function testAiBridgeContracts(): Promise<string> {
   await testWriteBodyGuardsAndUndoFidelity();
   await testStorySessionImport();
   await testCopilotScopeLeak();
-  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, story session import, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope`;
+  await testContinuityEraBridge();
+  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, story session import, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope, era continuity and guarded undo`;
 }

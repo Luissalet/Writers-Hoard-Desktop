@@ -5,7 +5,9 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { normalizeLedgerEntry } from '@/engines/writings/continuity/ledger';
 import { LEDGER_MAX, type CharacterContinuity, type LedgerEntry } from '@/engines/writings/continuity/types';
 import type { TravelMode } from '@/engines/worldgen/core/travel';
-import { mutateEraRows, readEraRow } from '@/services/worldEras/store';
+import { contentStamp } from '@/services/aiBridge/undoStamp';
+import { mutateEraRows, readEraRow, readWorldDocument } from '@/services/worldEras/store';
+import { eraDocumentKey } from '@/services/worldEras/types';
 import type { CodexEntry, Writing } from '@/types';
 
 export interface ContinuityReceipt {
@@ -36,15 +38,19 @@ async function mutate(projectId: string, characterId: string, change: (current: 
   if (eraId) {
     // A named era keeps its own version of the card: read and write that variant.
     const scope = { projectId, eraId };
-    const entry = await readEraRow<CodexEntry>(scope, 'codexEntries', characterId);
-    if (!entry || entry.projectId !== projectId) throw new Error(`No Codex card "${characterId}" in this project.`);
+    const document = await readWorldDocument(scope, 'codex', characterId);
+    const entry = document?.document.root as unknown as CodexEntry | undefined;
+    if (!document || !entry || entry.projectId !== projectId) throw new Error(`No Codex card "${characterId}" in this project.`);
     if (entry.type !== 'character') throw new Error(`"${entry.title}" is not a character card.`);
     for (const writingId of writingIds) {
       if (!(await readEraRow<Writing>(scope, 'writings', writingId))) throw new Error(`No manuscript chapter "${writingId}" in this project.`);
     }
     const before = entry.continuity ? structuredClone(entry.continuity) : undefined;
     const after = tidy(change(structuredClone(entry.continuity ?? {})));
-    await mutateEraRows(scope, [{ table: 'codexEntries', id: characterId, changes: { continuity: after, updatedAt: Date.now() } }]);
+    await mutateEraRows(
+      scope, [{ table: 'codexEntries', id: characterId, changes: { continuity: after, updatedAt: Date.now() } }],
+      new Map([[eraDocumentKey('codex', characterId), document.version]]),
+    );
     notifyDataChanged({ source: 'other', projectId, table: 'codexEntries', entityId: characterId });
     return { characterId, before, after, eraId };
   }
@@ -112,10 +118,18 @@ export async function setIntentional(projectId: string, characterId: string, fin
   }, [], eraId);
 }
 
-/** Undo: put back what a receipt replaced, if nothing changed since. */
-export async function revertContinuity(projectId: string, receipt: ContinuityReceipt): Promise<void> {
+export interface ContinuityUndo extends Pick<ContinuityReceipt, 'characterId' | 'before' | 'eraId'> {
+  afterStamp: string;
+}
+
+/** Restore only continuity, with a guard against displacing later edits. */
+export async function restoreContinuity(projectId: string, receipt: ContinuityUndo): Promise<void> {
   await mutate(projectId, receipt.characterId, (current) => {
-    if (JSON.stringify(tidy(current) ?? null) !== JSON.stringify(receipt.after ?? null)) throw new Error('This character\'s continuity changed again since; undo the later change first.');
+    if (contentStamp(tidy(current)) !== receipt.afterStamp) throw new Error('This character\'s continuity changed again since; undo the later change first.');
     return receipt.before ?? {};
   }, [], receipt.eraId);
+}
+
+export function revertContinuity(projectId: string, receipt: ContinuityReceipt): Promise<void> {
+  return restoreContinuity(projectId, { ...receipt, afterStamp: contentStamp(receipt.after) });
 }
