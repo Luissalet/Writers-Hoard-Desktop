@@ -1,5 +1,6 @@
 // AI bridge handlers for the world history simulation.
 import { db } from '@/db';
+import { worldgenScopeOperations } from '../era';
 import { assertEngineEnabled, BridgeError, optBoolean, optNumber, optString, requireString, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import { formatWorldDate } from '@/engines/timeline/worldCalendar';
@@ -14,9 +15,15 @@ import type { HistoryEvent, HistoryInput, HistoryPin, HistorySettings, WorldHist
 
 async function loadWorld(args: ToolArgs): Promise<GeneratedWorld> {
   const worldId = requireString(args, 'worldId');
-  const world = await db.generatedWorlds.get(worldId);
-  if (!world) throw new BridgeError('not-found', `No generated world with id "${worldId}".`);
+  const eraId = optString(args, 'eraId');
   const projectId = optString(args, 'projectId');
+  const base = projectId ? undefined : await db.generatedWorlds.get(worldId);
+  const owner = projectId ?? base?.projectId;
+  if (eraId && !owner) throw new BridgeError('bad-args', 'Pass projectId for a world that exists only in an era.');
+  const world = eraId && owner
+    ? await worldgenScopeOperations({ projectId: owner, eraId }).worlds.getOne(worldId)
+    : base ?? await db.generatedWorlds.get(worldId);
+  if (!world) throw new BridgeError('not-found', `No generated world with id "${worldId}" in this scope.`);
   if (projectId && world.projectId !== projectId) throw new BridgeError('bad-args', `World "${worldId}" does not belong to project "${projectId}".`);
   return world;
 }
@@ -30,12 +37,13 @@ interface Built { world: GeneratedWorld; input: HistoryInput; history: WorldHist
 
 /** The world opened, flattened and simulated with `settings` (stored ones by default). */
 async function build(world: GeneratedWorld, args: ToolArgs, settings?: HistorySettings): Promise<Built | { pending: true; worldId: string; code: string; message: string }> {
-  const opened = await openWorldForReading(world, 'full');
+  const eraId = optString(args, 'eraId');
+  const opened = await openWorldForReading(world, 'full', eraId);
   if (!opened.ok) return { pending: true, worldId: world.id, code: opened.code, message: opened.message };
   const input = historyInputFrom(opened.world.data, opened.world.geo);
   if (!input.places.length) throw new BridgeError('bad-args', 'This world has no settlements, so it has no history to simulate.');
-  const history = simulateHistory(input, settings ?? historyRecordOf(world).settings);
-  const calendar = (await resolveWorldCalendar(world.projectId))?.calendar;
+  const history = simulateHistory(input, settings ?? historyRecordOf(world, eraId).settings);
+  const calendar = (await resolveWorldCalendar(world.projectId, undefined, eraId))?.calendar;
   const lang = langOf(args);
   const year = (y: number) => {
     if (calendar) { try { return formatWorldDate(calendar, { year: y }); } catch { /* outside the calendar */ } }
@@ -92,12 +100,12 @@ export const WORLD_HISTORY_HANDLERS = {
     const aggression = optNumber(args, 'aggression'); if (aggression !== undefined) patch.aggression = aggression;
     const endYear = optNumber(args, 'endYear'); if (endYear !== undefined) patch.endYear = endYear;
     const pins = readPins(args); if (pins) patch.pins = pins;
-    const next = normalizeHistorySettings({ ...historyRecordOf(world).settings, ...patch });
+    const next = normalizeHistorySettings({ ...historyRecordOf(world, optString(args, 'eraId')).settings, ...patch });
     const built = await build(world, args, next);
     if (isPending(built)) return built;
-    const saved = await saveHistorySettings(world.projectId, world.id, patch);
+    const saved = await saveHistorySettings(world.projectId, world.id, patch, optString(args, 'eraId'));
     return withAudit({ simulated: true, revision: saved.record.revision, ...summary(built) }, {
-      projectId: world.projectId, entityId: world.id, kind: 'update', summary: 'Simulate the world history',
+      projectId: world.projectId, entityId: world.id, table: 'generatedWorlds', kind: 'update', summary: 'Simulate the world history',
       before: saved.before ? { history: saved.before } : { __absent: ['history'] },
     });
   },
@@ -153,7 +161,8 @@ export const WORLD_HISTORY_HANDLERS = {
     const built = await build(world, args);
     if (isPending(built)) return built;
     const groups = Array.isArray(args.groups) ? new Set(args.groups.map(String)) : null;
-    const done = await acceptedKeys(historyRecordOf(world));
+    const eraId = optString(args, 'eraId');
+    const done = await acceptedKeys(historyRecordOf(world, eraId), { projectId: world.projectId, eraId });
     const only = optBoolean(args, 'onlyOpen');
     const list = historyProposals(built.history, built.names, built.lang).filter((p) => (!groups || groups.has(p.group)) && (!only || !done.has(p.key)));
     return { worldId: world.id, count: list.length, proposals: list.map((p) => ({ key: p.key, group: p.group, type: p.type, title: p.title, fields: p.fields, text: p.paragraphs.join('\n'), accepted: done.has(p.key) })) };
@@ -174,7 +183,7 @@ export const WORLD_HISTORY_HANDLERS = {
       if (unknown.length) throw new BridgeError('bad-args', `No proposal with key ${unknown.slice(0, 5).join(', ')} in the current history; list them with wh_world_history_proposals.`);
     } else if (optBoolean(args, 'all')) chosen = all.filter((p) => !groups || groups.has(p.group));
     else throw new BridgeError('bad-args', 'Pass keys, or all: true (optionally with groups).');
-    const result = await acceptProposals(world.projectId, world.id, chosen);
+    const result = await acceptProposals(world.projectId, world.id, chosen, optString(args, 'eraId'));
     const ids = result.created.map((c) => c.id);
     const out = { created: result.created.map((c) => ({ entryId: c.id, title: c.title, type: c.type })), skipped: result.skipped };
     if (!ids.length) return withAudit(out, { projectId: world.projectId, summary: 'Accept history cards (all already accepted)', reversible: false });
@@ -188,10 +197,11 @@ export const WORLD_HISTORY_HANDLERS = {
     const built = await build(world, args);
     if (isPending(built)) return built;
     const title = optString(args, 'title')?.trim() || (built.lang === 'es' ? `Historia de ${world.title}` : `History of ${world.title}`);
-    const r = await sendHistoryToTimeline(world.projectId, world.id, built.history, built.names, built.lang, title);
-    const ids = [...(r.createdTimeline ? [r.timelineId] : []), ...r.created];
+    const eraId = optString(args, 'eraId');
+    const r = await sendHistoryToTimeline(world.projectId, world.id, built.history, built.names, built.lang, title, eraId);
+    const ids = r.createdTimeline ? [r.timelineId] : r.created;
     const out = { timelineId: r.timelineId, createdTimeline: r.createdTimeline, eventsAdded: r.created.length };
     if (!ids.length) return withAudit(out, { projectId: world.projectId, summary: 'Send history to the timeline (nothing new)', reversible: false });
-    return withAudit(out, { projectId: world.projectId, entityId: ids[0], entityIds: ids, kind: 'create', summary: `Send ${r.created.length} history event(s) to the timeline` });
+    return withAudit(out, { projectId: world.projectId, entityId: ids[0], entityIds: ids, table: r.createdTimeline ? 'timelines' : 'timelineEvents', kind: 'create', summary: `Send ${r.created.length} history event(s) to the timeline` });
   },
 };

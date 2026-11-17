@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { worldgenScopeOperations } from '../era';
 import { useWorldCalendar } from '@/engines/timeline/useWorldCalendar';
 import { formatWorldDate } from '@/engines/timeline/worldCalendar';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -21,6 +23,7 @@ import { fill } from './i18n';
 
 export interface WorldHistoryLens {
   record: WorldHistoryRecord;
+  eraId?: string;
   input: HistoryInput | null;
   history: WorldHistory | null;
   names: HistoryNames | null;
@@ -36,10 +39,11 @@ export interface WorldHistoryLens {
 
 export function useWorldHistory(projectId: string, world: GeneratedWorld, data: WorldData | null, geography: HumanGeography | null, open: boolean): WorldHistoryLens {
   const { t } = useTranslation();
-  const row = useLiveQuery(() => db.generatedWorlds.get(world.id), [world.id]);
+  const scope = useWorldEraScope(projectId);
+  const row = useLiveQuery(() => worldgenScopeOperations(scope).worlds.getOne(world.id), [scope, world.id]);
   const project = useLiveQuery(() => db.projects.get(projectId), [projectId]);
   const calendar = useWorldCalendar(projectId)?.calendar ?? null;
-  const record = useMemo(() => historyRecordOf(row ?? world), [row, world]);
+  const record = useMemo(() => historyRecordOf(row ?? world, scope.eraId), [row, world, scope.eraId]);
   const settingsKey = JSON.stringify(record.settings);
   const [state, setState] = useState<{ key: string; data: WorldData; geo: HumanGeography; input: HistoryInput; history: WorldHistory } | null>(null);
   const ready = open && !!data && !!geography && geography.depth === 'full' && geography.settlements.length > 0;
@@ -84,7 +88,7 @@ export function useWorldHistory(projectId: string, world: GeneratedWorld, data: 
     };
   }, [open, current, year, focus]);
   return {
-    record, input: current?.input ?? null, history, names, year, setYear, focus, setFocus, layer,
+    record, eraId: scope.eraId, input: current?.input ?? null, history, names, year, setYear, focus, setFocus, layer,
     pending: open && (!ready || !current || current.key !== settingsKey),
     enabledEngines: project?.enabledEngines ?? [],
   };
