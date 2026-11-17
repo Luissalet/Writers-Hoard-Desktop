@@ -1,4 +1,4 @@
-import { assertValidDate, daysInYear, fromDayNumber, moonsOn, toDayNumber, validateWorldCalendar, type MoonState, type WorldCalendar, type WorldDate } from '@/engines/timeline/worldCalendar';
+import { assertValidDate, daysInYear, fromDayNumber, moonsOn, seasonOfDate, toDayNumber, validateWorldCalendar, type MoonState, type WorldCalendar, type WorldDate, type WorldSeason } from '@/engines/timeline/worldCalendar';
 import { windAt } from './climate';
 import { climateLatDeg } from './geoScale';
 import { runtimeGeometry, runtimeLatitude, runtimeU, runtimeV } from './runtimeGeometry';
@@ -8,7 +8,7 @@ export interface WeatherDate { calendar: WorldCalendar; date: WorldDate }
 export type WeatherPhenomenon = 'rain' | 'snow' | 'thunder' | 'fog' | 'frost' | 'heat' | 'gale';
 export interface WorldWeather {
   model: 'world-weather/1'; dayNumber: number; date: WorldDate;
-  latitude: number; season: 'spring' | 'summer' | 'autumn' | 'winter';
+  latitude: number; season: WorldSeason | null;
   temperatureC: number; minC: number; maxC: number; precipitationMm: number;
   precipitationKind: 'none' | 'rain' | 'snow'; cloudCover: number;
   wind: { speedKmh: number; fromDegrees: number }; phenomena: WeatherPhenomenon[];
@@ -46,7 +46,7 @@ function field(seed: string, channel: string, u: number, v: number, day: number)
 }
 
 /** A fictional daily atmosphere over the existing climate, not a real-world forecast.
- * Year starts at the northward equinox; fixed 23.44° obliquity, local solar hours.
+ * Calendar seasons set the annual forcing. Solstitial tilt is fixed at 23.44°.
  * The climate's temperature already includes elevation and SST: do not add either twice.
  */
 export function weatherAt(world: WorldData, point: { x: number; y: number }, context: WeatherDate): WorldWeather {
@@ -60,8 +60,10 @@ export function weatherAt(world: WorldData, point: { x: number; y: number }, con
   const v = geometry ? runtimeV(world.params, geometry, y + 0.5) : (y + 0.5) / world.height;
   const latitude = geometry ? runtimeLatitude(world.params, geometry, y + 0.5) : climateLatDeg(v, world.params);
   const { calendar, date } = context, dayNumber = toDayNumber(calendar, date);
-  const fraction = (dayNumber - toDayNumber(calendar, { year: date.year })) / daysInYear(calendar, date.year);
-  const seasonal = Math.sin(fraction * 2 * Math.PI) * (latitude >= 0 ? 1 : -1);
+  const season = seasonOfDate(calendar, date);
+  const tilt = season === 'summer' ? 1 : season === 'winter' ? -1 : 0;
+  const lat = latitude * Math.PI / 180;
+  const seasonal = tilt * Math.sin(lat);
   const water = world.elevation[i] <= 0 || !!world.lake[i];
   const maritime = water ? 0.35 : clamp(Math.abs(world.sst[i] ?? 0) / 8, 0, 0.45);
   const amplitude = (3 + Math.abs(latitude) * 0.2) * (1 - maritime);
@@ -70,7 +72,7 @@ export function weatherAt(world: WorldData, point: { x: number; y: number }, con
   const annualRain = Math.max(0, world.precipitation[i]);
   const wetness = field(world.params.seed, 'front', u, v, dayNumber);
   const rainChance = clamp(annualRain / 3500, 0.015, 0.88);
-  const monsoon = Math.abs(latitude) < 30 ? 0.65 + 0.7 * Math.max(0, seasonal) : 1;
+  const monsoon = season && Math.abs(latitude) < 30 ? 0.65 + 0.7 * Math.max(0, seasonal) : 1;
   const precipitationMm = wetness > 1 - rainChance * monsoon
     ? annualRain / daysInYear(calendar, date.year) / rainChance * (0.5 + wetness) * monsoon : 0;
   const fog = precipitationMm === 0 && (world.sst[i] < -1 || annualRain > 1500 || water) && wetness > 0.6;
@@ -87,7 +89,7 @@ export function weatherAt(world: WorldData, point: { x: number; y: number }, con
   if (temperatureC < 0 && precipitationMm === 0) phenomena.push('frost');
   if (temperatureC > 35) phenomena.push('heat');
   if (speedKmh > 40) phenomena.push('gale');
-  const lat = latitude * Math.PI / 180, declination = 23.44 * Math.PI / 180 * Math.sin(fraction * Math.PI * 2);
+  const declination = 23.44 * Math.PI / 180 * tilt;
   const cosHour = -Math.tan(lat) * Math.tan(declination);
   const hoursPerDay = calendar.hoursPerDay ?? 24;
   const daylightHours = cosHour <= -1 ? hoursPerDay : cosHour >= 1 ? 0 : Math.acos(cosHour) / Math.PI * hoursPerDay;
@@ -97,7 +99,7 @@ export function weatherAt(world: WorldData, point: { x: number; y: number }, con
   const range = (water ? 3 : 6 + 6 * (1 - clamp(annualRain / 2000))) * (1 - cloudCover * 0.5);
   return {
     model: 'world-weather/1', dayNumber, date: { ...date }, latitude: round(latitude),
-    season: (['spring', 'summer', 'autumn', 'winter'] as const)[Math.floor(mod(fraction + (latitude < 0 ? 0.5 : 0), 1) * 4)],
+    season,
     temperatureC: round(temperatureC), minC: round(temperatureC - range / 2), maxC: round(temperatureC + range / 2), precipitationMm: round(precipitationMm),
     precipitationKind: precipitationMm === 0 ? 'none' : snow ? 'snow' : 'rain', cloudCover: round(cloudCover),
     wind: { speedKmh: round(speedKmh), fromDegrees: round(fromDegrees) }, phenomena,

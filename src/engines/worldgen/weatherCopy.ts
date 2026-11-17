@@ -7,7 +7,7 @@ export const weatherEn = {
   ground: 'Visible terrain and vegetation', materials: 'Building materials', diet: 'Local food sources', language: 'Spoken language', trade: 'Nearby market', nearby: 'Nearby settlements and ruins',
   unknown: 'No recorded local language', noneNearby: 'No recorded settlements or ruins within 150 km', noMarket: 'No recorded market within 150 km', noResources: 'No local source in this model',
   inference: 'Materials and food are possibilities derived from the ground. Culture and markets use the world’s existing records.',
-  weatherModel: 'Seeded fictional weather. Fixed axial tilt; year begins at the northern spring equinox.',
+  weatherModel: 'Seeded fictional weather. Seasons follow the world calendar, with a fixed axial tilt.',
   plain: 'Lowland', hills: 'Hills', mountains: 'Mountains', water: 'Water',
   volcanic: 'Volcanic rock', limestone: 'Limestone', sediment: 'Sedimentary ground', bedrock: 'Exposed bedrock',
   timber: 'Timber', stone: 'Stone', clay: 'Clay', reeds: 'Reeds', earth: 'Earth', grain: 'Grain', fish: 'Fish', meat: 'Meat and dairy', gathering: 'Forest gathering',
@@ -24,7 +24,7 @@ export const weatherEs: typeof weatherEn = {
   ground: 'Relieve y vegetación a la vista', materials: 'Materiales de construcción', diet: 'Alimentos del entorno', language: 'Lengua que se habla', trade: 'Mercado cercano', nearby: 'Asentamientos y ruinas cercanos',
   unknown: 'No consta una lengua local', noneNearby: 'No constan asentamientos ni ruinas a menos de 150 km', noMarket: 'No consta un mercado a menos de 150 km', noResources: 'Sin fuente local en este modelo',
   inference: 'Los materiales y alimentos son posibilidades derivadas del terreno. La cultura y el mercado proceden de los datos del mundo.',
-  weatherModel: 'Tiempo ficticio desde la semilla. Inclinación del eje fija; el año empieza en el equinoccio de primavera del norte.',
+  weatherModel: 'Tiempo ficticio desde la semilla. Las estaciones siguen el calendario del mundo y la inclinación del eje es fija.',
   plain: 'Llanura', hills: 'Colinas', mountains: 'Montañas', water: 'Agua',
   volcanic: 'Roca volcánica', limestone: 'Caliza', sediment: 'Suelo sedimentario', bedrock: 'Roca expuesta',
   timber: 'Madera', stone: 'Piedra', clay: 'Arcilla', reeds: 'Cañas', earth: 'Tierra', grain: 'Cereales', fish: 'Pescado', meat: 'Carne y lácteos', gathering: 'Recolección del bosque',
@@ -39,4 +39,3 @@ export function weatherSummary(weather: Weather, locale: string) {
   const copy = weatherCopy(locale);
   return `${Math.round(weather.temperatureC)} °C · ${weather.phenomena.map(p => copy[p]).join(', ') || copy.clear}`;
 }
-

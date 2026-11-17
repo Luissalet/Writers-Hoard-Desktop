@@ -46,9 +46,10 @@ pending-generation, project and era boundaries as existing place tools.
 
 The weather model is `world-weather/1`. It reads the annual climate (already
 adjusted for height and ocean currents) and deterministic, spatially coherent
-weather fronts. It uses the calendar's actual year length, leap rules and local
-day length; the first day is the northern spring equinox and axial tilt is fixed
-at 23.44 degrees. Sunrise/sunset are local solar hours, with explicit polar-day
+weather fronts. The calendar sets the season, including custom starts, hemisphere
+and seasonless years. The sky uses representative seasonal tilts of ±23.44 degrees
+in summer and winter and zero in spring, autumn and seasonless worlds. Sunrise
+and sunset use the calendar's local day length, with explicit polar-day
 and polar-night states. Each moon is computed by the existing calendar function.
 Night light is a relative lunar illumination index attenuated by clouds, not lux
 or a claim that all moons are above the horizon.

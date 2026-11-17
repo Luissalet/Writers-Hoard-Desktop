@@ -436,9 +436,9 @@ Los datos derivados no sustituyen las decisiones culturales del autor. El puente
 expone `wh_get_world_weather` y `wh_describe_world_presence`, con el mismo ámbito
 de proyecto/época y estado pendiente que las demás consultas Worldgen.
 
-Modelo ficticio con inclinación axial fija y horas solares locales; el año empieza
-en el equinoccio de primavera del norte. La luz lunar es relativa, sin cálculo de
-salida de lunas ni de sus posiciones sobre el horizonte. El componente de capítulo
+Modelo ficticio con inclinación axial fija y horas solares locales. La estación del
+calendario gobierna la temperatura y la luz solar según la latitud. La luz lunar es
+relativa, sin cálculo de salidas de luna ni posiciones sobre el horizonte. El componente de capítulo
 `ChapterWorldContext` usa su fecha y vínculos explícitos al mapa, sin extraer lugares
 de la prosa. [Contrato y límites](src/engines/worldgen/PLACE-CARDS.md).
 
