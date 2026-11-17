@@ -112,6 +112,15 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId, what: summary };
   }
 
+  if (entry.tool === 'wh_voice_describe' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__voiceDescription' in entry.before) {
+    const { revertVoiceDescription } = await import('@/services/voice/ops');
+    const receipt = (entry.before as { __voiceDescription: import('@/services/voice/ops').VoiceReceipt }).__voiceDescription;
+    try {
+      await revertVoiceDescription(entry.projectId, receipt);
+    } catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId, what: summary };
+  }
+
   if (entry.tool === 'wh_create_place_card' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__placeCard' in entry.before) {
     const { undoPlaceCard } = await import('@/engines/worldgen/placeCards');
     try {

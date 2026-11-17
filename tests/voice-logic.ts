@@ -1,6 +1,9 @@
 // Pure checks for the voice profile: dialogue extraction and attribution, profiles, outliers, blind test.
 import assert from 'node:assert/strict';
-import { extractDialogue, splitParagraph } from '@/engines/writings/voice/dialogue';
+import { Schema } from '@tiptap/pm/model';
+import { htmlToText } from '@/engines/_shared/anchoring/htmlToText';
+import { extractDialogue, readVoiceGender, splitParagraph } from '@/engines/writings/voice/dialogue';
+import { findDialogueRange } from '@/engines/writings/voice/navigation';
 import { blindSample, buildProfiles, findOutliers, scoreBlind } from '@/engines/writings/voice/profile';
 
 const characters = [
@@ -54,6 +57,64 @@ export function runVoiceLogicTests(): string[] {
   assert.equal(lines.find((l) => l.id === 'scene:b1')?.attribution, 'scene');
   assert.equal(lines.find((l) => l.paragraph === 1)?.quote, ana[0]);
   passed.push('lines are attributed by tag, alias, beat, turn order and Dialog Scene blocks');
+
+  const analyze = (text: string, cast: Parameters<typeof extractDialogue>[1] = characters) =>
+    extractDialogue([{ writingId: 'regression', chapter: 1, title: 'Uno', text }], cast);
+  for (const paragraph of [
+    '—Cierra las ventanas —Bonifacio se volvió; dijo Ana—. Ahora mismo.',
+    '-Cierra las ventanas -Bonifacio se volvió; dijo Ana-. Ahora mismo.',
+    '—Cierra las ventanas —Bonifacio se volvió; Ana dijo—. Ahora mismo.',
+  ]) {
+    const [line] = analyze(paragraph);
+    assert.equal(line.speakerId, 'ana');
+    assert.equal(line.attribution, 'tag');
+    assert.equal(line.text, 'Cierra las ventanas Ahora mismo.');
+  }
+  assert.equal(analyze('“Close the windows,” said Ana while Bonifacio turned.')[0].speakerId, 'ana');
+  assert.equal(analyze('—Cierra —dijo alguien a Ana.')[0].speakerId, null);
+  passed.push('compound asides identify the subject of the speech verb');
+
+  const cast = [
+    { ...characters[0], gender: readVoiceGender({ Género: 'Femenino' }) },
+    { ...characters[1], gender: readVoiceGender({ gender: 'Male' }) },
+  ];
+  const exchange = '—Abre las puertas —dijo Ana.\n—Claro —respondió Bonifacio.\n';
+  assert.deepEqual(analyze(exchange + '—Ahora cierra las ventanas —dijo ella a Bonifacio.', cast).map(({ speakerId, attribution }) =>
+    [speakerId, attribution]), [['ana', 'tag'], ['bo', 'tag'], ['ana', 'pronoun']]);
+  assert.equal(analyze(exchange + '—Ahora las cierro —dijo él.', cast)[2].speakerId, 'bo');
+  assert.equal(analyze(exchange + '—Ahora cierra —dijo ella.', characters)[2].speakerId, null);
+  assert.equal(analyze(exchange + '—Ahora cierra —dijo ella.', [cast[0], { ...cast[1], gender: cast[0].gender }])[2].speakerId, null);
+  assert.equal(readVoiceGender({ gender: 'Female', Género: 'Masculino' }), undefined);
+  passed.push('explicit character gender resolves pronouns only in an unambiguous exchange');
+
+  const html = '<p>—Cierra las ventanas —respondió Bonifacio.</p><p></p><p>Antes de salir:<br>—Cierra <strong>las ventanas</strong> —dijo Ana.</p>';
+  const [bonifacioLine, anaLine] = analyze(htmlToText(html));
+  assert.equal(bonifacioLine.quote, anaLine.quote);
+  assert.equal(anaLine.speakerId, 'ana');
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'paragraph+' },
+      paragraph: { content: 'inline*' },
+      text: { group: 'inline' },
+      hardBreak: { inline: true, group: 'inline' },
+    },
+    marks: { bold: {} },
+  });
+  const paragraph = (...nodes: ReturnType<Schema['text']>[]) => schema.node('paragraph', null, nodes);
+  const doc = schema.node('doc', null, [
+    paragraph(schema.text('—Cierra las ventanas —respondió Bonifacio.')),
+    paragraph(),
+    paragraph(schema.text('Antes de salir:'), schema.node('hardBreak'), schema.text('—Cierra '),
+      schema.text('las ventanas', [schema.mark('bold')]), schema.text(' —dijo Ana.')),
+  ]);
+  const anaRange = findDialogueRange(doc, anaLine.anchor!);
+  const bonifacioRange = findDialogueRange(doc, bonifacioLine.anchor!);
+  assert.ok(anaRange && bonifacioRange);
+  assert.equal(doc.textBetween(anaRange.from, anaRange.to), anaLine.quote);
+  assert.ok(anaRange.from > bonifacioRange.to);
+  assert.match(doc.resolve(anaRange.to).parent.textContent, /dijo Ana/);
+  assert.equal(findDialogueRange(doc, { ...anaLine.anchor!, column: 0 }), null);
+  passed.push('dialogue positions select the second identical quote through editor format and line breaks');
 
   const profiles = buildProfiles(lines);
   const pa = profiles.find((p) => p.characterId === 'ana')!, pb = profiles.find((p) => p.characterId === 'bo')!;
