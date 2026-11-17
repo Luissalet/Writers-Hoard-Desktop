@@ -3,10 +3,9 @@
 // Spanish dialogue opens a paragraph with a dash (—) and alternates speech and
 // the narrator's aside (inciso) between dashes; English dialogue sits between
 // quotes (“ ” or " ") with the narration around it; «» count when the paragraph
-// opens with them. A speaker is taken, in this order, from a name or alias of
-// a Codex character in the aside (`tag`), from the narration paragraph just
-// before that names exactly one character (`beat`), or from the turn order of
-// a two-voice exchange (`turn`). Dialog Scene blocks carry their character (`scene`).
+// opens with them. Speech tags identify the speaker by name or, in a clear
+// exchange, pronoun. A narration beat or an alternating turn can identify an
+// untagged line. Dialog Scene blocks carry their character explicitly.
 
 export type VoiceGender = 'feminine' | 'masculine' | 'neutral';
 export interface VoiceCharacter { id: string; name: string; aliases: readonly string[]; gender?: VoiceGender }
