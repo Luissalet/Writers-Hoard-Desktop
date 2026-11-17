@@ -121,7 +121,7 @@ export default {
   'continuity.noFindings': 'Sin contradicciones en el libro de estado.',
   'continuity.finding.item-not-carried': '{character} usa o entrega «{detail}» sin llevarlo',
   'continuity.finding.after-death': '{character} aparece después de morir en {other}',
-  'continuity.finding.knows-before-learning': '{character} actúa sabiendo «{detail}», que no aprende hasta {other}',
+  'continuity.finding.knows-before-learning': '{character} actúa antes de aprender «{detail}». Lo aprende en {other}.',
   'continuity.finding.two-places': '{character} está en dos sitios a la vez: {detail}',
   'continuity.fromJudge': 'Del Juez',
   'continuity.proposal': 'Propuesta para el libro de estado',
