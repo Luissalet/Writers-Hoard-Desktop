@@ -88,7 +88,7 @@ export default function ContinuityPanel({ projectId, writing, onUpdateWriting }:
           {(failure || error) && <p role="alert" className="text-[10px] text-red-300">{failure ?? error}</p>}
           {!report ? <p className="text-[10px] text-text-dim">{t('continuity.loading')}</p>
             : tab === 'travel'
-              ? <TravelTab report={report} projectId={projectId} writingId={writing.id} run={run} receiptUndo={receiptUndo} onUpdateWriting={onUpdateWriting} />
+              ? <TravelTab report={report} projectId={projectId} eraId={scope.eraId} writingId={writing.id} run={run} receiptUndo={receiptUndo} onUpdateWriting={onUpdateWriting} />
               : <StateTab report={report} projectId={projectId} eraId={scope.eraId} writing={writing} run={run} receiptUndo={receiptUndo} />}
         </div>
       )}
@@ -97,7 +97,7 @@ export default function ContinuityPanel({ projectId, writing, onUpdateWriting }:
 }
 
 function ProblemCount({ report, writingId }: { report: ContinuityReport; writingId: string }) {
-  const count = report.legs.filter((l) => l.verdict === 'impossible' && l.intentional === undefined && (l.to.writingId === writingId || l.from.writingId === writingId)).length
+  const count = report.legs.filter((l) => (l.verdict === 'impossible' || l.reason === 'no-route') && l.intentional === undefined && (l.to.writingId === writingId || l.from.writingId === writingId)).length
     + report.stateFindings.filter((f) => f.intentional === undefined && f.writingId === writingId).length;
   return count ? <span data-testid="continuity-problems" className="rounded-full bg-red-500/20 px-1.5 text-[10px] font-semibold text-red-300">{count}</span> : null;
 }
@@ -136,7 +136,7 @@ function IntentionalControl({ note, onSave, onClear, testId }: { note?: string; 
   );
 }
 
-function TravelTab({ report, projectId, writingId, run, receiptUndo, onUpdateWriting }: { report: ContinuityReport; projectId: string; writingId: string; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void>; onUpdateWriting: ContinuityPanelProps['onUpdateWriting'] }) {
+function TravelTab({ report, projectId, eraId, writingId, run, receiptUndo, onUpdateWriting }: { report: ContinuityReport; projectId: string; eraId?: string; writingId: string; run: Run; receiptUndo: (r: ContinuityReceipt) => () => Promise<void>; onUpdateWriting: ContinuityPanelProps['onUpdateWriting'] }) {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const [all, setAll] = useState(false);
@@ -190,10 +190,10 @@ function TravelTab({ report, projectId, writingId, run, receiptUndo, onUpdateWri
                 <button type="button" data-testid="continuity-open-map" className={linkButton} onClick={() => navigate(`${base}/worldgen?world=${encodeURIComponent(leg.to.worldId)}&trail=${encodeURIComponent(leg.characterId)}`)}><MapIcon size={11} aria-hidden="true" />{t('continuity.openMap')}</button>
                 <button type="button" className={linkButton} onClick={() => navigate(`${base}/codex?entry=${encodeURIComponent(leg.characterId)}`)}><BookUser size={11} aria-hidden="true" />{t('continuity.openCodex')}</button>
               </div>
-              {(leg.verdict === 'impossible' || leg.verdict === 'tight' || leg.intentional !== undefined) && (
+              {(leg.verdict === 'impossible' || leg.verdict === 'tight' || leg.reason === 'no-route' || leg.intentional !== undefined) && (
                 <IntentionalControl testId="continuity-leg" note={leg.intentional}
-                  onSave={(note) => void run(t('continuity.intentional'), async () => receiptUndo(await setIntentional(projectId, leg.characterId, leg.id, note)))}
-                  onClear={() => void run(t('continuity.unmark'), async () => receiptUndo(await setIntentional(projectId, leg.characterId, leg.id, null)))} />
+                  onSave={(note) => void run(t('continuity.intentional'), async () => receiptUndo(await setIntentional(projectId, leg.characterId, leg.id, note, eraId)))}
+                  onClear={() => void run(t('continuity.unmark'), async () => receiptUndo(await setIntentional(projectId, leg.characterId, leg.id, null, eraId)))} />
               )}
             </li>
           );
@@ -208,7 +208,7 @@ function TravelTab({ report, projectId, writingId, run, receiptUndo, onUpdateWri
               <label key={id} className="flex items-center justify-between gap-2 text-[11px] text-text-primary">
                 <span className="truncate">{report.titles[id]}</span>
                 <select data-testid="continuity-mode" value={character?.continuity.travelMode ?? 'foot'} className="rounded border border-border bg-elevated px-1 py-0.5 text-[10px]"
-                  onChange={(e) => void run(t('continuity.travelMode'), async () => receiptUndo(await setTravelMode(projectId, id, e.target.value as TravelMode)))}>
+                  onChange={(e) => void run(t('continuity.travelMode'), async () => receiptUndo(await setTravelMode(projectId, id, e.target.value as TravelMode, eraId)))}>
                   {MODES.map((mode) => <option key={mode} value={mode}>{t(`continuity.mode.${mode}`)}</option>)}
                 </select>
               </label>
@@ -273,7 +273,7 @@ function StateTab({ report, projectId, eraId, writing, run, receiptUndo }: { rep
           {lines.map((line) => (
             <li key={line.id} data-testid="continuity-line" className="flex items-center justify-between gap-2 rounded-md bg-elevated px-2 py-1 text-[11px] text-text-primary">
               <span className="min-w-0 truncate">{describeLine(report, line, t)}{line.source === 'judge' ? <span className="ml-1 text-[9px] text-text-dim">({t('continuity.fromJudge')})</span> : null}</span>
-              <button type="button" className={linkButton} onClick={() => void run(t('continuity.remove'), async () => receiptUndo(await removeLedgerEntry(projectId, current.id, line.id)))}>{t('continuity.remove')}</button>
+              <button type="button" className={linkButton} onClick={() => void run(t('continuity.remove'), async () => receiptUndo(await removeLedgerEntry(projectId, current.id, line.id, eraId)))}>{t('continuity.remove')}</button>
             </li>
           ))}
         </ul>
@@ -288,8 +288,8 @@ function StateTab({ report, projectId, eraId, writing, run, receiptUndo }: { rep
             <li key={f.id} data-testid="continuity-finding" data-kind={f.kind} className={`space-y-1 rounded-md border px-2 py-1 text-[11px] ${f.intentional !== undefined ? VERDICT_STYLE.unknown : VERDICT_STYLE.impossible}`}>
               <p>{fill(t(`continuity.finding.${f.kind}`), { character: name(f.characterId), detail: f.kind === 'item-not-carried' ? (report.titles[f.detail] ?? f.detail) : f.detail, other: f.otherWritingId ? chapterName(report, f.otherWritingId) : '' })}</p>
               <IntentionalControl testId="continuity-finding" note={f.intentional}
-                onSave={(note) => void run(t('continuity.intentional'), async () => receiptUndo(await setIntentional(projectId, f.characterId, f.id, note)))}
-                onClear={() => void run(t('continuity.unmark'), async () => receiptUndo(await setIntentional(projectId, f.characterId, f.id, null)))} />
+                onSave={(note) => void run(t('continuity.intentional'), async () => receiptUndo(await setIntentional(projectId, f.characterId, f.id, note, eraId)))}
+                onClear={() => void run(t('continuity.unmark'), async () => receiptUndo(await setIntentional(projectId, f.characterId, f.id, null, eraId)))} />
             </li>
           ))}
         </ul>
@@ -354,7 +354,7 @@ function AddLine({ report, projectId, eraId, characterId, writingId, run, receip
     if (kind === 'learns' || kind === 'actsOn') { entry.fact = fact; if (seedId) entry.seedId = seedId; }
     if (kind === 'gains' || kind === 'loses' || kind === 'uses') { if (itemId) entry.itemId = itemId; if (item) entry.item = item; if (kind === 'loses' && toId) entry.toId = toId; }
     if (text) entry.text = text;
-    const receipt = await addLedgerEntry(projectId, characterId, entry);
+    const receipt = await addLedgerEntry(projectId, characterId, entry, eraId);
     setLabel(''); setPoint(''); setWorldPick(null); setPlaceQuery(''); setFact(''); setSeedId(''); setItemId(''); setItem(''); setToId(''); setText('');
     return receiptUndo(receipt);
   });

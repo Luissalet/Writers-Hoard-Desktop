@@ -118,6 +118,10 @@ export function runContinuityLogicTests(): string[] {
   assert.equal(seasonOfDate({ ...byMonth, seasons: { ...byMonth.seasons, hemisphere: 'south' } }, { year: 1, month: 7, day: 1 }), 'winter');
   assert.equal(seasonOfDate({ ...cal, seasons: { mode: 'none' } }, { year: 1, month: 7, day: 1 }), null);
   assert.ok(validateWorldCalendar({ ...cal, seasons: { mode: 'months', starts: { winter: 1, spring: 1, summer: 6, autumn: 9 } } }).length > 0);
+  // Unequal months: the quarters follow the days (90/10/10/10: the first day of month 2 is 75 % into the year).
+  const lopsided = { ...cal, months: [{ name: 'Long', days: 90 }, { name: 'B', days: 10 }, { name: 'C', days: 10 }, { name: 'D', days: 10 }] };
+  assert.equal(seasonOfDate(lopsided, { year: 1, month: 2, day: 1 }), 'autumn');
+  assert.equal(seasonOfDate(lopsided, { year: 1, month: 1, day: 40 }), 'spring');
   passed.push('the season of a date follows the calendar settings');
 
   // Timeline lanes: one per traveller, a band per dated leg, coloured by verdict.
