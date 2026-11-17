@@ -32,7 +32,7 @@ Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pest
   «Añadir al libro», o se descarta.
 - **MCP.** `wh_travel_check`, `wh_character_state`, `wh_state_ledger`, `wh_state_ledger_add`,
   `wh_state_ledger_remove` y `wh_continuity_mark` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
-- **No hace todavía:** la radiografía de ritmo y la deriva del plan están descritas en `OBJETIVOS.md`.
+- **No hace todavía:** la deriva del plan está descrita en `OBJETIVOS.md`.
 
 ## Voz por personaje
 
@@ -53,6 +53,22 @@ de personaje del Códex; los dos leen el mismo informe.
 - **Descripción.** Opcional: el modelo global la redacta a partir de las cifras y unas líneas; el autor la edita y la
   guarda en la ficha (`codexEntries.voice`), con Deshacer.
 - **MCP.** `wh_voice_profile`, `wh_voice_outliers` y `wh_voice_describe` (escritura, con Deshacer).
+
+## Radiografía de ritmo
+
+Panel «Radiografía de ritmo» junto al capítulo abierto (debajo de Voz por personaje).
+
+- **Escenas.** Cada capítulo se parte en escenas por sus separadores (la línea horizontal del editor, `***`, `#`, `⁂`).
+  Por escena: palabras, parte de diálogo, narración y descripción (frases de estado e imperfecto), verbos de acción por
+  cada 100 palabras de prosa, palabras por frase y un ritmo de 0 a 1 (diálogo, acción y frases cortas lo suben).
+  Los capítulos promedian sus escenas por palabras.
+- **Curva.** El ritmo de cada escena a lo largo del manuscrito (por palabras), con los beats de los esquemas como
+  líneas moradas (en su capítulo enlazado o en su posición en la historia) y los tramos planos sombreados en ámbar.
+  Clic en un punto, en una escena o en un aviso selecciona su comienzo en el capítulo; clic en un beat abre el esquema.
+- **Avisos.** Tramo plano (4 o más escenas seguidas con el mismo ritmo), escena casi toda descripción o casi toda
+  diálogo, escena larga sin diálogo, escena tres veces más larga que la mediana.
+- **Tensión.** La app no guarda tensión por escena ni por capítulo, así que la curva usa el ritmo calculado.
+- **MCP.** `wh_pacing` (lectura).
 
 ## Imágenes en documentos Source compartidos — 2114
 

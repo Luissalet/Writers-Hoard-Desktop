@@ -2877,3 +2877,12 @@ Las tres herramientas leen el mismo informe que el panel «Voz por personaje» y
   parlamentos y parlamentos de 4 palabras o más.
 - `wh_voice_describe` (escritura, deshacer genérico): `text` guarda la descripción del autor en la ficha; vacío la
   quita; sin `text` la redacta el modelo global con las cifras y unas líneas.
+
+## Radiografía de ritmo
+
+- `wh_pacing` (lectura): `writingId` y `outlineId` opcionales. `scenes` (por escena: `id` = `<writingId>#<n>`,
+  `quote` para encontrarla, `words`, `dialogue`/`narration`/`description` como partes de 1, `action` = verbos de acción
+  por 100 palabras de prosa, `sentence` = palabras por frase, `pace` 0…1, `at` = posición 0…1 en el manuscrito),
+  `chapters` (medias ponderadas por palabras), `beats` (`at` del capítulo enlazado o de `storyPosition`) y `flags`
+  (`flat`, `description-heavy`, `dialogue-only`, `no-dialogue`, `overlong`, con `sceneIds` y `detail`). `tension` es
+  `null`: la app no guarda tensión por escena.
