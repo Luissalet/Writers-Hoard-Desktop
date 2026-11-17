@@ -8,10 +8,9 @@
 // here deletes an accepted card or event.
 
 import { db } from '@/db';
-import { listEraRows, mutateEraRows, readWorldDocument, type EraRowMutation } from '@/services/worldEras/store';
+import { listEraRows, mutateEraRows, readEraRow, readWorldDocument, type EraRowMutation } from '@/services/worldEras/store';
 import type { EraRow, WorldEraScope } from '@/services/worldEras/types';
 import type { CodexEntry, Relation, Timeline, TimelineEvent } from '@/types';
-import { worldgenScopeOperations } from '../era';
 import type { GeneratedWorld } from '../types';
 import { normalizeHistorySettings } from './simulate';
 import { eventText, type HistoryLang, type HistoryNames, type HistoryProposal } from './text';
@@ -41,8 +40,12 @@ export function historyRecordOf(world: Pick<GeneratedWorld, 'history' | 'params'
   };
 }
 
+export function readHistoryWorld(scope: WorldEraScope, worldId: string): Promise<GeneratedWorld | undefined> {
+  return scope.eraId ? readEraRow<GeneratedWorld>(scope, 'generatedWorlds', worldId) : db.generatedWorlds.get(worldId);
+}
+
 async function worldIn(scope: WorldEraScope, worldId: string): Promise<GeneratedWorld> {
-  const world = await worldgenScopeOperations(scope).worlds.getOne(worldId);
+  const world = await readHistoryWorld(scope, worldId);
   if (!world || world.projectId !== scope.projectId) throw new Error(`No world "${worldId}" in this project.`);
   return world;
 }
@@ -54,7 +57,7 @@ export async function saveHistorySettings(projectId: string, worldId: string, se
     const world = await worldIn(scope, worldId);
     const prev = historyRecordOf(world, eraId);
     const record: WorldHistoryRecord = { ...prev, settings: normalizeHistorySettings({ ...prev.settings, ...settings }), revision: prev.revision + 1 };
-    await worldgenScopeOperations(scope).worlds.update(worldId, { history: record, updatedAt: Date.now() });
+    await writeHistoryRecord(scope, worldId, record);
     return { before: world.history, record };
   });
 }
@@ -63,7 +66,13 @@ export async function saveHistorySettings(projectId: string, worldId: string, se
 export async function restoreHistoryRecord(projectId: string, worldId: string, before: GeneratedWorld['history'], eraId?: string): Promise<void> {
   const scope = { projectId, eraId };
   await worldIn(scope, worldId);
-  await worldgenScopeOperations(scope).worlds.update(worldId, { history: before, updatedAt: Date.now() });
+  await writeHistoryRecord(scope, worldId, before);
+}
+
+async function writeHistoryRecord(scope: WorldEraScope, worldId: string, history: GeneratedWorld['history']): Promise<void> {
+  const changes = { history, updatedAt: Date.now() };
+  if (scope.eraId) await mutateEraRows(scope, [{ table: 'generatedWorlds', id: worldId, changes }]);
+  else await db.generatedWorlds.update(worldId, changes);
 }
 
 async function acceptedCards(record: WorldHistoryRecord, scope?: WorldEraScope): Promise<Map<string, CodexEntry>> {

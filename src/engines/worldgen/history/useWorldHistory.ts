@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
-import { worldgenScopeOperations } from '../era';
 import { useWorldCalendar } from '@/engines/timeline/useWorldCalendar';
 import { formatWorldDate } from '@/engines/timeline/worldCalendar';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -15,7 +14,7 @@ import type { GeneratedWorld } from '../types';
 import type { HistoryLayer } from '../cartography/historyLayer';
 import { historyInputFrom } from './fromGeography';
 import { simulateHistory } from './simulate';
-import { historyRecordOf, type WorldHistoryRecord } from './store';
+import { historyRecordOf, readHistoryWorld, type WorldHistoryRecord } from './store';
 import { territoryAt } from './territory';
 import { historyNames, type HistoryNames } from './text';
 import type { HistoryInput, WorldHistory } from './types';
@@ -40,7 +39,7 @@ export interface WorldHistoryLens {
 export function useWorldHistory(projectId: string, world: GeneratedWorld, data: WorldData | null, geography: HumanGeography | null, open: boolean): WorldHistoryLens {
   const { t } = useTranslation();
   const scope = useWorldEraScope(projectId);
-  const row = useLiveQuery(() => worldgenScopeOperations(scope).worlds.getOne(world.id), [scope, world.id]);
+  const row = useLiveQuery(() => readHistoryWorld(scope, world.id), [scope, world.id]);
   const project = useLiveQuery(() => db.projects.get(projectId), [projectId]);
   const calendar = useWorldCalendar(projectId)?.calendar ?? null;
   const record = useMemo(() => historyRecordOf(row ?? world, scope.eraId), [row, world, scope.eraId]);
