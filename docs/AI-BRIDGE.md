@@ -2831,8 +2831,8 @@ Las seis herramientas leen un único informe (`src/services/continuity/report.ts
 «Continuidad» junto al manuscrito y el rastro del personaje en el mapa.
 
 - `wh_travel_check` (lectura): `projectId`, `eraId`, `characterId` y `onlyProblems` opcionales (`onlyProblems`
-  incluye los tramos `unknown` con `reason: 'no-route'`). `wh_state_ledger_add`, `wh_state_ledger_remove` y
-  `wh_continuity_mark` aceptan `eraId` y escriben en la versión de la ficha de esa época. Cada tramo une dos
+  incluye los tramos `unknown` con `reason: 'no-route'`). El filtro por personaje se valida en la época pedida.
+  Cada tramo une dos
   apariciones seguidas de un personaje: sucesos de historia del mapa que lo nombran en `who` y, en capítulos sin
   suceso, ubicaciones del libro de estado con punto de mapa. La ruta sale del motor de viajes del mundo (terreno,
   modo habitual del personaje, estación de la fecha, ritmo y perfil del
@@ -2843,15 +2843,17 @@ Las seis herramientas leen un único informe (`src/services/continuity/report.ts
   (`undated`, `other-world`, `no-route`, `pending`: el mundo se está generando, volver a preguntar). Un tramo
   imposible trae `earliestStart`, la primera fecha en que podría empezar el capítulo de destino conservando su
   duración. `intended` lleva la nota de un tramo marcado como intencionado.
-- `wh_character_state` (lectura): `characterId` y `chapter` o `writingId`. Acumula el libro hasta ese capítulo:
+- `wh_character_state` (lectura) admite `eraId`, `characterId` y `chapter` o `writingId`. Acumula el libro hasta ese capítulo:
   última ubicación, hechos aprendidos, objetos conseguidos menos perdidos (lo entregado con `toId` pasa al
   receptor), último estado físico, si vive y desde qué capítulo está muerto.
-- `wh_state_ledger` (lectura): líneas de cada personaje y comprobaciones deterministas: `item-not-carried`,
-  `after-death` (también sucesos del mapa posteriores a la muerte), `knows-before-learning`, `two-places`.
-- `wh_state_ledger_add` / `wh_state_ledger_remove` (escritura, deshacer genérico): la línea vive en la ficha del
+- `wh_state_ledger` (lectura) admite `eraId` y devuelve líneas y comprobaciones deterministas. `after-death`
+  abarca también sucesos del mapa después de la segunda muerte y las siguientes. `knows-before-learning` tiene
+  en cuenta dos valores explícitos de `order` dentro del mismo capítulo. También señala `item-not-carried` y `two-places`.
+- `wh_state_ledger_add` y `wh_state_ledger_remove` aceptan `eraId` y se deshacen en la época del recibo.
+  La línea vive en la ficha del
   personaje (`codexEntries.continuity.ledger`). Tipos: `location`, `learns`, `actsOn`, `gains`, `loses`, `uses`,
   `condition`, `dies`, `revives`, `appears`.
-- `wh_continuity_mark` (escritura, deshacer genérico): `findingId` + `note` marca un tramo o hallazgo como
+- `wh_continuity_mark` acepta `eraId` y se deshace en la época del recibo. `findingId` y `note` marcan un tramo o hallazgo como
   intencionado (nota vacía quita la marca); `travelMode` fija cómo viaja el personaje. Al duplicar el proyecto, las
   marcas y los sucesos de historia del mapa pasan a los ids nuevos de mundos, fichas y capítulos.
 
@@ -2866,35 +2868,41 @@ propuesta `ledger` por hallazgo; se guarda en el hallazgo y solo se escribe en e
 ## Voz por personaje
 
 Las tres herramientas leen el mismo informe que el panel «Voz por personaje» y la ficha del Códex
-(`src/services/voice/report.ts`).
+(`src/services/voice/report.ts`). Admiten `eraId` para usar la época indicada.
 
 - `wh_voice_profile` (lectura): `characterId` e `includeLines` opcionales. Por personaje: `lines`, `words`,
   `sentenceMean`/`sentenceSd` (palabras por frase), `exclamations`/`questions`/`ellipses` (parte de los parlamentos),
   `address` (`tu`, `usted`, `vos`) y `addressForm` dominante (75 % de al menos 3 usos), `register`, `distinctive`
   (palabra, veces, puntuación log-odds frente al resto del reparto) y `catchphrases`. `description` si la ficha guarda
-  una. Con `includeLines`, cada parlamento con `speakerId`, `attribution` (`tag`, `beat`, `turn`, `scene`), `quote`
-  y `writingId`.
+  una. Con `includeLines`, cada parlamento con `speakerId`, `attribution` (`tag`, `pronoun`, `beat`, `turn`, `scene`),
+  `quote` y su origen. En el manuscrito, `writingId` y `anchor` (párrafo y columna desde 0 con el texto de esa
+  aparición). En una escena de diálogo, `sceneId`.
 - `wh_voice_outliers` (lectura): `characterId`, `writingId` y `limit` opcionales. `reason`: `closer-to` (con
   `closerTo`), `length` (`detail` = desviaciones) o `address` (`detail` = tratamiento usado). Solo personajes con 5
   parlamentos y parlamentos de 4 palabras o más.
-- `wh_voice_describe` (escritura, deshacer genérico): `text` guarda la descripción del autor en la ficha; vacío la
-  quita; sin `text` la redacta el modelo global con las cifras y unas líneas.
+- `wh_voice_describe` guarda `text` en la ficha y se deshace en la época del recibo. Un texto vacío quita la
+  descripción. Si se omite `text`, el modelo global la redacta con las cifras y unas líneas.
 
 ## Radiografía de ritmo
 
-- `wh_pacing` (lectura): `writingId` y `outlineId` opcionales. `scenes` (por escena: `id` = `<writingId>#<n>`,
+- `wh_pacing` (lectura) admite `eraId`, `writingId` y `outlineId`. `scenes` (por escena: `id` = `<writingId>#<n>`,
   `quote` para encontrarla, `words`, `dialogue`/`narration`/`description` como partes de 1, `action` = verbos de acción
   por 100 palabras de prosa, `sentence` = palabras por frase, `pace` 0…1, `at` = posición 0…1 en el manuscrito),
   `chapters` (medias ponderadas por palabras), `beats` (`at` del capítulo enlazado o de `storyPosition`) y `flags`
-  (`flat`, `description-heavy`, `dialogue-only`, `no-dialogue`, `overlong`, con `sceneIds` y `detail`). `tension` es
-  `null`: la app no guarda tensión por escena.
+  (`flat`, `description-heavy`, `dialogue-only`, `no-dialogue`, `overlong`, con `sceneIds` y `detail`).
+  La curva usa el valor `tension` de cada escena cuando está presente y `pace` en las demás. `flat` abarca
+  4 o más escenas consecutivas en una banda de 0,04. El campo `tension` del informe reúne los valores
+  manuales por ID de escena, o devuelve `null` si no hay ninguno.
+- `wh_pacing_set_tension` (escritura con Deshacer) admite `eraId`. Usa `writingId`, `sceneIndex` (desde 0)
+  y `tension` de 0 a 1 o `null` para volver al ritmo calculado.
 
 ## Deriva del plan
 
-- `wh_plan_drift` (lectura): `outlineId` y `status` (`kept`, `drifted`, `unwritten`) opcionales. Por beat de los
+- `wh_plan_drift` (lectura) admite `eraId`, `outlineId` y `status` (`kept`, `drifted`, `unwritten`) opcionales. Por beat de los
   esquemas de historia: `expected` (personajes, lugares, otras fichas y promesas que nombra o enlaza), `missing`,
   `extra` (personajes y lugares del capítulo que el beat no nombra), `score` (parte encontrada), `status` y, cuando
   se ha desviado o el capítulo trae gente o lugares nuevos, `proposal` (`title`, `description`). `unplanned`: capítulos
   con texto que ningún beat enlaza. Sin modelo.
-- `wh_plan_drift_apply` (escritura, deshacer genérico): `beatId`; recalcula la propuesta y la escribe como título y
-  descripción del beat; `title` y `description` sustituyen sus palabras. Rechaza un beat sin propuesta.
+- `wh_plan_drift_apply` (escritura con Deshacer) recibe `beatId`, recalcula la propuesta en la época pedida
+  mediante `eraId` y actualiza el beat del esquema compartido. `title` y `description` sustituyen las palabras
+  de la propuesta. Rechaza un beat sin propuesta.
