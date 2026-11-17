@@ -1,3 +1,6 @@
+import type { WeatherDate } from '../core/weather';
+import { weatherCopy } from '../weatherCopy';
+import { formatWorldDate } from '@/engines/timeline/worldCalendar';
 import RouteReveal from './RouteReveal';
 import { mapMetric, metricCellKmOf} from '../core/geoScale';
 import type { WorldEdit } from '../core/edits';
@@ -36,6 +39,7 @@ import { clockAt, clockText, DEFAULT_SET_OFF_HOUR, groundsCrossed, kmOnWater, le
 
 /** Session choices only; the world's pace/profile continue to follow its travel revision. */
 export interface JourneySelection {
+  weatherEnabled?: boolean;
   mode: TravelMode;
   wayId: string | null;
   season: Season;
@@ -45,6 +49,7 @@ export interface JourneySelection {
 }
 
 interface JourneyPanelProps {
+  weatherDate?: WeatherDate;
   initialSelection?: JourneySelection;
   onSelectionChange?: (selection: JourneySelection) => void;
   worldRecord?: GeneratedWorld;
@@ -86,9 +91,11 @@ export default function JourneyPanel(props: JourneyPanelProps) {
 function JourneyPanelContent({
   world, geography, from, to, picking, onPick, onSwap, onClear, onRoute, onTraveller, onRevealRoute,
   via, onClearVia, onViaChange, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
-  initialSelection, onSelectionChange,
+  initialSelection, onSelectionChange, weatherDate,
 }: JourneyPanelProps) {
   const { t, locale } = useTranslation();
+  const weatherWords = weatherCopy(locale);
+  const [weatherEnabled, setWeatherEnabled] = useState(initialSelection?.weatherEnabled ?? false);
   const scope = useWorldEraScope(worldRecord?.projectId);
   const [mode, setMode] = useState<TravelMode>(initialSelection?.mode ?? 'foot');
   /** One of the world's own ways of travelling, chosen instead of a mode (it brings its own). */
@@ -102,7 +109,7 @@ function JourneyPanelContent({
   const [setOffHour, setSetOffHour] = useState(initialSelection?.setOffHour ?? DEFAULT_SET_OFF_HOUR);
   const [customOptions, setCustomOptions] = useState<Pick<WorldJourney['options'], 'hoursPerDay' | 'planetRadiusKm'>>({ hoursPerDay: initialSelection?.hoursPerDay, planetRadiusKm: initialSelection?.planetRadiusKm });
   const publishSelection = useEffectEvent((selection: JourneySelection) => onSelectionChange?.(selection));
-  useEffect(() => { publishSelection({ mode, wayId, season, ...customOptions, setOffHour }); }, [mode, wayId, season, customOptions, setOffHour]);
+  useEffect(() => { publishSelection({ mode, wayId, season, ...customOptions, setOffHour, weatherEnabled }); }, [mode, wayId, season, customOptions, setOffHour, weatherEnabled]);
   /** How hard the party pushes; the world remembers the author's usual pace. */
   const [pace, setPace] = useState<TravelPace>(worldRecord?.travelPace ?? 'steady');
   /** One mode per leg between stops; empty entries follow the journey's mode. */
@@ -143,6 +150,7 @@ function JourneyPanelContent({
   const mixedModes = activeLegModes.some(value => value && value !== mode);
   const planOptions: WorldJourney['options'] = {
     ...customOptions, mode: way ? way.base : mode, season,
+    ...(weatherEnabled && (openedJourney?.options.weather ?? weatherDate) ? { weather: openedJourney?.options.weather ?? weatherDate } : {}),
     ...(way ? { way: way.id } : {}),
     ...(pace !== 'steady' ? { pace } : {}),
     ...(mixedModes && !way ? { legModes: Array.from({ length: legCount }, (_, index) => activeLegModes[index] || mode) } : {}),
@@ -308,6 +316,10 @@ function JourneyPanelContent({
 
   return (
     <div className="flex flex-col gap-3 text-[11px] text-white/80">
+      <div className="space-y-2"><label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={weatherEnabled} disabled={!weatherDate && !openedJourney?.options.weather} onChange={event => setWeatherEnabled(event.target.checked)} data-testid="journey-weather-toggle" />{weatherWords.weatherTravel}</label>
+      <p>{weatherWords.weatherTravelHint}</p>
+      {planOptions.weather && <p>{weatherWords.departure}: {formatWorldDate(planOptions.weather.calendar, planOptions.weather.date)}</p>}
+      {route?.weather && <p role="status" data-testid="journey-weather-delay">{weatherWords.delay}: {route.weather.delayHours.toFixed(1)} h</p>}</div>
       {worldRecord && (
         <section className="flex flex-col gap-2 border-b border-white/10 pb-3" aria-label={t('worldgen.journey.saved')}>
           <label className="flex flex-col gap-1">
@@ -317,6 +329,7 @@ function JourneyPanelContent({
               onChange={event => {
                 const journey = savedJourneys.find(row => row.id === event.target.value);
                 if (!journey) return;
+                setWeatherEnabled(!!journey.options.weather);
                 setMode(journey.options.mode); setWayId(journey.options.way ?? null); setSeason(journey.options.season);
                 setCustomOptions({ hoursPerDay: journey.options.hoursPerDay, planetRadiusKm: journey.options.planetRadiusKm });
                 // The trip's own snapshot, shown and planned with; the world is not touched.
@@ -356,7 +369,7 @@ function JourneyPanelContent({
         onConfirm={confirmDeleteJourney} onCancel={() => { if (!savingRef.current) { setDeletingJourney(null); setDeleteError(false); } }} />
       {/* ---- the journey ---- */}
       {worldRecord && calculation.capture && <JourneyCreativeCapture
-        world={worldRecord} route={calculation.capture.route} stops={calculation.capture.stops}
+        world={worldRecord} route={calculation.capture.route} weatherDate={planOptions.weather} worldData={world} stops={calculation.capture.stops}
         mode={calculation.capture.mode} season={calculation.capture.season} width={world.width} height={world.height}
         sourcePending={!route || !!route.impossible}
       />}
@@ -574,12 +587,12 @@ function JourneyPanelContent({
                 )); })()}
               </div>
               {(() => {
-                const arrive = clockAt(route.hours, hoursPerDay, setOffHour, true, restEvery);
+                const arrive = clockAt(route.hours, hoursPerDay, setOffHour, true, restEvery, route.weather?.dayHours ?? 24);
                 const camp = setOffHour + hoursPerDay;
                 return <p className="text-[10px] leading-snug text-white/55" data-testid="journey-clock">
                   {(arrive.day === 1 ? t('worldgen.journey.clockOneDay') : t('worldgen.journey.clock'))
-                    .replace('{start}', clockText(setOffHour)).replace('{camp}', clockText(camp))
-                    .replace('{day}', String(arrive.day)).replace('{part}', partText(arrive)).replace('{hour}', clockText(arrive.hour))}
+                    .replace('{start}', clockText(setOffHour, route.weather?.dayHours ?? 24)).replace('{camp}', clockText(camp, route.weather?.dayHours ?? 24))
+                    .replace('{day}', String(arrive.day)).replace('{part}', partText(arrive)).replace('{hour}', clockText(arrive.hour, route.weather?.dayHours ?? 24))}
                 </p>;
               })()}
               <div className="text-[10px] text-white/45 leading-snug mt-1">

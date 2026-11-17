@@ -60,7 +60,7 @@ function words(value: unknown): string[] {
 export function shelfSkills(dir: string): ShelfSkill[] {
   if (off() || !dir) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8').replace(/^﻿/, '')) as { skills?: unknown };
+    const data = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8').replace(/^\uFEFF/, '')) as { skills?: unknown };
     if (!Array.isArray(data.skills)) return [];
     const rows: ShelfSkill[] = [];
     for (const item of data.skills) {
@@ -81,7 +81,7 @@ export function shelfSkills(dir: string): ShelfSkill[] {
 
 function appOf(dir: string): string {
   try {
-    const data = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8').replace(/^﻿/, '')) as { app?: unknown };
+    const data = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8').replace(/^\uFEFF/, '')) as { app?: unknown };
     return text(data.app) || 'writer';
   } catch {
     return 'writer';

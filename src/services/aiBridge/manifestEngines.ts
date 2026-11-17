@@ -1,3 +1,4 @@
+import { WEATHER_DATE_SCHEMA } from '@/engines/worldgen/weatherManifest';
 import { MAP_HOURS } from '@/engines/worldgen/core/hourLight';
 // ============================================================================
 // AI bridge — tool manifest for the remaining engines (pure data)
@@ -1023,9 +1024,12 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_plan_journey', writes: false,
-    description: `Plan a journey on a generated world with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after profile.hardRestEvery moving days (default six; set three or another positive integer). Returns distance, hours, days (rest days included), road share, crossings, realms, climb, the towns it passes (in order, km along and off the way), the made roads it follows (named by the towns at their ends), the grounds and water crossed, the terrain summary and the stretches in travel order each with its day and part of day (hard-pace rest days counted), when the party sets off, makes camp and arrives, where each night falls (with the inn or ruin slept in) and the route's path in cells (pass it as points to wh_paint_reader_fog to mark the way as seen on the reader's map). Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
+    description: `Plan a dated or seasonal journey on a generated world.
+Optional weatherAffectsTravel uses date in the project calendar, including moons; returns baseHours and delayHours without changing the chosen path. Plan with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after profile.hardRestEvery moving days (default six; set three or another positive integer). Returns distance, hours, days (rest days included), road share, crossings, realms, climb, the towns it passes (in order, km along and off the way), the made roads it follows (named by the towns at their ends), the grounds and water crossed, the terrain summary and the stretches in travel order each with its day and part of day (hard-pace rest days counted), when the party sets off, makes camp and arrives, where each night falls (with the inn or ruin slept in) and the route's path in cells (pass it as points to wh_paint_reader_fog to mark the way as seen on the reader's map). Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
     schema: { type: 'object', properties: {
       worldId: WORLD_ID,
+      date: WEATHER_DATE_SCHEMA,
+      weatherAffectsTravel: { type: 'boolean', description: 'Opt in to dated weather delays on the chosen itinerary; requires exact date. Default false.' },
       stops: { type: 'array', minItems: 2, maxItems: 12, description: 'Ordered stops: {place: key} or {x, y} world cells.', items: { type: 'object', properties: { place: PLACE_KEY, x: CELL_X, y: CELL_Y }, additionalProperties: false } },
       mode: s('Way of travelling.', { enum: ['foot', 'horse', 'cart', 'boat', 'ship'] }),
       way: s('One of the world\'s own ways (profile.ways, by id), instead of mode and legModes.'),

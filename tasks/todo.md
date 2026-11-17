@@ -1,3 +1,12 @@
+# Dated weather and narrator place reference
+
+- [x] Claim W2/W4, isolate the worktree and coordinate manuscript hooks.
+- [x] Define one deterministic calendar-aware weather and sky model.
+- [ ] Extend existing place cards, map inspection and creative journey context.
+- [ ] Wire manuscript context and read tools without altering the novelist lane.
+- [ ] Verify new scenarios, verify:quick, test:worldgen and headless live use.
+- [ ] Update capability documentation and submit exact commits for review.
+
 # Configurable hard-pace rest interval — task2319
 
 - [x] Read actual reference evidence, preserve its scope and map all rest consumers.

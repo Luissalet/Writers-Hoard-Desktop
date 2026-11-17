@@ -18,6 +18,7 @@ import { isSheet, mapMetric, metricCellKmOf, metricWidthKmOf, metricSheetScale, 
 import { Biome, type WorldData } from './types';
 import { riverKey } from './edits';
 import { englishRoute } from './travelText';
+import { validateWeatherDate, weatherOnDay, weatherTravelFactor, type WeatherDate } from './weather';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 export type TravelMode = 'foot' | 'horse' | 'cart' | 'boat' | 'ship';
@@ -48,6 +49,8 @@ export const MODE_KEY: Record<TravelMode, string> = {
 };
 
 export interface TravelOptions {
+  /** Optional dated weather over the chosen path; absent preserves legacy results. */
+  weather?: WeatherDate;
   mode: TravelMode;
   season: Season;
   /**
@@ -213,10 +216,10 @@ function speedFactor(opts: TravelOptions, mode: TravelMode): number { return (op
 function groundFactor(opts: TravelOptions, biome: number): number { const g = GROUND_OF[biome]; return g ? opts.profile?.ground?.[g] ?? 1 : 1; }
 
 /** The hours actually spent moving each day: the season's (or the author's) daylight times the pace. */
-export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hoursPerDay' | 'pace'>): number {
+export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hoursPerDay' | 'pace' | 'weather'>): number {
   const base = Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : SEASON_HOURS[opts.season];
   // Nobody moves more than the whole day, whatever the pace or the way.
-  return Math.min(24, base * PACE_HOURS[opts.pace ?? 'steady']);
+  return Math.min(opts.weather?.calendar.hoursPerDay ?? 24, base * PACE_HOURS[opts.pace ?? 'steady']);
 }
 /** The normalized profile's interval, with the legacy default for existing worlds and trips. */
 export function hardPaceRestEvery(profile?: TravelProfile): number { return profile?.hardRestEvery ?? HARD_PACE_REST_EVERY; }
@@ -260,6 +263,7 @@ export interface RouteStage {
 }
 
 export interface Route {
+  weather?: { model: 'world-weather/1'; baseHours: number; delayHours: number; departure: WeatherDate['date']; dayHours: number };
   /** World cell indices, start → end. */
   cells: number[];
   km: number;
@@ -742,8 +746,53 @@ function riverEditsMask(world: WorldData): Uint8Array | null {
 export function planRoute(
   world: WorldData, geo: TravelGeography, from: { x: number; y: number }, to: { x: number; y: number }, opts: TravelOptions, locale: 'es' | 'en' = 'es',
 ): Route {
-  const route = solveRoute(world, geo, from, to, opts);
+  if (opts.weather) validateWeatherDate(opts.weather);
+  const base = solveRoute(world, geo, from, to, opts);
+  const route = opts.weather && !base.impossible ? datedRoute(world, geo, base, opts) : base;
   return locale === 'en' ? englishRoute(route) : route;
+}
+
+/** Spend each edge's original cost across moving days, using that day's local weather.
+ * Weather is a duration option on the selected itinerary, not a dynamic least-time solver.
+ */
+function datedRoute(world: WorldData, geo: TravelGeography, route: Route, source: TravelOptions): Route {
+  const context = source.weather!;
+  const way = source.profile?.ways?.find(row => row.id === source.way);
+  const opts = { ...source, mode: way?.base ?? source.mode, way: undefined, wayFactor: way?.speed ?? 1, flies: !!way?.flies,
+    ...(way?.night ? { hoursPerDay: Math.min(24, Math.max(22, source.hoursPerDay ?? 0)) } : {}) };
+  const hpd = effectiveHoursPerDay(opts), restEvery = hardPaceRestEvery(opts.profile);
+  const metric = travelMetric(world, opts.planetRadiusKm ?? 6371 * metricSheetScale(mapMetric(world)));
+  const roads = roadMask(world, geo), cells = route.cells;
+  const stopCells = (source.via ?? []).map(p => Math.max(0, Math.min(world.height - 1, Math.round(p.y))) * world.width + ((Math.round(p.x) % world.width + world.width) % world.width));
+  const terminals = new Set([cells[0], cells.at(-1)!, ...stopCells]);
+  const edgeHours: number[] = [0], stepModes: TravelMode[] = [opts.mode], legs: RouteLeg[] = [];
+  let hours = 0, legIndex = 0;
+  for (let k = 1; k < cells.length; k++) {
+    const mode = way ? opts.mode : source.legModes?.[legIndex] ?? opts.mode;
+    const cost = cellCost(world, roads, cells[k - 1], cells[k], metric, { ...opts, mode }, terminals);
+    let remaining = cost.hours, adjusted = 0;
+    while (remaining > 1e-8) {
+      const movingDay = Math.floor((hours + 1e-8) / hpd);
+      const rests = source.pace === 'hard' ? Math.floor(movingDay / restEvery) : 0;
+      const weather = weatherOnDay(world, { x: cells[k] % world.width, y: Math.floor(cells[k] / world.width) }, context, movingDay + rests);
+      const factor = weatherTravelFactor(weather, mode, opts.flies);
+      const available = Math.max(1e-7, (movingDay + 1) * hpd - hours);
+      const spent = Math.min(remaining * factor, available);
+      remaining -= spent / factor; adjusted += spent; hours += spent;
+    }
+    edgeHours.push(adjusted); stepModes.push(mode);
+    const km = stepDistance(world, metric, cells[k - 1], cells[k]);
+    const last = legs.at(-1);
+    const terrain = cost.onRoad ? 'calzada' : (TERRAIN_ES[world.biome[cells[k]]] ?? 'campo abierto');
+    if (last && last.terrain === terrain && last.onRoad === cost.onRoad) { last.km += km; last.hours += adjusted; }
+    else legs.push({ terrain, km, hours: adjusted, onRoad: cost.onRoad });
+    if (cells[k] === stopCells[legIndex]) legIndex++;
+  }
+  const movingDays = hours / hpd, restDays = paceRestDays(source.pace, movingDays, restEvery);
+  return { ...route, hours, days: movingDays + restDays, restDays, restEvery,
+    legs: mergeSmallLegs(legs, route.km * 0.04), stretches: orderedStretches(legs, route.km * 0.02),
+    stages: findStages(world, geo, roads, cells, metric, hpd, opts, terminals, stepModes, edgeHours),
+    weather: { model: 'world-weather/1', baseHours: route.hours, delayHours: hours - route.hours, departure: context.date, dayHours: context.calendar.hoursPerDay ?? 24 } };
 }
 
 function solveRoute(
@@ -951,6 +1000,7 @@ function findStages(
   cells: number[], metric: TravelMetric, hoursPerDay: number, opts: TravelOptions, terminals: ReadonlySet<number>,
   /** For a journey whose legs travel differently: the mode of the step ending at each cell index. */
   stepModes?: TravelMode[],
+  edgeHours?: number[],
 ): RouteStage[] {
   const W = world.width;
   const out: RouteStage[] = [];
@@ -964,6 +1014,7 @@ function findStages(
   for (let k = 1; k < cells.length && night < 400; k++) {
     const a = cells[k - 1], b = cells[k];
     const c = cellCost(world, roads, a, b, metric, stepModes?.[k] && stepModes[k] !== opts.mode ? { ...opts, mode: stepModes[k] } : opts, terminals);
+    if (edgeHours) c.hours = edgeHours[k];
     if (!isFinite(c.hours)) continue;
     const stepKm = stepDistance(world, metric, a, b);
 

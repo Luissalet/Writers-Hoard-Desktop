@@ -318,6 +318,29 @@ text after a user click.
 
 ### Worldgen
 
+`core/weather.ts` owns `world-weather/1`, a pure, stateless daily atmosphere over
+existing temperature/rainfall/SST/current fields. `weatherAt` requires an exact
+project-calendar date and returns local solar hours, polar states, the calendar's
+own moon states and a cloud-attenuated relative night-light index. Year phase uses
+actual leap-year length; finite windows sample absolute carrier coordinates.
+Fixed tilt and the northward equinox at year start are explicit model assumptions.
+
+`placeCards.ts` extends the incumbent card operations with
+`describeWorldPresence`, reusing biome/economic site fitness, the existing language
+tree, authored trade sites and the settlement economy. Local markets and nearby
+places use a 150 km metric radius; unknowns remain null. It does not create another
+Codex type or write derived culture. `weatherContext.ts` resolves chapter dates
+and explicit atlas links, including outline-linked scenes, through effective-era
+reads. `ChapterWorldContext` is the shared read-only chip/reference hook.
+
+`TravelOptions.weather` is opt-in; absent retains the existing solver unchanged.
+Dated travel keeps its selected path, spends per-edge cost across moving days,
+adds weather delays, and rebuilds terrain totals and overnight stages. Hard-pace
+rest days advance the weather date. Saved plans snapshot the calendar/date;
+`journeyCreative.ts` retains sampled conditions in the existing origin context.
+The two read tools and `wh_plan_journey` use the same handlers and scope as the UI.
+
+
 The world viewport is shared across 2D, 3D, and regional sheets. Semantic zoom
 uses planetary, continental, regional, and local tiers with hysteresis,
 deterministic label decluttering, and tier-specific feature budgets. Close
