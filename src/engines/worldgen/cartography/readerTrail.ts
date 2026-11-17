@@ -8,7 +8,14 @@
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
-export interface TrailPoint { x: number; y: number; chapter?: number }
+/**
+ * `impossible` / `tight`: the leg that reaches this point cannot be travelled,
+ * or only just, in the days the chapters allow (a character's trail from the
+ * continuity check); that leg is drawn solid in red or amber.
+ */
+export interface TrailPoint { x: number; y: number; chapter?: number; impossible?: boolean; tight?: boolean }
+
+const LEG_COLOR = { impossible: 'rgba(196,40,32,0.95)', tight: 'rgba(204,140,20,0.95)' };
 
 const INK = 'rgba(70,46,24,0.92)';
 
@@ -19,7 +26,7 @@ const INK = 'rgba(70,46,24,0.92)';
  */
 export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy: (wy: number) => number, k: number, W: number, scale = 1, wrapX = true): void {
   if (trail.length < 2) return;
-  const pts: { x: number; y: number; chapter?: number; first: boolean }[] = [];
+  const pts: { x: number; y: number; chapter?: number; first: boolean; impossible?: boolean; tight?: boolean }[] = [];
   let prev = trail[0].x, lastChapter: number | undefined | null = null;
   for (const p of trail) {
     let x = p.x;
@@ -28,7 +35,7 @@ export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy
       while (x - prev < -W / 2) x += W;
     }
     prev = x;
-    pts.push({ x, y: p.y, chapter: p.chapter, first: p.chapter !== lastChapter });
+    pts.push({ x, y: p.y, chapter: p.chapter, first: p.chapter !== lastChapter, impossible: p.impossible, tight: p.tight });
     lastChapter = p.chapter;
   }
   const span = W * k, cw = ctx.canvas.width, ch = ctx.canvas.height;
@@ -45,6 +52,17 @@ export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy
     screen.forEach((p, i) => (i ? ctx.lineTo(p.sx, p.sy) : ctx.moveTo(p.sx, p.sy)));
     ctx.stroke();
     ctx.setLineDash([]);
+    // Legs the calendar does not allow, solid over the dotted way.
+    for (let i = 1; i < screen.length; i++) {
+      const p = screen[i];
+      if (!p.impossible && !p.tight) continue;
+      ctx.strokeStyle = p.impossible ? LEG_COLOR.impossible : LEG_COLOR.tight;
+      ctx.lineWidth = 3 * scale;
+      ctx.beginPath();
+      ctx.moveTo(screen[i - 1].sx, screen[i - 1].sy);
+      ctx.lineTo(p.sx, p.sy);
+      ctx.stroke();
+    }
     ctx.font = `600 ${Math.round(10 * scale)}px "Source Sans 3", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
