@@ -78,6 +78,7 @@ import SyncButton from './SyncButton';
 import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
+import ContinuityPanel from './ContinuityPanel';
 import ReferencePanel from './ReferencePanel';
 import { referenceDockPx, useReferencePrefs } from './referencePrefs';
 import { useGhostText } from '@/components/editor/ghostText/useGhostText';
@@ -2867,6 +2868,12 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
                 onNavigateEntity={handleJudgeNavigateEntity}
                 onCreateAnnotation={handleJudgeAnnotation}
                 onApplySuggestion={handleJudgeSuggestion}
+              />
+              <ContinuityPanel
+                key={`continuity-${openWriting.id}`}
+                projectId={projectId}
+                writing={openWriting}
+                onUpdateWriting={handleMetaUpdate}
               />
               <FootnotesPanel
                 editor={liveEditor}
