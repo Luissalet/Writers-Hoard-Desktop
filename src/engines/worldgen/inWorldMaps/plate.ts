@@ -1,5 +1,5 @@
 import { themeById } from '../cartography/theme';
-import { FOG_HIDDEN, FOG_SEEN } from '../core/readerFog';
+import { FOG_HEARD, FOG_SEEN } from '../core/readerFog';
 import { isOpenSea, type RoutePoint } from '../core/tradeRoutes';
 import type { WorldData } from '../core/types';
 import type { buildKnowledge, cartographerLabels, cartographerRoutes } from './knowledge';
@@ -108,21 +108,29 @@ export function drawPlate(
     }
   }
 
-  const routePaths = routes.map(route => {
-    let path = '';
-    let previous: RoutePoint | undefined;
-    for (let i = 1; i < route.points.length; i++) {
-      const a = route.points[i - 1], b = route.points[i];
+  function* routeCells(points: readonly RoutePoint[]) {
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i];
       const count = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
-      for (let j = i === 1 ? 0 : 1; j <= count; j++) {
-        const x = onSheet(a.x + (b.x - a.x) * j / count), y = a.y + (b.y - a.y) * j / count;
-        if (knowledge.at(x, y) === FOG_HIDDEN) { previous = undefined; continue; }
-        path += (previous && Math.abs(previous.x - x) < width / 2 ? 'L' : 'M') + xy(project(x, y));
-        previous = { x, y };
-      }
+      for (let j = i === 1 ? 0 : 1; j <= count; j++) yield { x: a.x + (b.x - a.x) * j / count, y: a.y + (b.y - a.y) * j / count };
     }
-    return `<path d="${path}" fill="none" stroke="${route.sea ? theme.rivers.color : theme.roads.major}" stroke-width="1.25" stroke-dasharray="${route.sea ? '3 4' : '6 3'}"/>`;
-  }).join('');
+  }
+  function visiblePath(points: Iterable<RoutePoint>, state: number) {
+    let path = '', previous: number | undefined;
+    for (const point of points) {
+      const x = onSheet(point.x);
+      if (knowledge.at(x, point.y) < state) { previous = undefined; continue; }
+      path += (previous !== undefined && Math.abs(previous - x) < width / 2 ? 'L' : 'M') + xy(project(x, point.y));
+      previous = x;
+    }
+    return path;
+  }
+  const riverPaths = data.rivers.filter(river => river.flow >= 0.42).map(river =>
+    visiblePath(Array.from(river.cells, cell => ({ x: cell % width + 0.5, y: Math.floor(cell / width) + 0.5 })), FOG_SEEN),
+  ).join('');
+  const routePaths = routes.map(route =>
+    `<path d="${visiblePath(routeCells(route.points), FOG_HEARD)}" fill="none" stroke="${route.sea ? theme.rivers.color : theme.roads.major}" stroke-width="1.25" stroke-dasharray="${route.sea ? '3 4' : '6 3'}"/>`
+  ).join('');
 
   const occupied: { x: number; y: number; w: number }[] = [];
   const names = labels.flatMap(label => {
@@ -142,11 +150,17 @@ export function drawPlate(
 <g font-family="${escapePlateText(theme.type.body)}" fill="${theme.type.color}">
 <text x="520" y="45" text-anchor="middle" font-family="${escapePlateText(theme.type.display)}" font-size="24" ${map.title.length > 65 ? 'textLength="860" lengthAdjust="spacingAndGlyphs"' : ''}>${escapePlateText(map.title)}</text>
 <text x="520" y="73" text-anchor="middle" font-size="14">${escapePlateText(copy.origin + ' · ' + copy.date)}</text>
+<g transform="translate(982 56)" stroke="${theme.furniture.ink}" stroke-width="1">
+  <path d="M0-14L7 5L0 1L-7 5Z" fill="${theme.furniture.accent}"/>
+  <path d="M0 1v12m-7-8H7" fill="none"/>
+  <text y="-20" text-anchor="middle" font-size="10" stroke="none">N</text>
+</g>
 ${[...fills].map(([style, paths]) => {
     const [fill, opacity] = style.split('|');
     return `<path d="${paths.join('')}" fill="${fill}" stroke="${fill}" stroke-width="0.32" opacity="${opacity}"/>`;
   }).join('')}
 <path d="${coast.join('')}" fill="none" stroke="${theme.coastline.color}" stroke-width="0.6" opacity=".64"/>
+<path d="${riverPaths}" fill="none" stroke="${theme.rivers.color}" stroke-width="0.85" stroke-linecap="round" opacity=".82"/>
 ${routePaths}
 ${names}
 ${unknown ? `<text x="${f(unknown.x)}" y="${f(unknown.y)}" text-anchor="middle" font-style="italic" font-size="16" letter-spacing="2" opacity=".72">${escapePlateText(copy.unknown)}</text>` : ''}
