@@ -1,5 +1,8 @@
 // AI bridge handlers for the travel verifier and the state ledger.
 import { db } from '@/db';
+import { contentStamp } from '@/services/aiBridge/undoStamp';
+import { readEraRow } from '@/services/worldEras/store';
+import type { CodexEntry } from '@/types';
 import { assertEngineEnabled, BridgeError, optBoolean, optNumber, optString, requireString, resolveProjectId, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
 import type { TravelMode } from '@/engines/worldgen/core/travel';
 import { buildContinuityReport, characterStateAt, dayText, type ContinuityReport } from './report';
@@ -9,11 +12,17 @@ import { PACING_HANDLERS } from '@/services/pacing/bridge';
 import { PLAN_DRIFT_HANDLERS } from '@/services/planDrift/bridge';
 
 function audited<T extends object>(projectId: string, receipt: ContinuityReceipt, summary: string, result: T): T {
-  return withAudit(result, { projectId, entityId: receipt.characterId, kind: 'update', summary, before: receipt.before ? { continuity: receipt.before } : { __absent: ['continuity'] } });
+  const { characterId, eraId, before, after } = receipt;
+  return withAudit(result, {
+    projectId, entityId: characterId, kind: 'update', summary,
+    before: { __continuity: { characterId, eraId, before, afterStamp: contentStamp(after) } },
+  });
 }
 
-async function characterIn(projectId: string, characterId: string) {
-  const entry = await db.codexEntries.get(characterId);
+async function characterIn(projectId: string, characterId: string, eraId?: string) {
+  const entry = eraId
+    ? await readEraRow<CodexEntry>({ projectId, eraId }, 'codexEntries', characterId)
+    : await db.codexEntries.get(characterId);
   if (!entry || entry.projectId !== projectId) throw new BridgeError('not-found', `No Codex card "${characterId}" in this project.`);
   if (entry.type !== 'character') throw new BridgeError('bad-args', `"${entry.title}" is not a character card.`);
   return entry;
@@ -32,8 +41,9 @@ export const CONTINUITY_HANDLERS = {
   async wh_travel_check(args: ToolArgs) {
     const projectId = resolveProjectId(args);
     const characterId = optString(args, 'characterId');
-    if (characterId) await characterIn(projectId, characterId);
-    const report = await buildContinuityReport(projectId, { eraId: optString(args, 'eraId'), characterId });
+    const eraId = optString(args, 'eraId');
+    if (characterId) await characterIn(projectId, characterId, eraId);
+    const report = await buildContinuityReport(projectId, { eraId, characterId });
     const only = optBoolean(args, 'onlyProblems');
     const legs = report.legs.filter((leg) => !only || leg.verdict === 'impossible' || leg.verdict === 'tight' || leg.reason === 'no-route');
     return {
@@ -53,8 +63,9 @@ export const CONTINUITY_HANDLERS = {
   async wh_character_state(args: ToolArgs) {
     const projectId = resolveProjectId(args);
     const characterId = requireString(args, 'characterId');
-    await characterIn(projectId, characterId);
-    const report = await buildContinuityReport(projectId, { skipTravel: true });
+    const eraId = optString(args, 'eraId');
+    await characterIn(projectId, characterId, eraId);
+    const report = await buildContinuityReport(projectId, { eraId, skipTravel: true });
     const writingId = optString(args, 'writingId');
     const chapter = writingId ? report.chapters.find((c) => c.writingId === writingId)?.chapter : optNumber(args, 'chapter');
     if (chapter === undefined || chapter === null) throw new BridgeError('bad-args', writingId ? 'That writing has no chapter number, so it has no place in the story order.' : 'Pass chapter (a number) or writingId.');
@@ -73,8 +84,9 @@ export const CONTINUITY_HANDLERS = {
   async wh_state_ledger(args: ToolArgs) {
     const projectId = resolveProjectId(args);
     const characterId = optString(args, 'characterId');
-    if (characterId) await characterIn(projectId, characterId);
-    const report = await buildContinuityReport(projectId, { skipTravel: true });
+    const eraId = optString(args, 'eraId');
+    if (characterId) await characterIn(projectId, characterId, eraId);
+    const report = await buildContinuityReport(projectId, { eraId, skipTravel: true });
     const people = report.characters.filter((c) => !characterId || c.id === characterId);
     return {
       characters: people.map((c) => ({ characterId: c.id, character: c.title, travelMode: c.continuity.travelMode ?? 'foot', lines: (c.continuity.ledger ?? []).map((line) => ({ ...line, chapter: chapterTitle(report, line.writingId) })) })),
@@ -86,10 +98,9 @@ export const CONTINUITY_HANDLERS = {
     const projectId = resolveProjectId(args);
     await assertEngineEnabled(projectId, 'codex');
     const characterId = requireString(args, 'characterId');
-    await characterIn(projectId, characterId);
-    const { projectId: _p, characterId: _c, ...input } = args as Record<string, unknown>;
-    void _p; void _c;
-    const receipt = await addLedgerEntry(projectId, characterId, { ...input, source: 'author' } as never, optString(args, 'eraId'));
+    const eraId = optString(args, 'eraId');
+    await characterIn(projectId, characterId, eraId);
+    const receipt = await addLedgerEntry(projectId, characterId, { ...args, source: 'author' }, eraId);
     return audited(projectId, receipt, `Add a ${receipt.entry.kind} line to the state ledger`, { added: true, line: receipt.entry });
   }),
 

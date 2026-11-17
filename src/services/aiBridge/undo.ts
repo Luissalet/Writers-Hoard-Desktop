@@ -104,6 +104,14 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     );
   }
 
+  if (typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__continuity' in entry.before) {
+    const { restoreContinuity } = await import('@/services/continuity/ledgerOps');
+    try {
+      await restoreContinuity(entry.projectId, (entry.before as { __continuity: import('@/services/continuity/ledgerOps').ContinuityUndo }).__continuity);
+    } catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId, what: summary };
+  }
+
   if (entry.tool === 'wh_create_place_card' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__placeCard' in entry.before) {
     const { undoPlaceCard } = await import('@/engines/worldgen/placeCards');
     try {
