@@ -18,6 +18,7 @@ It is also the Writer plugin of the Hoard family. It absorbs the former interact
 - Suggested continuation (ghost text): off by default, local models only, Tab to accept.
 - Notes with to-do lists and kanban boards, outlines, diary, storyboards, a video planner, beta-reading and a POV audit.
 - Continuity: every character's journeys checked against the chapters' world dates with the route engine (impossible legs marked on the map, earliest valid date offered), and a chapter-by-chapter state ledger of where each character is, what they know and carry, their condition and whether they live, with contradiction checks.
+- Voice by character: each character's dialogue profile from the manuscript (sentence length, own vocabulary, catchphrases, form of address, register), lines that sound like someone else, and a blind test of who says what.
 - Imports: Markdown folders from Obsidian, Notion, World Anvil and Campfire, mixed documents, pasted text, text PDFs and ePub manuscripts.
 
 **Worldbuilding**

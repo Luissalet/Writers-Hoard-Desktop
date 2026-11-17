@@ -32,7 +32,27 @@ Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pest
   «Añadir al libro», o se descarta.
 - **MCP.** `wh_travel_check`, `wh_character_state`, `wh_state_ledger`, `wh_state_ledger_add`,
   `wh_state_ledger_remove` y `wh_continuity_mark` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
-- **No hace todavía:** la voz por personaje, la radiografía de ritmo y la deriva del plan están descritas en `OBJETIVOS.md`.
+- **No hace todavía:** la radiografía de ritmo y la deriva del plan están descritas en `OBJETIVOS.md`.
+
+## Voz por personaje
+
+Panel «Voz por personaje» junto al capítulo abierto (debajo de Continuidad) y sección «Voz por personaje» en la ficha
+de personaje del Códex; los dos leen el mismo informe.
+
+- **Parlamentos.** Rayas de diálogo (—…—dijo X—) y comillas («», “”, ""), con los incisos fuera del texto hablado.
+  Se atribuyen por el nombre o un alias del Códex en el inciso, por el párrafo narrativo anterior que nombra a un
+  solo personaje, por el turno de un intercambio a dos voces, y los bloques de Dialog Scene con su personaje.
+- **Perfil.** Parlamentos y palabras, frase media y dispersión, porcentaje de exclamaciones, preguntas y puntos
+  suspensivos, tratamiento (tú, usted, vos) y el dominante, registro, léxico propio frente al resto del reparto
+  (log-odds, sin artículos ni preposiciones) y muletillas (aperturas y cierres repetidos). Determinista.
+- **Fuera de perfil.** Parlamentos que suenan más a otro personaje, con frases mucho más largas o cortas de lo
+  habitual, o con el tratamiento que el personaje no usa; «Ir al texto» selecciona la frase en el capítulo (desde la
+  ficha, con `&quote=` en el enlace al capítulo).
+- **Prueba ciega.** 6, 10 o 20 parlamentos sin atribución repartidos entre los personajes; el autor elige quién habla
+  y el resultado da los aciertos y a quién confunde con quién.
+- **Descripción.** Opcional: el modelo global la redacta a partir de las cifras y unas líneas; el autor la edita y la
+  guarda en la ficha (`codexEntries.voice`), con Deshacer.
+- **MCP.** `wh_voice_profile`, `wh_voice_outliers` y `wh_voice_describe` (escritura, con Deshacer).
 
 ## Imágenes en documentos Source compartidos — 2114
 

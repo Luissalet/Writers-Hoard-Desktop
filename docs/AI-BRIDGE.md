@@ -2860,3 +2860,20 @@ propuesta `ledger` por hallazgo; se guarda en el hallazgo y solo se escribe en e
 ```json
 {"projectId":"p","characterId":"codex_ana","writingId":"wr_2","kind":"loses","itemId":"codex_espada","toId":"codex_bo"}
 ```
+
+## Voz por personaje
+
+Las tres herramientas leen el mismo informe que el panel «Voz por personaje» y la ficha del Códex
+(`src/services/voice/report.ts`).
+
+- `wh_voice_profile` (lectura): `characterId` e `includeLines` opcionales. Por personaje: `lines`, `words`,
+  `sentenceMean`/`sentenceSd` (palabras por frase), `exclamations`/`questions`/`ellipses` (parte de los parlamentos),
+  `address` (`tu`, `usted`, `vos`) y `addressForm` dominante (75 % de al menos 3 usos), `register`, `distinctive`
+  (palabra, veces, puntuación log-odds frente al resto del reparto) y `catchphrases`. `description` si la ficha guarda
+  una. Con `includeLines`, cada parlamento con `speakerId`, `attribution` (`tag`, `beat`, `turn`, `scene`), `quote`
+  y `writingId`.
+- `wh_voice_outliers` (lectura): `characterId`, `writingId` y `limit` opcionales. `reason`: `closer-to` (con
+  `closerTo`), `length` (`detail` = desviaciones) o `address` (`detail` = tratamiento usado). Solo personajes con 5
+  parlamentos y parlamentos de 4 palabras o más.
+- `wh_voice_describe` (escritura, deshacer genérico): `text` guarda la descripción del autor en la ficha; vacío la
+  quita; sin `text` la redacta el modelo global con las cifras y unas líneas.
