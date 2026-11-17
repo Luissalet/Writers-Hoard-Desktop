@@ -190,7 +190,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
 
   // ---- state helpers ---------------------------------------------------------
   const owners: Record<string, { polity: string; from: number }[]> = {};
-  const ruins: RuinStory[] = [];
+  const ruins: (Omit<RuinStory, 'eventId'> & { event: HistoryEvent })[] = [];
   const setOwner = (ni: number, pi: number, year: number) => {
     const n = nodes[ni];
     n.owner = pi;
@@ -227,11 +227,12 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
   };
 
   /** `holder`: whose it was when it fell (by default, whoever holds it now). */
-  const raze = (ni: number, year: number, cause: RuinCause, by: number, holder = nodes[ni].owner) => {
+  const raze = (ni: number, event: HistoryEvent, cause: RuinCause, by: number, holder = nodes[ni].owner) => {
+    const year = event.year;
     const n = nodes[ni];
     n.razed = year;
     setOwner(ni, -1, year);
-    ruins.push({ ruin: n.key, name: n.name, founded: n.founded, fell: year, cause, ...(holder >= 0 ? { polity: polities[holder].key } : {}), ...(by >= 0 ? { by: polities[by].key } : {}) });
+    ruins.push({ event, ruin: n.key, name: n.name, founded: n.founded, fell: year, cause, ...(holder >= 0 ? { polity: polities[holder].key } : {}), ...(by >= 0 ? { by: polities[by].key } : {}) });
   };
 
   const collapse = (pi: number, year: number, by: number, r: Rng) => {
@@ -244,11 +245,11 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     if (last) { last.to = year; if (last.rulers.length) last.rulers[last.rulers.length - 1].to = year; }
     const seatIndex = byKey.get(p.seat)!;
     const seat = nodes[seatIndex];
-    ev({ year, kind: 'collapse', polity: p.key, ...(by >= 0 ? { other: polities[by].key } : {}), place: p.seat, ...at(seat) });
+    const event = ev({ year, kind: 'collapse', polity: p.key, ...(by >= 0 ? { other: polities[by].key } : {}), place: p.seat, ...at(seat) });
     // A seat that is a ruin today does not outlive its realm.
     if (!seat.standing && seat.razed === undefined && !(seat.shieldUntil !== undefined && seat.shieldUntil > year)) {
       const flood = seat.condition === 'flooded' || seat.condition === 'drowned';
-      raze(seatIndex, year, by >= 0 ? (seat.condition === 'burnt' ? 'sack' : 'conquest') : flood ? 'flood' : 'collapse', by, pi);
+      raze(seatIndex, event, by >= 0 ? (seat.condition === 'burnt' ? 'sack' : 'conquest') : flood ? 'flood' : 'collapse', by, pi);
     }
     for (const ni of nodesOf(pi)) {
       if (by >= 0) setOwner(ni, by, year);
@@ -314,9 +315,9 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
     const def = n.owner;
     ev({ year, kind: 'conquest', polity: polities[att].key, ...(def >= 0 ? { other: polities[def].key } : {}), place: n.key, ...(war ? { war } : {}), ...(pinned ? { pinned } : {}), ...at(n) });
     if (!n.standing && (pinned || r() < 0.15 + 0.5 * aggression)) {
-      ev({ year, kind: 'sack', polity: polities[att].key, ...(def >= 0 ? { other: polities[def].key } : {}), place: n.key, ...(war ? { war } : {}), ...at(n) });
+      const event = ev({ year, kind: 'sack', polity: polities[att].key, ...(def >= 0 ? { other: polities[def].key } : {}), place: n.key, ...(war ? { war } : {}), ...at(n) });
       // Razed while still the defender's: the ruin remembers whose it was.
-      raze(ni, year, 'sack', att);
+      raze(ni, event, 'sack', att);
     } else setOwner(ni, att, year);
     if (def >= 0) {
       polities[def].lostWarAt = year;
@@ -478,8 +479,8 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
           end - HISTORY_STEP * (1 + Math.floor(r() * 6)),
         );
         const flood = n.condition === 'flooded' || n.condition === 'drowned';
-        ev({ year, kind: flood ? 'flood' : 'abandoned', place: n.key, ...(n.owner >= 0 ? { polity: polities[n.owner].key } : {}), x: n.x, y: n.y });
-        raze(i, year, flood ? 'flood' : 'abandoned', -1);
+        const event = ev({ year, kind: flood ? 'flood' : 'abandoned', place: n.key, ...(n.owner >= 0 ? { polity: polities[n.owner].key } : {}), x: n.x, y: n.y });
+        raze(i, event, flood ? 'flood' : 'abandoned', -1);
       }
       continue;
     }
@@ -527,7 +528,7 @@ export function simulateHistory(input: HistoryInput, rawSettings: Partial<Histor
   return {
     settings, startYear: start, endYear: end, step: HISTORY_STEP,
     polities: polities.map(({ fallBy: _f, standUntil: _s, reignEnd: _r, lostWarAt: _l, alive: _a, ...p }) => { void _f; void _s; void _r; void _l; void _a; return p; }),
-    owners, founded, events, ruins, toponyms, notes,
+    owners, founded, events, ruins: ruins.map(({ event, ...ruin }) => ({ ...ruin, eventId: event.id })), toponyms, notes,
   };
 }
 

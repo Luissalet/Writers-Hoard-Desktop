@@ -150,6 +150,8 @@ export type RuinCause = 'sack' | 'conquest' | 'flood' | 'abandoned' | 'collapse'
 /** Why a ruin is a ruin, as far as the history explains it. */
 export interface RuinStory {
   ruin: string;
+  /** Chronicle event that explains the fall. */
+  eventId: string;
   /** The place's name in its time. */
   name: string;
   founded: number;

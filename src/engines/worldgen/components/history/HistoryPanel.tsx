@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Dices, Pause, Play } from 'lucide-react';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
+import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
-import { fill } from '../../history/i18n';
+import { fill, historyActions, historyPinNotes } from '../../history/i18n';
 import { politiesAt } from '../../history/simulate';
 import { acceptedKeys, acceptProposals, saveHistorySettings, sendHistoryToTimeline } from '../../history/store';
 import { eventText, historyProposals, ruinCauseText, type HistoryLang, type ProposalGroup } from '../../history/text';
@@ -31,11 +33,17 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
   onFocus: (x: number, y: number) => void;
 }) {
   const { t, locale } = useTranslation();
+  const pane = useEnginePane(), navigate = useEraNavigate();
   const lang: HistoryLang = locale === 'en' ? 'en' : 'es';
   const { history, names, input, record, year, setYear } = lens;
   const [draft, setDraft] = useState<HistorySettings>(record.settings);
   useEffect(() => setDraft(record.settings), [record.settings]);
   const [tab, setTab] = useState<Tab>('events');
+  const [linkedEvent, setLinkedEvent] = useState<string | null>(null);
+  const ruinCards = useLiveQuery(
+    () => tab === 'ruins' ? acceptedKeys(record, { projectId, eraId: lens.eraId }) : new Set<string>(),
+    [tab, record, projectId, lens.eraId],
+  );
   const [kind, setKind] = useState<HistoryEventKind | ''>('');
   const [untilYear, setUntilYear] = useState(true);
   const [playing, setPlaying] = useState(false);
@@ -149,12 +157,14 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
 
   function chronicle() {
     const shown = history!.events.filter((e) => (!kind || e.kind === kind) && (!untilYear || e.year <= year));
+    const linked = shown.find((e) => e.id === linkedEvent);
     const list = shown.slice(-250).reverse();
+    if (linked && !list.includes(linked)) list.push(linked);
     const canTimeline = lens.enabledEngines.includes('timeline');
     return (
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1">
-          <select className={field} value={kind} onChange={(e) => setKind(e.target.value as HistoryEventKind | '')} data-testid="history-kind">
+          <select className={field} value={kind} onChange={(e) => { setLinkedEvent(null); setKind(e.target.value as HistoryEventKind | ''); }} data-testid="history-kind">
             <option value="">{t('worldgen.history.allKinds')}</option>
             {KINDS.map((k) => <option key={k} value={k}>{t(`worldgen.history.kind.${k}`)}</option>)}
           </select>
@@ -170,7 +180,8 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
           }}>{t('worldgen.history.toTimeline')}</button>
         <ol className="max-h-72 overflow-y-auto" data-testid="history-events">
           {list.map((e) => (
-            <li key={e.id}>
+            <li key={e.id} ref={e.id === linkedEvent ? (node) => node?.scrollIntoView({ block: 'nearest' }) : undefined}
+              className={e.id === linkedEvent ? 'rounded bg-white/15' : undefined}>
               <button type="button" className="flex w-full gap-2 rounded px-1 py-0.5 text-left hover:bg-white/10" onClick={() => { setYear(e.year); focusPlace(e.toPlace ?? e.place); }}>
                 <span className="w-24 shrink-0 tabular-nums text-white/50">{names!.year(e.year)}</span>
                 <span className={e.pinned ? 'text-amber-200' : ''}>{eventText(e, names!, lang)}</span>
@@ -216,15 +227,34 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
     if (!history!.ruins.length) return <p className="text-white/45">{t('worldgen.history.noRuins')}</p>;
     return (
       <ul className="flex max-h-80 flex-col gap-1 overflow-y-auto" data-testid="history-ruins">
-        {history!.ruins.map((r) => (
-          <li key={r.ruin}>
-            <button type="button" className="w-full rounded bg-white/5 p-1 text-left hover:bg-white/10" onClick={() => { setYear(r.fell - history!.step); focusPlace(r.ruin); }}>
-              <span className="font-medium">{r.name}</span>{' '}
-              <span className="text-white/55">{names!.year(r.founded)} – {names!.year(r.fell)}</span>
-              <div className="text-white/60">{t('worldgen.history.cause')}: {ruinCauseText(r.cause, lang)}{r.by ? ` ${t('worldgen.history.by')} ${names!.polity(r.by)}` : ''}{r.polity ? ` · ${names!.polity(r.polity)}` : ''}</div>
-            </button>
-          </li>
-        ))}
+        {history!.ruins.map((r) => {
+          const realmKey = `realm:${r.polity}`;
+          const cardId = r.polity && ruinCards?.has(realmKey) ? record.accepted[realmKey] : undefined;
+          return (
+            <li key={r.ruin} className="rounded bg-white/5 p-1">
+              <button type="button" className="w-full rounded text-left hover:bg-white/10" onClick={() => { setYear(Math.max(history!.startYear, r.fell - 1)); focusPlace(r.ruin); }}>
+                <span className="font-medium">{r.name}</span>{' '}
+                <span className="text-white/55">{names!.year(r.founded)} ? {names!.year(r.fell)}</span>
+                <div className="text-white/60">{t('worldgen.history.cause')}: {ruinCauseText(r.cause, lang)}{r.by ? ` ${t('worldgen.history.by')} ${names!.polity(r.by)}` : ''}{r.polity ? ` ? ${names!.polity(r.polity)}` : ''}</div>
+              </button>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <button type="button" className={btn} onClick={() => {
+                  setYear(r.fell);
+                  setKind('');
+                  setLinkedEvent(r.eventId);
+                  setTab('events');
+                  focusPlace(r.ruin);
+                }}>{historyActions[lang].openRuinEvent}</button>
+                {cardId && lens.enabledEngines.includes('codex') && <button type="button" className={btn} onClick={() => {
+                  const query = new URLSearchParams({ entry: cardId });
+                  if (lens.eraId) query.set('era', lens.eraId);
+                  const destination = `/project/${encodeURIComponent(projectId)}/codex?${query}`;
+                  if (pane?.navigate) pane.navigate(destination); else navigate(destination);
+                }}>{historyActions[lang].openRealmCard}</button>}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     );
   }
@@ -263,7 +293,7 @@ interface TabCtx {
 
 function PinsTab({ ctx }: { ctx: TabCtx }) {
   const { t } = useTranslation();
-  const { lens, history, names, input, busy, save } = ctx;
+  const { lens, history, names, input, busy, save, lang } = ctx;
   const { record, year } = lens;
   const [pinKind, setPinKind] = useState<HistoryPin['kind']>('city-falls');
   const [target, setTarget] = useState('');
@@ -284,7 +314,7 @@ function PinsTab({ ctx }: { ctx: TabCtx }) {
             <li key={p.id} className="flex items-center gap-1 rounded bg-white/5 p-1">
               <span className="flex-1">
                 {t(`worldgen.history.pin.${p.kind}`)} {names.year(p.year)}: {p.kind === 'realm-exists' ? names.polity(p.polity) : `${names.place(p.place)}${p.by ? ` (${names.polity(p.by)})` : ''}`}
-                {notes.filter((n) => n.id === p.id).map((n) => <div key={n.reason} className="text-amber-200/80">{t(`worldgen.history.pinNote.${n.reason}`)}</div>)}
+                {notes.filter((n) => n.id === p.id).map((n) => <div key={n.reason} className="text-amber-200/80">{historyPinNotes[lang][n.reason] ?? t(`worldgen.history.pinNote.${n.reason}`)}</div>)}
               </span>
               <button type="button" className={btn} disabled={busy} onClick={() => void save({ pins: record.settings.pins.filter((q) => q.id !== p.id) })}>{t('worldgen.history.removePin')}</button>
             </li>
