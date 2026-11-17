@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { Dices, Pause, Play } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
@@ -43,7 +44,7 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
   const save = async (patch: Partial<HistorySettings>) => {
     setBusy(true);
     try {
-      await saveHistorySettings(projectId, worldId, patch);
+      await saveHistorySettings(projectId, worldId, patch, lens.eraId);
       toast.success(t('worldgen.history.simulated'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -116,7 +117,7 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
       <div className="flex items-center gap-1.5">
         <button type="button" className={btn} data-testid="history-play" aria-label={playing ? t('worldgen.history.pause') : t('worldgen.history.play')}
           onClick={() => { if (year >= history.endYear) setYear(history.startYear); setPlaying((p) => !p); }}>{playing ? <Pause size={12} /> : <Play size={12} />}</button>
-        <input data-testid="history-year" type="range" min={history.startYear} max={history.endYear} step={history.step} value={year} className="flex-1"
+        <input data-testid="history-year" type="range" min={history.startYear} max={history.endYear} step={1} value={year} className="flex-1"
           aria-label={t('worldgen.history.year')} onChange={(e) => { setPlaying(false); setYear(Number(e.target.value)); }} />
         <span className="w-28 text-right tabular-nums text-amber-200" data-testid="history-year-label">{names.year(year)}</span>
       </div>
@@ -163,7 +164,7 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
           onClick={async () => {
             setBusy(true);
             try {
-              const r = await sendHistoryToTimeline(projectId, worldId, history!, names!, lang, fill(t('worldgen.history.timelineTitle'), { world: worldTitle }));
+              const r = await sendHistoryToTimeline(projectId, worldId, history!, names!, lang, fill(t('worldgen.history.timelineTitle'), { world: worldTitle }), lens.eraId);
               toast.success(fill(t('worldgen.history.sentToTimeline'), { n: r.created.length }));
             } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); }
           }}>{t('worldgen.history.toTimeline')}</button>
@@ -270,7 +271,11 @@ function PinsTab({ ctx }: { ctx: TabCtx }) {
   const [pinYear, setPinYear] = useState(year);
   const places = [...input.places.map((p) => ({ key: p.key, name: p.name })), ...input.ruins.map((r) => ({ key: r.key, name: r.name }))].sort((a, b) => a.name.localeCompare(b.name));
   const realms = [...history.polities].sort((a, b) => a.name.localeCompare(b.name));
-  const notes = history.notes.map((n) => n.split(':')).filter((n) => n[0] === 'pin');
+  const notes = history.notes.flatMap((note) => {
+    if (!note.startsWith('pin:')) return [];
+    const separator = note.lastIndexOf(':');
+    return [{ id: note.slice(4, separator), reason: note.slice(separator + 1) }];
+  });
   return (
     <div className="flex flex-col gap-1.5" data-testid="history-pins">
       {record.settings.pins.length ? (
@@ -279,7 +284,7 @@ function PinsTab({ ctx }: { ctx: TabCtx }) {
             <li key={p.id} className="flex items-center gap-1 rounded bg-white/5 p-1">
               <span className="flex-1">
                 {t(`worldgen.history.pin.${p.kind}`)} {names.year(p.year)}: {p.kind === 'realm-exists' ? names.polity(p.polity) : `${names.place(p.place)}${p.by ? ` (${names.polity(p.by)})` : ''}`}
-                {notes.filter((n) => n[1] === p.id).map((n) => <div key={n[2]} className="text-amber-200/80">{t(`worldgen.history.pinNote.${n[2]}`)}</div>)}
+                {notes.filter((n) => n.id === p.id).map((n) => <div key={n.reason} className="text-amber-200/80">{t(`worldgen.history.pinNote.${n.reason}`)}</div>)}
               </span>
               <button type="button" className={btn} disabled={busy} onClick={() => void save({ pins: record.settings.pins.filter((q) => q.id !== p.id) })}>{t('worldgen.history.removePin')}</button>
             </li>
@@ -325,15 +330,14 @@ function CardsTab({ ctx }: { ctx: TabCtx }) {
   const all = useMemo(() => historyProposals(history, names, lang), [history, names, lang]);
   const [groups, setGroups] = useState<ProposalGroup[]>(['realm', 'dynasty', 'war', 'treaty', 'ruin']);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [done, setDone] = useState<Set<string>>(new Set());
-  useEffect(() => { void acceptedKeys(record).then(setDone); }, [record]);
+  const done = useLiveQuery(() => acceptedKeys(record, { projectId, eraId: lens.eraId }), [record, projectId, lens.eraId]) ?? new Set<string>();
   const list = all.filter((p) => groups.includes(p.group));
   const open = list.filter((p) => !done.has(p.key));
   const canCodex = lens.enabledEngines.includes('codex');
   const accept = async (keys: Set<string>) => {
     setBusy(true);
     try {
-      const r = await acceptProposals(projectId, worldId, all.filter((p) => keys.has(p.key)));
+      const r = await acceptProposals(projectId, worldId, all.filter((p) => keys.has(p.key)), lens.eraId);
       toast.success(fill(t('worldgen.history.acceptedToast'), { n: r.created.length }));
       setPicked(new Set());
     } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); }
