@@ -20,6 +20,7 @@ Es además el plugin Writer de la familia Hoard. Absorbe como módulos independi
 - Continuidad: los viajes de cada personaje comprobados contra las fechas del mundo de los capítulos con el motor de rutas (tramos imposibles marcados en el mapa y fecha mínima válida propuesta) y libro de estado por capítulo: dónde está cada personaje, qué sabe, qué lleva, su estado físico y si vive, con comprobación de contradicciones.
 - Voz por personaje: perfil de los diálogos de cada personaje sacado del manuscrito (longitud de frase, léxico propio, muletillas, tratamiento, registro), parlamentos que suenan a otro y prueba ciega de quién dice qué.
 - Radiografía de ritmo: diálogo, narración y descripción, longitud y densidad de acción por escena y capítulo, en una curva sobre los beats del esquema que señala los tramos planos o desequilibrados.
+- Deriva del plan: cada capítulo escrito frente al beat del esquema que debía cumplir (quién, dónde, promesas), beats sin capítulo, capítulos fuera del esquema y el beat actualizado desde el capítulo cuando el autor lo acepta.
 - Importaciones: carpetas Markdown de Obsidian, Notion, World Anvil y Campfire, documentos mixtos, texto pegado, PDF con texto y manuscritos ePub.
 
 **Construcción de mundos**

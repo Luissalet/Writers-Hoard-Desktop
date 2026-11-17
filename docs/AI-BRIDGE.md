@@ -2886,3 +2886,13 @@ Las tres herramientas leen el mismo informe que el panel «Voz por personaje» y
   `chapters` (medias ponderadas por palabras), `beats` (`at` del capítulo enlazado o de `storyPosition`) y `flags`
   (`flat`, `description-heavy`, `dialogue-only`, `no-dialogue`, `overlong`, con `sceneIds` y `detail`). `tension` es
   `null`: la app no guarda tensión por escena.
+
+## Deriva del plan
+
+- `wh_plan_drift` (lectura): `outlineId` y `status` (`kept`, `drifted`, `unwritten`) opcionales. Por beat de los
+  esquemas de historia: `expected` (personajes, lugares, otras fichas y promesas que nombra o enlaza), `missing`,
+  `extra` (personajes y lugares del capítulo que el beat no nombra), `score` (parte encontrada), `status` y, cuando
+  se ha desviado o el capítulo trae gente o lugares nuevos, `proposal` (`title`, `description`). `unplanned`: capítulos
+  con texto que ningún beat enlaza. Sin modelo.
+- `wh_plan_drift_apply` (escritura, deshacer genérico): `beatId`; recalcula la propuesta y la escribe como título y
+  descripción del beat; `title` y `description` sustituyen sus palabras. Rechaza un beat sin propuesta.
