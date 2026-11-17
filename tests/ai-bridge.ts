@@ -67,6 +67,8 @@ function testManifestHandlerParity(): void {
     'wh_model_remove', 'wh_sheet_delete', 'wh_delete_codex_template', 'wh_local_tool_block_remove',
     'wh_annotation_remove_reply', 'wh_annotation_delete',
     'wh_table_remove_column', 'wh_codex_option_list_delete', 'wh_wiki_profile_delete', 'wh_workspace_theme_delete',
+    // A line of a character's state ledger, inside their Codex card; undone like any other card edit.
+    'wh_state_ledger_remove',
   ]);
   for (const name of scopedRemovals) assert(getBridgeTool(name)?.writes, `${name} must remain a registered write operation`);
   // wh_remove_place is not one: it appends a `remove` edit to a world's list,
