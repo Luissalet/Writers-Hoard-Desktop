@@ -93,6 +93,8 @@ export interface GeneratedWorld {
   travelPace?: import('./core/travel').TravelPace;
   /** Increments on every saved travel settings change. */
   travelRevision?: number;
+  /** The simulated history's settings, pins and what the author accepted from it; the history itself is rebuilt from the seed. */
+  history?: import('./history/store').WorldHistoryRecord;
   createdAt: number;
   updatedAt: number;
 }
