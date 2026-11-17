@@ -5,7 +5,7 @@ import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
-import { fill, historyActions, historyPinNotes } from '../../history/i18n';
+import { fill } from '../../history/i18n';
 import { politiesAt } from '../../history/simulate';
 import { acceptedKeys, acceptProposals, saveHistorySettings, sendHistoryToTimeline } from '../../history/store';
 import { eventText, historyProposals, ruinCauseText, type HistoryLang, type ProposalGroup } from '../../history/text';
@@ -250,13 +250,13 @@ export default function HistoryPanel({ lens, projectId, worldId, worldTitle, onF
                   setLinkedEvent(r.eventId);
                   setTab('events');
                   focusPlace(r.ruin);
-                }}>{historyActions[lang].openRuinEvent}</button>
+                }}>{t('worldgen.history.openRuinEvent')}</button>
                 {cardId && lens.enabledEngines.includes('codex') && <button type="button" className={btn} onClick={() => {
                   const query = new URLSearchParams({ entry: cardId });
                   if (lens.eraId) query.set('era', lens.eraId);
                   const destination = `/project/${encodeURIComponent(projectId)}/codex?${query}`;
                   if (pane?.navigate) pane.navigate(destination); else navigate(destination);
-                }}>{historyActions[lang].openRealmCard}</button>}
+                }}>{t('worldgen.history.openRealmCard')}</button>}
               </div>
             </li>
           );
@@ -299,7 +299,7 @@ interface TabCtx {
 
 function PinsTab({ ctx }: { ctx: TabCtx }) {
   const { t } = useTranslation();
-  const { lens, history, names, input, busy, save, lang } = ctx;
+  const { lens, history, names, input, busy, save } = ctx;
   const { record, year } = lens;
   const [pinKind, setPinKind] = useState<HistoryPin['kind']>('city-falls');
   const [target, setTarget] = useState('');
@@ -320,7 +320,7 @@ function PinsTab({ ctx }: { ctx: TabCtx }) {
             <li key={p.id} className="flex items-center gap-1 rounded bg-white/5 p-1">
               <span className="flex-1">
                 {t(`worldgen.history.pin.${p.kind}`)} {names.year(p.year)}: {p.kind === 'realm-exists' ? names.polity(p.polity) : `${names.place(p.place)}${p.by ? ` (${names.polity(p.by)})` : ''}`}
-                {notes.filter((n) => n.id === p.id).map((n) => <div key={n.reason} className="text-amber-200/80">{historyPinNotes[lang][n.reason] ?? t(`worldgen.history.pinNote.${n.reason}`)}</div>)}
+                {notes.filter((n) => n.id === p.id).map((n) => <div key={n.reason} className="text-amber-200/80">{t(`worldgen.history.pinNote.${n.reason}`)}</div>)}
               </span>
               <button type="button" className={btn} disabled={busy} onClick={() => void save({ pins: record.settings.pins.filter((q) => q.id !== p.id) })}>{t('worldgen.history.removePin')}</button>
             </li>
