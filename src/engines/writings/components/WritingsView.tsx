@@ -81,6 +81,7 @@ import JudgePanel from './JudgePanel';
 import ContinuityPanel from './ContinuityPanel';
 import VoicePanel from './voice/VoicePanel';
 import PacingPanel from './pacing/PacingPanel';
+import DriftPanel from './planDrift/DriftPanel';
 import ReferencePanel from './ReferencePanel';
 import { referenceDockPx, useReferencePrefs } from './referencePrefs';
 import { useGhostText } from '@/components/editor/ghostText/useGhostText';
@@ -2896,6 +2897,11 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
                 projectId={projectId}
                 writingId={openWriting.id}
                 onOpen={handleJudgeNavigate}
+              />
+              <DriftPanel
+                key={`drift-${openWriting.id}`}
+                projectId={projectId}
+                writingId={openWriting.id}
               />
               <FootnotesPanel
                 editor={liveEditor}
