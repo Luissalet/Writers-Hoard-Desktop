@@ -24,6 +24,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import WorldCalendarEditor from './components/WorldCalendarEditor';
 import { useWorldCalendar } from './useWorldCalendar';
 import { manuscriptTimelineItems } from '@/engines/writings/chapterWorldDate';
+import { travelTimelineItems } from '@/engines/writings/continuity/timelineLanes';
+import { useContinuityReport } from '@/services/continuity/useContinuityReport';
 
 type ViewMode = 'list' | 'swimlane' | 'calendar';
 
@@ -54,13 +56,23 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const navigate = useEraNavigate();
   // Dated chapters ride along as a read-only lane; opening one goes to the editor.
   const writings = useEraRows<Writing>('writings', projectId);
+  // Travel legs of the continuity check ride along too, one read-only lane per character.
+  const { report: continuity } = useContinuityReport(projectId, { eraId: scope.eraId });
   const manuscript = useMemo(() => {
     const items = manuscriptTimelineItems(worldCalendar?.calendar, writings ?? [], projectId, t('timeline.manuscriptLane'));
+    const travel = continuity && worldCalendar?.calendar
+      ? travelTimelineItems(worldCalendar.calendar, continuity.legs, continuity.chapters, continuity.titles, projectId, {
+        lane: (name) => t('timeline.travelLane').replace('{name}', name),
+        verdict: (verdict) => t(`timeline.travelVerdict.${verdict}`),
+        intended: t('timeline.travelIntended'),
+      })
+      : null;
     return items && {
       ...items,
+      ...(travel?.events.length ? { events: [...items.events, ...travel.events], extraLanes: travel.lanes } : {}),
       onOpen: (writingId: string) => navigate(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(writingId)}`),
     };
-  }, [worldCalendar, writings, projectId, t, navigate]);
+  }, [worldCalendar, writings, projectId, t, navigate, continuity]);
   // El evento que está esperando confirmación para borrarse. Arriba con el
   // resto de hooks porque más abajo hay un `return` temprano por carga, y un
   // hook detrás de un return no se llama siempre en el mismo orden. La

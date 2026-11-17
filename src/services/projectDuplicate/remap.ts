@@ -15,6 +15,7 @@ import { canonicalJson, sha256Hex, recipeHash, type Recipe } from '@/services/ai
 import { fingerprintConversionTarget } from '@/services/projectTools';
 import { genealogyLinkKey } from '@/engines/genealogy/genealogyStore';
 import { remapToolDockLayout } from '@/engines/writings/toolDock/types';
+import { remapIntentionalMarks, remapStoryEditsJson, type DuplicateIdLookups } from '@/engines/writings/continuity/duplicateKeys';
 import type { DuplicateRow as Row, ProjectDuplicateSnapshot } from './types';
 
 const prefixes: Record<string,string> = {
@@ -96,6 +97,9 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
   const referenceProject={...sourceProject};for(const kind of Object.keys(eraAdapters) as EraDocumentKind[]){const field=eraAdapters[kind].metadata;if(field)Object.assign(referenceProject,{[field]:[...new Map(roots(kind).map(row=>[row.id,row])).values()]});}
   const tools=projectToolIds(referenceProject,{writings:roots('writings') as {id:string}[],scenes:roots('dialog-scene') as {id:string}[],generatedWorlds:roots('worldgen') as {id:string}[],worldMaps:roots('maps') as {id:string}[],boards:roots('board') as {id:string}[],timelines:roots('timeline') as {id:string}[]});
   for(const placement of sourceProject.workspacePlacements??[]){const kind=placement.engineId==='genealogy'?'relation-tree':placement.engineId;if(kind==='codex')codexIds.add(placement.entityId);else if(kind==='writings')writingIds.add(placement.entityId);else if(kind==='media')mediaIds.add(placement.entityId);else (tools[kind] as Set<string>|undefined)?.add(placement.entityId);}
+  // Continuity keys and story events name worlds, characters and chapters inside text.
+  const worldIds=new Set(roots('worldgen').map(row=>String(row.id)));
+  const continuityIds:DuplicateIdLookups={world:id=>worldIds.has(id)?remap(id,'generatedWorlds'):undefined,codex:id=>codexIds.has(id)?remap(id,'codexEntries'):undefined,writing:id=>writingIds.has(id)?remap(id,'writings'):undefined};
   const richProse=(html:string)=>remapWorldRichContent(html,sourceProject.id,targetProjectId,remap,codexIds,mediaIds,tools,{linksOnly:true});
   const rich=(html:string)=>{
     if(/<a\b|wh-media:\/\//i.test(html)){
@@ -159,6 +163,8 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     if(table==='aiProjectSettings')value.projectId=targetProjectId;
     if(table==='imageRecipes'&&typeof input.hash==='string')value.hash=recipeHash(value as unknown as Recipe);
     if(table==='generatedWorlds')at(value,['manuscriptLinks','*'],item=>object(item)?row('entityLinks',item):item);
+    if(table==='generatedWorlds'&&typeof input.edits==='string')value.edits=remapStoryEditsJson(input.edits,continuityIds);
+    if(table==='codexEntries'&&object(value.continuity)&&object(input.continuity)&&object(input.continuity.intentional))value.continuity.intentional=remapIntentionalMarks(input.continuity.intentional,continuityIds);
     if(table==='judgeFindings')pointer(value,'internal');
     if(table==='creativeBranches'){pointer(value,'root','kind');const kind=object(input.root)?String(input.root.kind):'',id=object(input.root)?input.root.entityId:undefined;const original=snapshot.tables[engineTables[kind]]?.find(item=>item.id===id);if(original&&typeof input.baseHash==='string'&&input.baseHash===sha256Hex(canonicalJson({kind,value:original})))value.baseHash=sha256Hex(canonicalJson({kind,value:row(engineTables[kind],original)}));}
     if(table==='creativeBranchDeltas'){value.targetId=entity(String(input.targetKind),String(input.targetId));value.base=branch(input.base);value.proposal=branch(input.proposal);value.baseHash=sha256Hex(canonicalJson(value.base));}

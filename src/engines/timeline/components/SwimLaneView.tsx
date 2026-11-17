@@ -37,7 +37,8 @@ function toViewEvents(events: TimelineEvent[], calendarFor: (id: string) => Worl
   });
 }
 import { useCodexEntries } from '@/engines/codex/hooks';
-import { isManuscriptEventId, MANUSCRIPT_EVENT_PREFIX, MANUSCRIPT_LANE_ID } from '@/engines/writings/chapterWorldDate';
+import { isManuscriptEventId, MANUSCRIPT_LANE_ID } from '@/engines/writings/chapterWorldDate';
+import { isTravelLaneId, writingIdOfTimelineEvent } from '@/engines/writings/continuity/timelineLanes';
 
 // ============================================
 // Swim-Lane Timeline View
@@ -59,7 +60,7 @@ interface SwimLaneViewProps {
   onDeleteConnection: (id: string) => void;
   onEditTimeline: (id: string, changes: Partial<Timeline>) => void | Promise<void>;
   /** Dated chapters as a read-only lane; a click opens the chapter. */
-  manuscript?: { lane: Timeline; events: TimelineEvent[]; onOpen: (writingId: string) => void };
+  manuscript?: { lane: Timeline; events: TimelineEvent[]; onOpen: (writingId: string) => void; extraLanes?: Timeline[] };
   /** Tags already used in the project, offered in the event form. */
   tagSuggestions?: string[];
   /**
@@ -420,7 +421,7 @@ export default function SwimLaneView({
     () => toViewEvents(manuscript ? [...visibleStoredEvents, ...manuscript.events] : visibleStoredEvents, calendarFor, timelines, locale),
     [visibleStoredEvents, manuscript, calendarFor, timelines, locale],
   );
-  const lanes = useMemo(() => (manuscript ? [...timelines, manuscript.lane] : timelines), [timelines, manuscript]);
+  const lanes = useMemo(() => (manuscript ? [...timelines, manuscript.lane, ...(manuscript.extraLanes ?? [])] : timelines), [timelines, manuscript]);
   const TYPE_LABELS: Record<string, string> = useMemo(() => ({
     point: t('timeline.typePointSymbol'),
     range: t('timeline.typeRangeSymbol'),
@@ -631,7 +632,7 @@ export default function SwimLaneView({
   // ── Event clicks ──
   const handleEventClick = useCallback((e: React.MouseEvent, evt: TimelineEvent) => {
     e.stopPropagation();
-    if (isManuscriptEventId(evt.id)) { manuscript?.onOpen(evt.id.slice(MANUSCRIPT_EVENT_PREFIX.length)); return; }
+    if (isManuscriptEventId(evt.id)) { manuscript?.onOpen(writingIdOfTimelineEvent(evt.id)); return; }
     if (dragStarted.current || connectionSavingRef.current) return; // a drag or an in-flight connection
     if (connectingFromId) {
       if (connectingFromId !== evt.id) {
@@ -1035,7 +1036,7 @@ export default function SwimLaneView({
                   className="cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tl.id === MANUSCRIPT_LANE_ID) return;
+                    if (tl.id === MANUSCRIPT_LANE_ID || isTravelLaneId(tl.id)) return;
                     setRenameTitle(tl.title);
                     setRenameDescription(tl.description ?? '');
                     setRenameFailed(false);
@@ -1060,7 +1061,7 @@ export default function SwimLaneView({
                 </g>
 
                 {/* Add event "+" button at end of lane */}
-                {tl.id !== MANUSCRIPT_LANE_ID && (() => {
+                {tl.id !== MANUSCRIPT_LANE_ID && !isTravelLaneId(tl.id) && (() => {
                   // Position after last event in this lane
                   const lastEvt = laneEvts[laneEvts.length - 1];
                   const lastPos = lastEvt ? positions.get(lastEvt.id) : null;

@@ -236,6 +236,48 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
           </button>
         </div>
 
+        <div className={section} data-testid="world-calendar-seasons">
+          <p className={heading}>{t('timeline.world.seasons')}</p>
+          <p className="text-[11px] text-text-dim">{t('timeline.world.seasonsHelp')}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select data-testid="world-calendar-season-mode" aria-label={t('timeline.world.seasons')} className={input} value={draft.seasons?.mode ?? 'quarters'}
+              onChange={(e) => {
+                const mode = e.target.value as NonNullable<WorldCalendar['seasons']>['mode'];
+                const n = draft.months.length;
+                if (mode === 'quarters' && draft.seasons?.hemisphere !== 'south') set({ seasons: undefined });
+                else set({ seasons: { mode, ...(draft.seasons?.hemisphere === 'south' && mode !== 'none' ? { hemisphere: 'south' as const } : {}), ...(mode === 'months' ? { starts: draft.seasons?.starts ?? { winter: 1, spring: 1 + Math.floor(n / 4), summer: 1 + Math.floor(n / 2), autumn: 1 + Math.floor((3 * n) / 4) } } : {}) } });
+              }}>
+              <option value="quarters">{t('timeline.world.seasonMode.quarters')}</option>
+              <option value="months" disabled={draft.months.length < 4}>{t('timeline.world.seasonMode.months')}</option>
+              <option value="none">{t('timeline.world.seasonMode.none')}</option>
+            </select>
+            {draft.seasons?.mode !== 'none' && (
+              <select data-testid="world-calendar-season-hemisphere" aria-label={t('timeline.world.hemisphere')} className={input} value={draft.seasons?.hemisphere ?? 'north'}
+                onChange={(e) => {
+                  const south = e.target.value === 'south';
+                  const mode = draft.seasons?.mode ?? 'quarters';
+                  if (!south && mode === 'quarters') set({ seasons: undefined });
+                  else set({ seasons: { ...(draft.seasons ?? { mode }), mode, hemisphere: south ? 'south' : undefined } });
+                }}>
+                <option value="north">{t('timeline.world.hemisphere.north')}</option>
+                <option value="south">{t('timeline.world.hemisphere.south')}</option>
+              </select>
+            )}
+          </div>
+          {draft.seasons?.mode === 'months' && draft.seasons.starts && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(['winter', 'spring', 'summer', 'autumn'] as const).map((season) => (
+                <label key={season} className="flex flex-col gap-1 text-xs text-text-muted">{t(`timeline.world.season.${season}`)}
+                  <select data-testid={`world-calendar-season-${season}`} className={input} value={draft.seasons!.starts![season]}
+                    onChange={(e) => set({ seasons: { ...draft.seasons!, starts: { ...draft.seasons!.starts!, [season]: Number(e.target.value) } } })}>
+                    {draft.months.map((month, index) => <option key={index} value={index + 1}>{month.name}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className={section}>
           <p className={heading}>{t('timeline.world.holidays')}</p>
           {draft.holidays.map((h, i) => (
