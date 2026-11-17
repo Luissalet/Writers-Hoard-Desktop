@@ -2830,7 +2830,9 @@ Source draft field projection (task1890): `wh_local_tool_open_document_query` ad
 Las seis herramientas leen un único informe (`src/services/continuity/report.ts`), el mismo que pinta el panel
 «Continuidad» junto al manuscrito y el rastro del personaje en el mapa.
 
-- `wh_travel_check` (lectura): `projectId`, `eraId`, `characterId` y `onlyProblems` opcionales. Cada tramo une dos
+- `wh_travel_check` (lectura): `projectId`, `eraId`, `characterId` y `onlyProblems` opcionales (`onlyProblems`
+  incluye los tramos `unknown` con `reason: 'no-route'`). `wh_state_ledger_add`, `wh_state_ledger_remove` y
+  `wh_continuity_mark` aceptan `eraId` y escriben en la versión de la ficha de esa época. Cada tramo une dos
   apariciones seguidas de un personaje: sucesos de historia del mapa que lo nombran en `who` y, en capítulos sin
   suceso, ubicaciones del libro de estado con punto de mapa. La ruta sale del motor de viajes del mundo (terreno,
   modo habitual del personaje, estación de la fecha, ritmo y perfil del

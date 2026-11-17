@@ -570,7 +570,9 @@ overwritten or treated as disposable.
 - Timeline: `continuity/timelineLanes.ts` turns legs into read-only lanes (`manuscript-lane:travel:<characterId>`)
   passed to `SwimLaneView` as `manuscript.extraLanes`; band ids are `ms:<writingId>#leg:<legId>` and open the
   destination chapter (`writingIdOfTimelineEvent`).
-- Seasons: `WorldCalendar.seasons` (`quarters` default, `months` with `starts`, `none`; `hemisphere: 'south'`
+- Eras: with `eraId`, `report.ts` reads `listEraRows` for writings and Codex cards and `ledgerOps` writes through
+  `readEraRow`/`mutateEraRows`; the receipt keeps `eraId` so Undo reverts in the same era.
+- Seasons: `WorldCalendar.seasons` (`quarters` by days by default, `months` with `starts`, `none`; `hemisphere: 'south'`
   swaps them). `seasonOfDate` in `timeline/worldCalendar.ts` is the one function; `report.ts` `seasonOfDay` uses it.
 - Ledger map points: `services/continuity/worldPlaces.ts` searches the atlas, painted labels and named stamps of
   every project world (`openWorldForReading`, the locator's folding and ranking) or takes typed `x, y` cells.
