@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FaustusFetchRequest, FaustusHostInfo } from '../../src/services/copilot/faustusProtocol';
 import { FaustusRelay } from './faustusRelay';
+import { resolveFaustusServer } from './faustusPlacement';
 import { setBridgeConfig } from '../aibridge/state';
 
 let identity: Promise<string> | null = null;
@@ -20,10 +21,12 @@ function dataSpaceId(): Promise<string> {
 }
 
 export function registerFaustusIpc(assert: (event: Electron.IpcMainInvokeEvent, channel: string) => void, syncBridge: () => Promise<void>): void {
-  const server = (process.env.WH_FAUSTUS_URL || process.env.FAUSTUS_URL || 'http://127.0.0.1:7000').replace(/\/+$/, '');
-  const relay = new FaustusRelay(server, process.env.FAUSTUS_TOKEN || '');
+  let server = (process.env.WH_FAUSTUS_URL || process.env.FAUSTUS_URL || 'http://127.0.0.1:7000').replace(/\/+$/, '');
+  let relay = new FaustusRelay(server, process.env.FAUSTUS_TOKEN || '');
   ipcMain.handle('faustus:getInfo', async (event): Promise<FaustusHostInfo> => {
     assert(event, 'faustus:getInfo');
+    const placed = await resolveFaustusServer();
+    if (placed !== server) { server = placed; relay = new FaustusRelay(server, process.env.FAUSTUS_TOKEN || ''); }
     await setBridgeConfig({ enabled: true, writesEnabled: true });
     await syncBridge();
     return { server, embed_url: `${server}/api/hoard-copilot/panel.js`, data_space_id: await dataSpaceId(), tool_server_id: process.env.WH_FAUSTUS_MCP_SERVER_ID || undefined };
