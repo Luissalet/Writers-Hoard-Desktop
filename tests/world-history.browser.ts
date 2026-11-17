@@ -73,6 +73,7 @@ export async function testWorldHistory(): Promise<string[]> {
     assert(ownerAt(a, r.key, a.endYear) === undefined, `${r.key} is a ruin today`);
   }
   assert(a.ruins.some((s) => s.ruin === 'r:2' && s.cause === 'flood') || a.ruins.find((s) => s.ruin === 'r:2')?.by, 'A flooded ruin drowned unless someone took it');
+  for (const r of a.ruins) if (r.by) assert(r.polity !== r.by, `${r.ruin} was not ${r.by}'s own when ${r.by} razed it`);
   for (const p of a.polities.filter((q) => q.realm === undefined)) assert(p.fell !== undefined && p.fell < a.endYear, `${p.key} has fallen`);
   // Dynasties and reigns tile each realm's life.
   for (const p of a.polities) {
