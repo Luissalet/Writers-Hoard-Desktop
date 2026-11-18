@@ -27,6 +27,12 @@ async function loadWorld(args: ToolArgs): Promise<GeneratedWorld> {
   return world;
 }
 
+/** With a projectId, a switched-off engine refuses before anything else is read or checked. */
+async function guardEngines(args: ToolArgs, engines: readonly Parameters<typeof assertEngineEnabled>[1][]): Promise<void> {
+  const projectId = optString(args, 'projectId');
+  if (projectId) for (const engine of engines) await assertEngineEnabled(projectId, engine);
+}
+
 const langOf = (args: ToolArgs): HistoryLang => {
   const l = optString(args, 'lang');
   return l === 'en' || l === 'es' ? l : useLocaleStore.getState().locale === 'en' ? 'en' : 'es';
@@ -91,6 +97,7 @@ function readPins(args: ToolArgs): HistoryPin[] | undefined {
 
 export const WORLD_HISTORY_HANDLERS = {
   async wh_world_history_simulate(args: ToolArgs) {
+    await guardEngines(args, ['worldgen']);
     const world = await loadWorld(args);
     await assertEngineEnabled(world.projectId, 'worldgen');
     const patch: Partial<HistorySettings> = {};
@@ -168,6 +175,7 @@ export const WORLD_HISTORY_HANDLERS = {
   },
 
   async wh_world_history_accept(args: ToolArgs) {
+    await guardEngines(args, ['worldgen', 'codex']);
     const world = await loadWorld(args);
     await assertEngineEnabled(world.projectId, 'worldgen');
     await assertEngineEnabled(world.projectId, 'codex');
@@ -190,6 +198,7 @@ export const WORLD_HISTORY_HANDLERS = {
   },
 
   async wh_world_history_to_timeline(args: ToolArgs) {
+    await guardEngines(args, ['worldgen', 'timeline']);
     const world = await loadWorld(args);
     await assertEngineEnabled(world.projectId, 'worldgen');
     await assertEngineEnabled(world.projectId, 'timeline');
