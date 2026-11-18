@@ -8,7 +8,7 @@ const names = (report: ProjectDrift, ids: readonly string[]) => ids.map((id) => 
 export const PLAN_DRIFT_HANDLERS = {
   async wh_plan_drift(args: ToolArgs) {
     const projectId = resolveProjectId(args);
-    const report = await buildDriftReport(projectId, optString(args, 'outlineId'));
+    const report = await buildDriftReport(projectId, optString(args, 'outlineId'), optString(args, 'eraId'));
     const status = optString(args, 'status');
     return {
       projectId,
@@ -28,11 +28,11 @@ export const PLAN_DRIFT_HANDLERS = {
     const projectId = resolveProjectId(args);
     await assertEngineEnabled(projectId, 'outline');
     const beatId = requireString(args, 'beatId');
-    const report = await buildDriftReport(projectId);
+    const report = await buildDriftReport(projectId, undefined, optString(args, 'eraId'));
     const drift = report.beats.find((b) => b.beatId === beatId);
     if (!drift) throw new BridgeError('not-found', `No story-outline beat "${beatId}" in this project.`);
     if (!drift.proposal) throw new BridgeError('bad-args', 'This beat has no proposal: its chapter already does what it says, or it has no chapter.');
     const receipt = await applyBeatProposal(projectId, beatId, { title: optString(args, 'title') ?? drift.proposal.title, description: optString(args, 'description') ?? drift.proposal.description });
-    return withAudit({ beatId, title: receipt.after.title, description: receipt.after.description }, { projectId, entityId: beatId, kind: 'update', summary: 'Update an outline beat from its chapter', before: receipt.before });
+    return withAudit({ beatId, title: receipt.after.title, description: receipt.after.description }, { projectId, entityId: beatId, kind: 'update', summary: 'Update an outline beat from its chapter', before: { __planDrift: receipt } });
   },
 };

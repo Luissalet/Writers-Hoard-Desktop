@@ -1,42 +1,34 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/db';
-import { buildVoiceReport, type VoiceReport } from './report';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { readVoiceInputs, summarizeVoice, type VoiceReport } from './report';
 
 /** Typing settles before the profiles are rebuilt. */
 const SETTLE_MS = 1500;
 
 /** The project's voice report, rebuilt when the manuscript, cards or dialog blocks change. */
 export function useVoiceReport(projectId: string, disabled = false): { report: VoiceReport | null; loading: boolean; error: string | null } {
-  const signature = useLiveQuery(async () => {
-    if (disabled) return '';
-    const [writings, codex, blocks] = await Promise.all([
-      db.writings.where('projectId').equals(projectId).toArray(),
-      db.codexEntries.where('projectId').equals(projectId).toArray(),
-      db.dialogBlocks.where('projectId').equals(projectId).toArray(),
-    ]);
-    return JSON.stringify([
-      writings.map((w) => [w.id, w.updatedAt, w.chapter, w.title]),
-      codex.filter((c) => c.type === 'character').map((c) => [c.id, c.title, c.updatedAt]),
-      blocks.map((b) => [b.id, b.updatedAt]),
-    ]);
-  }, [projectId, disabled]);
-  const [result, setResult] = useState<{ key: string; report: VoiceReport | null; error: string | null }>({ key: '', report: null, error: null });
-  const key = `${projectId}|${signature ?? ''}`;
+  const { eraId } = useWorldEraScope(projectId);
+  const key = JSON.stringify([projectId, eraId]);
+  const snapshot = useLiveQuery(async () => {
+    if (disabled) return null;
+    try { return { key, inputs: await readVoiceInputs(projectId, eraId), error: null }; }
+    catch (error) { return { key, inputs: null, error: error instanceof Error ? error.message : String(error) }; }
+  }, [key, projectId, eraId, disabled]);
+  const [result, setResult] = useState<{ snapshot: typeof snapshot; report: VoiceReport | null; error: string | null }>();
 
   useEffect(() => {
-    if (disabled || signature === undefined) return;
-    let alive = true;
+    if (disabled || !snapshot || snapshot.key !== key) return;
     const timer = window.setTimeout(() => {
-      buildVoiceReport(projectId).then(
-        (report) => { if (alive) setResult({ key, report, error: null }); },
-        (error: unknown) => { if (alive) setResult((prior) => ({ key, report: prior.report, error: error instanceof Error ? error.message : String(error) })); },
-      );
-    }, result.report ? SETTLE_MS : 0);
-    return () => { alive = false; window.clearTimeout(timer); };
-    // result.report only decides the first delay; a new report must not schedule another build.
+      try { setResult({ snapshot, report: snapshot.inputs ? summarizeVoice(snapshot.inputs) : null, error: snapshot.error }); }
+      catch (error) { setResult({ snapshot, report: null, error: error instanceof Error ? error.message : String(error) }); }
+    }, result?.snapshot?.key === key ? SETTLE_MS : 0);
+    return () => window.clearTimeout(timer);
+    // The previous report only sets the delay; a new report must not schedule another build.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, disabled, signature, projectId]);
+  }, [key, disabled, snapshot]);
 
-  return { report: result.report, loading: result.key !== key, error: result.error };
+  return result?.snapshot?.key === key
+    ? { report: result.report, loading: result.snapshot !== snapshot, error: result.error }
+    : { report: null, loading: !disabled, error: null };
 }

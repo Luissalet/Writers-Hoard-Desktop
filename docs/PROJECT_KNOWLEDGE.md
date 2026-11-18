@@ -26,6 +26,23 @@ using the existing local stdio/HTTP bridge, not a remote MCP endpoint.
 See `docs/ai-subscriptions.md` and `docs/ai-external-connection.md` for setup and
 reproducible focused checks.
 
+## Manuscript analysis in named world eras
+
+Continuity, character voice and pacing use the active era's effective writings
+and relevant Codex cards and map events. Bridge callers select a scope with
+`eraId`. Plan drift also reads the era's effective writings, cards and map
+events. A proposal can update the shared outline beat. Outlines and their
+promises are project-level records.
+
+Continuity checks each map presence against the applicable death and revival
+history. Within a chapter, a knowledge finding requires explicit ledger order.
+Scoped continuity undo restores the recorded fields on the same era card.
+Voice attribution checks names attached to speech verbs and resolves pronouns
+using turn context and explicit gender fields. Navigation selects the recorded
+paragraph and its position. Pacing saves manual scene tension with the writing.
+The curve and flat stretches use manual values where entered, and the prose
+metrics retain their calculated pace.
+
 ## Product and runtime shape
 
 Writers Hoard is a local-first creative-writing platform. The same React

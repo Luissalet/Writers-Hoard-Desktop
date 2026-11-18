@@ -28,8 +28,13 @@ export default function CharacterVoice({ projectId, characterId }: { projectId: 
               <VoiceProfileCard report={report} profile={profile} projectId={projectId} />
               <div className="space-y-1">
                 <p className="text-[10px] uppercase tracking-wider text-text-dim">{t('charVoice.tab.outliers')}</p>
-                <VoiceOutliers report={report} outliers={outliers}
-                  onOpen={(writingId, quote) => navigate(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(writingId)}&quote=${encodeURIComponent(quote)}`)} />
+                <VoiceOutliers report={report} outliers={outliers} onOpen={(writingId, anchor) => {
+                  const search = new URLSearchParams({
+                    writing: writingId, quote: anchor.quote, voiceParagraph: String(anchor.paragraph), voiceColumn: String(anchor.column),
+                  });
+                  if (report.eraId) search.set('era', report.eraId);
+                  navigate(`/project/${encodeURIComponent(projectId)}/writings?${search}`);
+                }} />
               </div>
             </div>
           ))}

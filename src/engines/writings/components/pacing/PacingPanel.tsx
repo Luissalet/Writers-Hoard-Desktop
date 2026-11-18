@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
+import { curveValue, type PacingScene } from '@/engines/writings/pacing/pacing';
 import { usePacingReport } from '@/services/pacing/usePacingReport';
 import type { ProjectPacing } from '@/services/pacing/report';
+import { setSceneTension, undoSceneTension, type SceneTensionReceipt } from '@/services/pacing/tensionOps';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 
 const W = 300, H = 120, TOP = 8, BOTTOM = 100;
 const button = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-elevated hover:text-text-primary';
@@ -16,7 +19,7 @@ function Curve({ report, writingId, onOpen }: { report: ProjectPacing; writingId
   const flagged = new Set(report.flags.filter((f) => f.kind === 'flat').flatMap((f) => f.sceneIds));
   const byId = new Map(report.scenes.map((s) => [s.id, s]));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg bg-deep" role="img" aria-label={t('pacing.curve')} data-testid="pacing-curve">
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg bg-deep" role="img" aria-label={t(report.tension ? 'pacing.tensionCurve' : 'pacing.curve')} data-testid="pacing-curve">
       {report.flags.filter((f) => f.kind === 'flat').map((f) => {
         const first = byId.get(f.sceneIds[0])!, last = byId.get(f.sceneIds[f.sceneIds.length - 1])!;
         return <rect key={f.sceneIds[0]} x={first.at * W - 3} y={TOP} width={Math.max(6, (last.at - first.at) * W + 6)} height={BOTTOM - TOP} fill="#d9770622" />;
@@ -27,18 +30,45 @@ function Curve({ report, writingId, onOpen }: { report: ProjectPacing; writingId
           <title>{beat.title}</title>
         </g>
       ))}
-      <polyline fill="none" stroke="#c4973b" strokeWidth={1.4} points={report.scenes.map((s) => `${s.at * W},${y(s.pace)}`).join(' ')} />
+      <polyline fill="none" stroke="#c4973b" strokeWidth={1.4} points={report.scenes.map((s) => `${s.at * W},${y(curveValue(s))}`).join(' ')} />
       {report.scenes.map((s) => (
-        <circle key={s.id} data-testid="pacing-point" cx={s.at * W} cy={y(s.pace)} r={s.writingId === writingId ? 3.2 : 2.2}
-          fill={flagged.has(s.id) ? '#d97706' : s.writingId === writingId ? '#f5d38a' : '#c4973b'} className="cursor-pointer" onClick={() => onOpen(s.writingId, s.quote)}>
-          <title>{`${report.titles[s.writingId] ?? ''} · ${fill(t('pacing.sceneTip'), { n: s.index + 1, pace: pct(s.pace), dialogue: pct(s.dialogue), description: pct(s.description), words: s.words })}`}</title>
+        <circle key={s.id} data-testid="pacing-point" cx={s.at * W} cy={y(curveValue(s))} r={s.writingId === writingId ? 3.2 : 2.2}
+          fill={flagged.has(s.id) ? '#d97706' : s.writingId === writingId ? '#f5d38a' : '#c4973b'}
+          stroke={s.tension === undefined ? undefined : '#e3c9ff'} strokeWidth={1}
+          className="cursor-pointer" onClick={() => onOpen(s.writingId, s.quote)}>
+          <title>{`${report.titles[s.writingId] ?? ''} · ${fill(t('pacing.sceneTip'), { n: s.index + 1, pace: pct(s.pace), dialogue: pct(s.dialogue), description: pct(s.description), words: s.words })}${s.tension === undefined ? '' : ` · ${fill(t('pacing.tensionTip'), { tension: pct(s.tension) })}`}`}</title>
         </circle>
       ))}
       <text x={2} y={H - 4} fontSize={8} fill="#8a8578">{t('pacing.axisStart')}</text>
       <text x={W - 2} y={H - 4} fontSize={8} fill="#8a8578" textAnchor="end">{t('pacing.axisEnd')}</text>
-      <text x={2} y={TOP + 6} fontSize={7} fill="#8a8578">{t('pacing.fast')}</text>
-      <text x={2} y={BOTTOM - 2} fontSize={7} fill="#8a8578">{t('pacing.slow')}</text>
+      <text x={2} y={TOP + 6} fontSize={7} fill="#8a8578">{report.tension ? '100 %' : t('pacing.fast')}</text>
+      <text x={2} y={BOTTOM - 2} fontSize={7} fill="#8a8578">{report.tension ? '0 %' : t('pacing.slow')}</text>
     </svg>
+  );
+}
+
+function TensionControl({ scene, disabled, onSave }: {
+  scene: PacingScene;
+  disabled: boolean;
+  onSave: (tension: number | null) => void;
+}) {
+  const { t } = useTranslation();
+  const initial = scene.tension === undefined ? '' : String(Number((scene.tension * 100).toPrecision(15)));
+  const [value, setValue] = useState(initial);
+  return (
+    <form className="flex items-center gap-1 px-1.5" onSubmit={(event) => {
+      event.preventDefault();
+      if (!disabled && value !== initial) onSave(value === '' ? null : Number(value) / 100);
+    }}>
+      <label className="flex items-center gap-1">
+        <span>{t('pacing.tension')}</span>
+        <input type="number" min={0} max={100} step="any" value={value} onChange={(event) => setValue(event.target.value)}
+          aria-label={fill(t('pacing.tensionInput'), { n: scene.index + 1 })} placeholder={t('pacing.tensionAuto')}
+          disabled={disabled} data-testid="pacing-tension-input"
+          className="w-24 rounded border border-border bg-surface px-1 py-0.5 text-text-primary" />
+      </label>
+      <button type="submit" data-testid="pacing-tension-save" disabled={disabled || value === initial} className={`${button} disabled:opacity-50`}>{t('pacing.tensionSave')}</button>
+    </form>
   );
 }
 
@@ -50,7 +80,24 @@ export default function PacingPanel({ projectId, writingId, onOpen }: { projectI
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const { report, loading, error } = usePacingReport(projectId, !open);
+  const scope = useWorldEraScope(projectId);
+  const { report, loading, error } = usePacingReport(projectId, scope.eraId, !open);
+  const [undo, setUndo] = useState<{ eraId?: string; receipt: SceneTensionReceipt } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+
+  const run = async (action: () => Promise<SceneTensionReceipt | void>) => {
+    setSaving(true);
+    setSaveError(false);
+    try {
+      const receipt = await action();
+      setUndo(receipt && receipt.before !== receipt.after ? { eraId: scope.eraId, receipt } : null);
+    } catch {
+      setSaveError(true);
+    } finally {
+      setSaving(false);
+    }
+  };
   const chapter = report?.chapters.find((c) => c.writingId === writingId);
   const scenes = report?.scenes.filter((s) => s.writingId === writingId) ?? [];
   const label = (sceneId: string) => { const s = report?.scenes.find((x) => x.id === sceneId); return s ? `${report!.titles[s.writingId] ?? ''} · ${fill(t('pacing.scene'), { n: s.index + 1 })}` : sceneId; };
@@ -64,11 +111,16 @@ export default function PacingPanel({ projectId, writingId, onOpen }: { projectI
       </button>
       {open && (
         <div className="space-y-3 p-3">
-          {error && <p role="alert" className="text-[10px] text-red-300">{error}</p>}
+          {(error || saveError) && <p role="alert" className="text-[10px] text-red-300">{saveError ? t('pacing.tensionError') : error}</p>}
+          {undo && undo.eraId === scope.eraId && (
+            <button type="button" data-testid="pacing-tension-undo" className={button} disabled={saving}
+              onClick={() => void run(() => undoSceneTension(scope, undo.receipt))}>{t('continuity.undo')}</button>
+          )}
           {!report ? <p className="text-[10px] text-text-dim">{t('pacing.loading')}</p> : !report.scenes.length ? <p className="text-[10px] text-text-dim">{t('pacing.empty')}</p> : (
             <>
               <Curve report={report} writingId={writingId} onOpen={onOpen} />
               <p className="text-[10px] text-text-dim">{fill(t('pacing.legend'), { scenes: report.scenes.length, beats: report.beats.length })}{loading ? ` · ${t('pacing.loading')}` : ''}</p>
+              {report.tension && <p className="text-[10px] text-text-dim">{t('pacing.tensionLegend')}</p>}
               {chapter && (
                 <div className="space-y-1 rounded-lg bg-deep p-2 text-[11px]" data-testid="pacing-chapter">
                   <p className="text-[10px] uppercase tracking-wider text-text-dim">{t('pacing.thisChapter')}</p>
@@ -79,9 +131,14 @@ export default function PacingPanel({ projectId, writingId, onOpen }: { projectI
                   </div>
                   <p className="text-text-primary">{fill(t('pacing.mix'), { dialogue: pct(chapter.dialogue), narration: pct(chapter.narration), description: pct(chapter.description) })}</p>
                   <p className="text-text-muted">{fill(t('pacing.numbers'), { words: chapter.words.toLocaleString(locale), scenes: chapter.scenes, action: chapter.action.toLocaleString(locale), pace: pct(chapter.pace) })}</p>
-                  <ul className="space-y-0.5 text-[10px] text-text-muted">
+                  <p className="text-[10px] text-text-dim">{t('pacing.tensionHint')}</p>
+                  <ul className="space-y-1.5 text-[10px] text-text-muted">
                     {scenes.map((s) => (
-                      <li key={s.id}><button type="button" className={button} onClick={() => onOpen(s.writingId, s.quote)}>{fill(t('pacing.sceneLine'), { n: s.index + 1, words: s.words, pace: pct(s.pace), dialogue: pct(s.dialogue) })}</button></li>
+                      <li key={s.id}>
+                        <button type="button" className={button} onClick={() => onOpen(s.writingId, s.quote)}>{fill(t('pacing.sceneLine'), { n: s.index + 1, words: s.words, pace: pct(s.pace), dialogue: pct(s.dialogue) })}</button>
+                        <TensionControl key={JSON.stringify([scope.eraId, s.tension])} scene={s} disabled={saving || loading}
+                          onSave={(tension) => void run(() => setSceneTension(scope, s.writingId, s.anchor, tension, s.tension ?? null))} />
+                      </li>
                     ))}
                   </ul>
                 </div>
