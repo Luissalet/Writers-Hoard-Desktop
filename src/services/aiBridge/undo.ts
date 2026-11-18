@@ -84,6 +84,10 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
   if(typeof entry.projectId==='string'&&entry.before&&typeof entry.before==='object'&&typeof (entry.before as Record<string,unknown>).__bannerReceipt==='string'){await undoBannerChange({projectId:entry.projectId,eraId:typeof entry.eraId==='string'?entry.eraId:undefined},String((entry.before as Record<string,unknown>).__bannerReceipt));return{undone:true,kind:'update',entityId:String(entry.entityId??''),what:'banner change'};}
   const kind = String(entry.kind ?? '');
   const entityId = typeof entry.entityId === 'string' ? entry.entityId : '';
+  if (['wh_save_in_world_map', 'wh_remove_in_world_map', 'wh_insert_in_world_map'].includes(String(entry.tool))) {
+    const { undoInWorldMapAudit } = await import('@/engines/worldgen/inWorldMaps/bridgeUndo');
+    return undoInWorldMapAudit(entry);
+  }
   if (entry.tool === 'wh_dictionary_archive') {
     const archiveId = entry.before && typeof entry.before === 'object' ? (entry.before as Record<string, unknown>).__dictionaryArchive : undefined;
     const archive = typeof archiveId === 'string' ? await db.documentArchives.get(archiveId) : undefined;

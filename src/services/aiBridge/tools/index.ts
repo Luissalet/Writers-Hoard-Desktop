@@ -41,6 +41,7 @@ import { SHEET_HANDLERS } from '@/engines/character-sheets/bridge';
 import { TABLE_RULES_HANDLERS } from '@/engines/character-sheets/tableRulesBridge';
 import { whAppendConversationTurn } from './dialog';
 import { whStylePlace } from './worldgenStyle';
+import { IN_WORLD_MAP_HANDLERS } from '@/engines/worldgen/inWorldMaps/bridge';
 import { WORLD_ERA_HANDLERS } from '@/services/worldEras/bridge';
 import { READER_HANDLERS } from './reader';
 import { VOICE_MEMO_HANDLERS } from '@/engines/media/voiceBridge';
@@ -605,6 +606,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_set_world_travel_settings: whSetWorldTravelSettings,
   wh_plan_journey: whPlanJourney,
   wh_style_place: whStylePlace,
+  ...IN_WORLD_MAP_HANDLERS,
   wh_list_places: whListPlaces,
   wh_find_place: whFindPlace,
   wh_place_at: whPlaceAt,

@@ -693,7 +693,7 @@ Continuidad2367 ejecutada tras GO concreto de Root: manual párrafo389 con inser
 
 En el Generador de Mundos se puede guardar una perspectiva fechada de una cultura o lugar, vincularla a una ficha del Codex y corregir qué zonas aparecen. El alcance, la deformación, la niebla por capítulo y el estilo son propios de cada lámina. Desde el mapa se puede descargar en PNG, SVG o PDF e insertar una copia PNG al principio de un capítulo local.
 
-Las herramientas de Faustus para listar, guardar, exportar, insertar y eliminar estas láminas están preparadas. Su registro en el puente y el enlace con wh_undo están pendientes en esta rama.
+Faustus lista orígenes y láminas, guarda, exporta, inserta y elimina láminas por el puente (seis herramientas `wh_*_in_world_map*` y `wh_list_cartographers`); guardar, eliminar e insertar se deshacen con wh_undo.
 
 ## Portada local de mapas generados —2365
 
