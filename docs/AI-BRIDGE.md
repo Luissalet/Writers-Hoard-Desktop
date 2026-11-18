@@ -1878,6 +1878,31 @@ fecha), `scripts/run-world-calendar-tests.mjs` (lógica del calendario) y
 `npm run test:worlddates` (interfaz: fijar la fecha de un capítulo, verla en la
 lista, verla en la línea de tiempo en orden y quitarla).
 
+### Tiempo por fecha y ficha «Estar allí»
+
+- `wh_get_world_weather {worldId,key?,x?,y?,date:{year,month,day}}`: temperatura,
+  mínimos/máximos, precipitación, viento, nubes, fenómenos, salida/puesta del sol,
+  día/noche polares, fases de cada luna y luz nocturna relativa.
+- `wh_describe_world_presence` acepta el mismo punto y fecha opcional: relieve,
+  bioma, sustrato inferido, materiales/alimentos posibles, lengua y ascendencia,
+  mercado del modelo económico existente y lugares cercanos a 150 km. Sin dato
+  conocido devuelve `null`, sin inventar cultura o un mercado.
+- `wh_plan_journey` añade `weatherAffectsTravel:true` y `date` para aplicar las
+  condiciones de cada día a la duración del itinerario elegido. Devuelve
+  `weather:{model,baseHours,delayHours,departure,dayHours}`. La opción omitida conserva el
+  comportamiento anterior. Las noches y los tramos usan las horas ajustadas.
+
+Se da `key` o `x,y`, nunca ambos. Se usa el calendario del proyecto o saga,
+respetando Base/época; las fechas incompletas, aproximadas o inválidas se rechazan.
+Las consultas son de lectura y un mundo sin preparar responde `pending`. No hace
+falta crear una tarjeta de Códex para consultar el entorno de un punto.
+
+El modelo ficticio `world-weather/1` es reproducible desde la semilla y campos del
+mundo. La estación del calendario gobierna la variación térmica y solar según la
+latitud, con inclinación axial fija de 23,44 grados y la duración propia del día.
+El índice de luz lunar considera nubes, sin órbitas, horizontes o lux físicos.
+[Contrato de las fichas](../src/engines/worldgen/PLACE-CARDS.md).
+
 ## 28. Mapas: aspecto, viaje, medidas, épocas y rótulos (Ágora 1095)
 
 Cada capacidad nueva de los mapas tiene su herramienta, con validación, ámbito

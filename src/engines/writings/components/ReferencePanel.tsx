@@ -30,6 +30,7 @@ import { useCodexEntries } from '@/engines/codex/hooks';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
 import CodexRevealControl from '@/components/codex/CodexRevealControl';
+import ChapterWorldContext from '@/engines/worldgen/components/ChapterWorldContext';
 import Modal from '@/components/common/Modal';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
@@ -517,6 +518,7 @@ export default function ReferencePanel({
 
   const body = open && (
     <div id={panelBodyId} className="mt-3 space-y-3">
+      {!writingId.startsWith('book:') && <ChapterWorldContext projectId={projectId} writingId={writingId} eraId={pane?.projectId === projectId ? pane.eraId : undefined} />}
       {previewEntry ? (
         renderPreview(previewEntry)
       ) : previewSource ? (

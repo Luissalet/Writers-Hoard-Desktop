@@ -18,8 +18,8 @@ export const DEFAULT_SET_OFF_HOUR = 7;
 export const SET_OFF_RANGE = { min: 0, max: 23 } as const;
 
 /** The part of the day an hour falls in (hours past 24 wrap). */
-export function dayPart(hour: number): DayPart {
-  const h = ((hour % 24) + 24) % 24;
+export function dayPart(hour: number, dayHours = 24): DayPart {
+  const h = (((hour % dayHours) + dayHours) % dayHours) / dayHours * 24;
   if (h < 5) return 'night';
   if (h < 8) return 'dawn';
   if (h < 12) return 'morning';
@@ -42,7 +42,7 @@ export interface JourneyClock {
  * `setOffHour` and lasting `hoursPerDay`. `ending` puts a moment that falls
  * exactly on a day's end at the end of that day rather than the start of the next.
  */
-export function clockAt(travelHours: number, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, ending = false, restEvery = 0): JourneyClock {
+export function clockAt(travelHours: number, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, ending = false, restEvery = 0, dayHours = 24): JourneyClock {
   const perDay = hoursPerDay > 0 ? hoursPerDay : 1;
   const h = Math.max(0, travelHours);
   let index = Math.floor(h / perDay + 1e-9);
@@ -50,12 +50,12 @@ export function clockAt(travelHours: number, hoursPerDay: number, setOffHour = D
   const hour = setOffHour + (h - index * perDay);
   // A hard pace rests a whole day after every `restEvery` on the move: the calendar runs on.
   const rested = restEvery > 0 ? Math.floor(index / restEvery) : 0;
-  return { day: index + 1 + rested, hour, part: dayPart(hour) };
+  return { day: index + 1 + rested, hour, part: dayPart(hour, dayHours) };
 }
 
 /** "07:30" for 7.5. */
-export function clockText(hour: number): string {
-  const total = Math.round((((hour % 24) + 24) % 24) * 60) % (24 * 60);
+export function clockText(hour: number, dayHours = 24): string {
+  const total = Math.round((((hour % dayHours) + dayHours) % dayHours) * 60) % (dayHours * 60);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
@@ -65,9 +65,9 @@ export function routeStretches(route: Pick<Route, 'legs' | 'stretches'>): Route[
 }
 
 /** The clock at the start of each stretch of the route, in travel order. */
-export function legClocks(route: Pick<Route, 'legs' | 'stretches'>, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, restEvery = 0): JourneyClock[] {
+export function legClocks(route: Pick<Route, 'legs' | 'stretches' | 'weather'>, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, restEvery = 0): JourneyClock[] {
   let acc = 0;
-  return routeStretches(route).map((leg) => { const at = clockAt(acc, hoursPerDay, setOffHour, false, restEvery); acc += leg.hours; return at; });
+  return routeStretches(route).map((leg) => { const at = clockAt(acc, hoursPerDay, setOffHour, false, restEvery, route.weather?.dayHours ?? 24); acc += leg.hours; return at; });
 }
 
 export interface PassedPlace {

@@ -1,4 +1,5 @@
 import { whTimelineViewGet, whTimelineViewFit } from '@/engines/timeline/viewportBridge';
+import { whGetWorldWeather, whDescribeWorldPresence } from './worldgen';
 import {TIMELINE_BANNER_HANDLERS} from '@/engines/timeline/bannerBridge';
 import {WRITING_MANUSCRIPT_HANDLERS} from '@/engines/writings/manuscriptBridge';
 import { HOME_HANDLERS } from './projectHome';
@@ -366,6 +367,8 @@ const codexFolderHandlers = createCodexFolderImportHandlers(args => {
 }, async (args, writes) => writes ? resolveProjectForEngine(args, 'codex') : resolveProjectId(args));
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  wh_get_world_weather: whGetWorldWeather,
+  wh_describe_world_presence: whDescribeWorldPresence,
   wh_append_conversation_turn: whAppendConversationTurn,
   ...MODEL_HANDLERS,
   ...RADAR_HANDLERS,

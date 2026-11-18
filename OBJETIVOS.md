@@ -17,6 +17,15 @@ por escena y la voz resuelve pronombres con el género indicado en la ficha. Que
 - **Juez.** La propuesta de línea del modo Estado de la historia se ha probado aceptándola desde el servicio; falta una
   pasada en vivo con el modelo global de las Sparks para ver la tarjeta con una respuesta real.
 
+## Cielo y contexto del lugar
+
+La base de tiempo por fecha y ficha «Estar allí» cubre la consulta determinista,
+las lunas del calendario, los lugares enlazados y los retrasos optativos de viaje.
+La evolución posterior puede añadir parámetros astronómicos propios (inclinación
+y órbitas), horizonte y salida de cada luna y búsqueda de itinerarios que optimice
+las condiciones meteorológicas futuras. Esas capacidades no están implementadas
+por el modelo de inclinación fija ni por el recálculo sobre una ruta elegida.
+
 ## Lecturas y trámites por referencia a Links y Kafka
 
 Las vistas de Writer (`src/engines/publishing/native/links` y `paperwork`) siguen a mano a los clientes de Links Hoard y Kafka's Hoard (al día el 04-11-2026, #2222/#2223). Cuando esas apps añadan páginas, portarlas igual (prefijo `/links` o `/paperwork`, `publishingUrl` para medios) y refrescar el catálogo con `scripts/refresh-external-catalog.py`.

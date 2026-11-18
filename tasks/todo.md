@@ -1,3 +1,14 @@
+# Dated weather and narrator place reference
+
+- [x] Claim W2/W4, isolate the worktree and coordinate manuscript hooks.
+- [x] Define one deterministic calendar-aware weather and sky model.
+- [x] Extend existing place cards, map inspection and creative journey context.
+- [x] Wire manuscript context and read tools through the agreed minimal chapter/reference hooks.
+- [x] Verify deterministic scenarios, worldgen, chapter dates, reference regressions, real MCP and headless live use.
+- [x] Update capability documentation; prepare exact commits for independent review.
+
+Review: dated weather and place references share calendar, geography and existing economic/language data. Saved weather-enabled journeys reproduce their delay after reload. Minimal manuscript hooks were agreed with the novelist lane owner. Independent visual review found no remaining material defect. N1/N2 revision 1 were separately reviewed with live counterexamples and changes requested; their acceptance is not claimed here.
+
 # Configurable hard-pace rest interval — task2319
 
 - [x] Read actual reference evidence, preserve its scope and map all rest consumers.

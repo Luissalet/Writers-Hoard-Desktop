@@ -13,7 +13,7 @@ export interface JourneyCreativeDraft {
   title: string;
   text: string;
   location: string;
-  context: { stops: string[]; night?: number; u?: number; v?: number; mode: string; season: string; km: number; hours: number };
+  context: { stops: string[]; night?: number; u?: number; v?: number; mode: string; season: string; km: number; hours: number; weather?: import('./core/weather').WorldWeather };
 }
 
 /** One authored decision, its source and engine activation commit together. */

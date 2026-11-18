@@ -1,3 +1,4 @@
+import { validateWeatherDate } from './core/weather';
 import { worldgenScopeOperations } from './era';
 import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
@@ -16,8 +17,14 @@ function validJourney(journey: WorldJourney): boolean {
     && (journey.options.setOffHour === undefined || (Number.isInteger(journey.options.setOffHour) && journey.options.setOffHour >= 0 && journey.options.setOffHour <= 23))
     && (journey.options.legModes === undefined || (Array.isArray(journey.options.legModes) && journey.options.legModes.length === journey.stops.length - 1
       && journey.options.legModes.every(mode => ['foot', 'horse', 'cart', 'boat', 'ship'].includes(mode))))
+    && validWeather(journey.options.weather)
     && validProfile(journey.options.profile)
     && (journey.options.way === undefined || !!journey.options.profile?.ways?.some(way => way.id === journey.options.way));
+}
+
+function validWeather(weather: unknown): boolean {
+  if (weather === undefined) return true;
+  try { validateWeatherDate(weather as import('./core/weather').WeatherDate); return true; } catch { return false; }
 }
 
 function validProfile(profile: unknown): boolean {

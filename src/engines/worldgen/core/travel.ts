@@ -18,6 +18,7 @@ import { isSheet, mapMetric, metricCellKmOf, metricWidthKmOf, metricSheetScale, 
 import { Biome, type WorldData } from './types';
 import { riverKey } from './edits';
 import { englishRoute } from './travelText';
+import { validateWeatherDate, weatherOnDay, weatherTravelFactor, type WeatherDate } from './weather';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 export type TravelMode = 'foot' | 'horse' | 'cart' | 'boat' | 'ship';
@@ -48,6 +49,8 @@ export const MODE_KEY: Record<TravelMode, string> = {
 };
 
 export interface TravelOptions {
+  /** Optional dated weather over the chosen path; absent preserves legacy results. */
+  weather?: WeatherDate;
   mode: TravelMode;
   season: Season;
   /**
@@ -213,10 +216,10 @@ function speedFactor(opts: TravelOptions, mode: TravelMode): number { return (op
 function groundFactor(opts: TravelOptions, biome: number): number { const g = GROUND_OF[biome]; return g ? opts.profile?.ground?.[g] ?? 1 : 1; }
 
 /** The hours actually spent moving each day: the season's (or the author's) daylight times the pace. */
-export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hoursPerDay' | 'pace'>): number {
+export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hoursPerDay' | 'pace' | 'weather'>): number {
   const base = Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : SEASON_HOURS[opts.season];
   // Nobody moves more than the whole day, whatever the pace or the way.
-  return Math.min(24, base * PACE_HOURS[opts.pace ?? 'steady']);
+  return Math.min(opts.weather?.calendar.hoursPerDay ?? 24, base * PACE_HOURS[opts.pace ?? 'steady']);
 }
 /** The normalized profile's interval, with the legacy default for existing worlds and trips. */
 export function hardPaceRestEvery(profile?: TravelProfile): number { return profile?.hardRestEvery ?? HARD_PACE_REST_EVERY; }
@@ -260,6 +263,7 @@ export interface RouteStage {
 }
 
 export interface Route {
+  weather?: { model: 'world-weather/1'; baseHours: number; delayHours: number; departure: WeatherDate['date']; dayHours: number };
   /** World cell indices, start → end. */
   cells: number[];
   km: number;
@@ -742,8 +746,68 @@ function riverEditsMask(world: WorldData): Uint8Array | null {
 export function planRoute(
   world: WorldData, geo: TravelGeography, from: { x: number; y: number }, to: { x: number; y: number }, opts: TravelOptions, locale: 'es' | 'en' = 'es',
 ): Route {
-  const route = solveRoute(world, geo, from, to, opts);
+  if (opts.weather) validateWeatherDate(opts.weather);
+  const steps: WeatherRouteStep[] | undefined = opts.weather ? [] : undefined;
+  const base = solveRoute(world, geo, from, to, opts, steps);
+  const route = steps && !base.impossible ? datedRoute(world, geo, base, opts, steps) : base;
   return locale === 'en' ? englishRoute(route) : route;
+}
+
+interface WeatherRouteStep {
+  hours: number;
+  onRoad: boolean;
+  mode: TravelMode;
+}
+
+/** Spend each edge's original cost across moving days, using that day's local weather.
+ * Weather is a duration option on the selected itinerary, not a dynamic least-time solver.
+ */
+function datedRoute(world: WorldData, geo: TravelGeography, route: Route, source: TravelOptions, steps: WeatherRouteStep[]): Route {
+  const context = source.weather!;
+  const way = source.profile?.ways?.find(row => row.id === source.way);
+  const opts = way ? customWayOptions(source, way) : source;
+  const hpd = effectiveHoursPerDay(opts), restEvery = hardPaceRestEvery(opts.profile);
+  const metric = travelMetric(world, routeRadius(world, opts.planetRadiusKm));
+  const roads = roadMask(world, geo), cells = route.cells;
+  const edgeHours: number[] = [0], stepModes: TravelMode[] = [opts.mode], legs: RouteLeg[] = [];
+  let hours = 0;
+  for (let k = 1; k < cells.length; k++) {
+    const step = steps[k - 1];
+    let remaining = step.hours, adjusted = 0;
+    while (remaining > 1e-8) {
+      const movingDay = Math.floor((hours + 1e-8) / hpd);
+      const rests = source.pace === 'hard' ? Math.floor(movingDay / restEvery) : 0;
+      const weather = weatherOnDay(world, { x: cells[k] % world.width, y: Math.floor(cells[k] / world.width) }, context, movingDay + rests);
+      const factor = weatherTravelFactor(weather, step.mode, opts.flies);
+      const available = Math.max(1e-7, (movingDay + 1) * hpd - hours);
+      const spent = Math.min(remaining * factor, available);
+      remaining -= spent / factor; adjusted += spent; hours += spent;
+    }
+    edgeHours.push(adjusted); stepModes.push(step.mode);
+    const km = stepDistance(world, metric, cells[k - 1], cells[k]);
+    const last = legs.at(-1);
+    const terrain = step.onRoad ? 'calzada' : (TERRAIN_ES[world.biome[cells[k]]] ?? 'campo abierto');
+    if (last && last.terrain === terrain && last.onRoad === step.onRoad) { last.km += km; last.hours += adjusted; }
+    else legs.push({ terrain, km, hours: adjusted, onRoad: step.onRoad });
+  }
+  const movingDays = hours / hpd, restDays = paceRestDays(source.pace, movingDays, restEvery);
+  return { ...route, hours, days: movingDays + restDays, restDays, restEvery,
+    legs: mergeSmallLegs(legs, route.km * 0.04), stretches: orderedStretches(legs, route.km * 0.02),
+    stages: findStages(world, geo, roads, cells, metric, hpd, opts, undefined, stepModes, edgeHours),
+    weather: { model: 'world-weather/1', baseHours: route.hours, delayHours: hours - route.hours, departure: context.date, dayHours: context.calendar.hoursPerDay ?? 24 } };
+}
+
+function customWayOptions(opts: TravelOptions, way: NonNullable<TravelProfile['ways']>[number]): TravelOptions {
+  return {
+    ...opts, mode: way.base, legModes: undefined, way: undefined,
+    wayFactor: way.speed ?? 1, flies: !!way.flies,
+    // A night way moves through the dark too: at least 22 hours, never past the day.
+    ...(way.night ? { hoursPerDay: Math.min(24, Math.max(22, Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : 0)) } : {}),
+  };
+}
+
+function routeRadius(world: WorldData, radius?: number): number {
+  return Number.isFinite(radius) && radius! > 0 ? radius! : 6371 * metricSheetScale(mapMetric(world));
 }
 
 function solveRoute(
@@ -752,6 +816,7 @@ function solveRoute(
   from: { x: number; y: number },
   to: { x: number; y: number },
   opts: TravelOptions,
+  weatherSteps?: WeatherRouteStep[],
 ): Route {
   // One of the author's own ways: its mode, its speed, flying, night travel.
   if (opts.way) {
@@ -763,12 +828,7 @@ function solveRoute(
         impossible: 'esa vía no existe en este mundo',
       };
     }
-    opts = {
-      ...opts, mode: way.base, legModes: undefined, way: undefined,
-      wayFactor: way.speed ?? 1, flies: !!way.flies,
-      // A night way moves through the dark too: at least 22 hours, never past the day.
-      ...(way.night ? { hoursPerDay: Math.min(24, Math.max(22, Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : 0)) } : {}),
-    };
+    opts = customWayOptions(opts, way);
   }
   const pace = opts.pace;
   opts = {
@@ -776,7 +836,7 @@ function solveRoute(
     // The pace scales the hours on the move; the rest days are added once, at the end.
     hoursPerDay: effectiveHoursPerDay(opts),
     pace: undefined,
-    planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371 * metricSheetScale(mapMetric(world)),
+    planetRadiusKm: routeRadius(world, opts.planetRadiusKm),
   };
   const withRest = (route: Route): Route => {
     const restEvery = hardPaceRestEvery(opts.profile), restDays = paceRestDays(pace, route.days, restEvery);
@@ -792,7 +852,7 @@ function solveRoute(
     const modes: TravelMode[] = [];
     for (let k = 0; k < points.length - 1; k++) {
       const mode = opts.legModes?.[k] ?? opts.mode;
-      const leg = solveRoute(world, geo, points[k], points[k + 1], { ...opts, mode, via: undefined, legModes: undefined });
+      const leg = solveRoute(world, geo, points[k], points[k + 1], { ...opts, mode, via: undefined, legModes: undefined }, weatherSteps);
       if (leg.impossible) return leg;
       legsOut.push(leg); modes.push(mode);
     }
@@ -896,6 +956,7 @@ function solveRoute(
   for (let k = 1; k < cells.length; k++) {
     const a = cells[k - 1], b = cells[k];
     const c = cellCost(world, roads, a, b, metric, opts, terminals);
+    weatherSteps?.push({ ...c, mode: opts.mode });
     const segKm = stepDistance(world, metric, a, b);
     km += segKm;
     if (c.onRoad) roadKm += segKm;
@@ -948,9 +1009,10 @@ function solveRoute(
  */
 function findStages(
   world: WorldData, geo: TravelGeography, roads: Uint8Array,
-  cells: number[], metric: TravelMetric, hoursPerDay: number, opts: TravelOptions, terminals: ReadonlySet<number>,
+  cells: number[], metric: TravelMetric, hoursPerDay: number, opts: TravelOptions, terminals: ReadonlySet<number> | undefined,
   /** For a journey whose legs travel differently: the mode of the step ending at each cell index. */
   stepModes?: TravelMode[],
+  edgeHours?: number[],
 ): RouteStage[] {
   const W = world.width;
   const out: RouteStage[] = [];
@@ -963,8 +1025,8 @@ function findStages(
   let acc = 0, accKm = 0, night = 1;
   for (let k = 1; k < cells.length && night < 400; k++) {
     const a = cells[k - 1], b = cells[k];
-    const c = cellCost(world, roads, a, b, metric, stepModes?.[k] && stepModes[k] !== opts.mode ? { ...opts, mode: stepModes[k] } : opts, terminals);
-    if (!isFinite(c.hours)) continue;
+    const stepHours = edgeHours?.[k] ?? cellCost(world, roads, a, b, metric, stepModes?.[k] && stepModes[k] !== opts.mode ? { ...opts, mode: stepModes[k] } : opts, terminals!).hours;
+    if (!isFinite(stepHours)) continue;
     const stepKm = stepDistance(world, metric, a, b);
 
     // A world cell is FORTY KILOMETRES, which at walking pace is most of a day.
@@ -973,9 +1035,9 @@ function findStages(
     // split along its own length, and a step long enough to hold several days
     // yields several nights.
     let done = 0;
-    while (acc + c.hours * (1 - done) >= hoursPerDay && night < 400) {
+    while (acc + stepHours * (1 - done) >= hoursPerDay && night < 400) {
       const need = hoursPerDay - acc;
-      const f = done + need / c.hours;
+      const f = done + need / stepHours;
       const ax = a % W, ay = (a / W) | 0;
       let dx = (b % W) - ax;
       if (dx > W / 2) dx -= W;
@@ -1019,7 +1081,7 @@ function findStages(
       done = f;
       if (done >= 1) break;
     }
-    acc += c.hours * (1 - done);
+    acc += stepHours * (1 - done);
     accKm += stepKm * (1 - done);
   }
   return out;

@@ -1,3 +1,6 @@
+import { weatherOnDay, type WeatherDate } from '../core/weather';
+import type { WorldData } from '../core/types';
+import { weatherSummary } from '../weatherCopy';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -23,8 +26,8 @@ const en: typeof es = {
   camp: 'Night in the open', shelter: 'Overnight stop', openIdea: 'Open ideas', openScene: 'Open scenes', again: 'Develop another moment',
 };
 
-export default function JourneyCreativeCapture({ world, route, stops, mode, season, width, height, sourcePending = false }: {
-  world: GeneratedWorld; route: Route; stops: string[]; mode: TravelMode; season: Season; width: number; height: number; sourcePending?: boolean;
+export default function JourneyCreativeCapture({ world, route, stops, mode, season, width, height, sourcePending = false, weatherDate, worldData }: {
+  world: GeneratedWorld; route: Route; stops: string[]; mode: TravelMode; season: Season; width: number; height: number; sourcePending?: boolean; weatherDate?: WeatherDate; worldData?: WorldData;
 }) {
   const { locale, t } = useTranslation();
   const scope = useWorldEraScope(world.projectId);
@@ -37,10 +40,12 @@ export default function JourneyCreativeCapture({ world, route, stops, mode, seas
   const begin = (night?: number) => {
     sourceWorld.current = structuredClone(world);
     const stage = route.stages.find(row => row.night === night);
+    const cell = route.cells[0];
+    const weather = weatherDate && worldData && cell !== undefined ? weatherOnDay(worldData, stage ?? { x: cell % width, y: Math.floor(cell / width) }, weatherDate, stage ? stage.night - 1 + (route.restEvery ? Math.floor((stage.night - 1) / route.restEvery) : 0) : 0) : undefined;
     const location = stage ? (stage.nearest?.name ?? `${copy.night} ${stage.night}`) : stops.join(' → ');
     setDraft({ id: crypto.randomUUID(), target: 'note', title: location, location,
-      text: `${copy.route}: ${stops.join(' → ')}\n${copy.conditions}: ${t(MODE_KEY[mode])}, ${t(SEASON_KEY[season])}\n${copy.distance}: ${Math.round(stage?.km ?? route.km)} km\n${copy.time}: ${Math.round(stage?.hours ?? route.hours)}\n${stage ? `${stage.rough ? copy.camp : copy.shelter}: ${location}\n` : ''}\n${copy.question}`,
-      context: { stops, night: stage?.night, u: stage ? (stage.x + 0.5) / width : undefined, v: stage ? (stage.y + 0.5) / height : undefined, mode, season, km: stage?.km ?? route.km, hours: stage?.hours ?? route.hours },
+      text: `${weather ? `${weatherSummary(weather, locale)}\n` : ''}${copy.route}: ${stops.join(' → ')}\n${copy.conditions}: ${t(MODE_KEY[mode])}, ${t(SEASON_KEY[season])}\n${copy.distance}: ${Math.round(stage?.km ?? route.km)} km\n${copy.time}: ${Math.round(stage?.hours ?? route.hours)}\n${stage ? `${stage.rough ? copy.camp : copy.shelter}: ${location}\n` : ''}\n${copy.question}`,
+      context: { weather, stops, night: stage?.night, u: stage ? (stage.x + 0.5) / width : undefined, v: stage ? (stage.y + 0.5) / height : undefined, mode, season, km: stage?.km ?? route.km, hours: stage?.hours ?? route.hours },
     });
     setOpen(true); setSaved(null); setError(false);
   };

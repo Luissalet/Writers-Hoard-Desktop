@@ -427,6 +427,28 @@ En **Códice → Grafo**, **Pantalla completa** amplía el panel del grafo dentr
 
 `wh_workspace_focus_get` y `wh_workspace_focus_set` usan el destino visible `world-graph` por proyecto y Base/era, sin `documentId`. Usa el `hostId` efímero observado en el mismo ámbito. Un panel oculto no admite acciones; volver a Fichas revoca el destino del grafo. [Uso, contrato y pruebas de #2991](tasks/vvd1095/verification-world-graph-fullscreen2991.md).
 
+## Tiempo por fecha y ficha del lugar
+
+Worldgen añade tiempo determinista por punto y fecha exacta del calendario propio,
+con temperatura, precipitación, viento, nubes, fenómenos, salida y puesta del sol,
+fases de todas las lunas y luz nocturna relativa. El panel Lugar y Viaje comparte
+la fecha activa. La opción de aplicar el tiempo a un viaje empieza desactivada,
+conserva su itinerario y recalcula duración y noches; el plan guardado conserva
+su calendario y fecha. La captura creativa reutiliza ese contexto.
+
+La ficha «Estar allí» amplía las tarjetas de lugar existentes: relieve, vegetación,
+sustrato y materiales posibles, alimentos del bioma, lengua y ascendencia del árbol
+existente, mercado con producción/precios y asentamientos y ruinas a 150 km.
+Los datos derivados no sustituyen las decisiones culturales del autor. El puente
+expone `wh_get_world_weather` y `wh_describe_world_presence`, con el mismo ámbito
+de proyecto/época y estado pendiente que las demás consultas Worldgen.
+
+Modelo ficticio con inclinación axial fija y horas solares locales. La estación del
+calendario gobierna la temperatura y la luz solar según la latitud. La luz lunar es
+relativa, sin cálculo de salidas de luna ni posiciones sobre el horizonte. El componente de capítulo
+`ChapterWorldContext` usa su fecha y vínculos explícitos al mapa, sin extraer lugares
+de la prosa. [Contrato y límites](src/engines/worldgen/PLACE-CARDS.md).
+
 ## Viajes desde lugares y decisiones duraderas de candidatos — corte1095
 
 El inspector Worldgen fija origen o destino desde el lugar efectivo; la selección normal completa el otro extremo y el guardado del itinerario usa el flujo existente. `wh_plan_journey` conserva su función de lectura. El lector común hace efectivo un projectId explícito en Base, sin exigirlo cuando se omite y manteniendo primero la guarda histórica de conversación. La regresión final independiente cubre13casos; Native final3 usa dos claves y el perfil LVXQWp, no la ejecución anterior2.
