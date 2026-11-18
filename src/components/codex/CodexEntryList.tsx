@@ -1,6 +1,6 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { liveQuery } from 'dexie';
 import { Plus, Search, User, HelpCircle, Image as ImageIcon, Wand2, X, Eye, Users } from 'lucide-react';
 import { db } from '@/db';
@@ -35,6 +35,8 @@ import CodexRevealControl from './CodexRevealControl';
 import { isRevealed, matchesRevealFilter, type RevealFilter } from '@/engines/codex/reveal';
 import { playerHiddenFields, playerSafeHtml, playerVisibleEntries } from '@/engines/codex/playerView';
 import { revealCopy } from '@/engines/codex/revealCopy';
+
+const InWorldMapLinks = lazy(() => import('@/engines/worldgen/inWorldMaps/InWorldMapLinks'));
 
 interface CodexEntryListProps {
   projectId: string;
@@ -405,6 +407,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                 <CodexReadContent key={`${projectId}:${scope.eraId??'base'}:${selectedEntry.id}`} html={selectedEntry.content} projectId={projectId} eraId={scope.eraId} locale={locale} />
               </div>
             )}
+
+            <Suspense fallback={null}><InWorldMapLinks scope={scope} entryId={selectedEntry.id} /></Suspense>
 
             {/* Linked Images Gallery */}
             <LinkedImages

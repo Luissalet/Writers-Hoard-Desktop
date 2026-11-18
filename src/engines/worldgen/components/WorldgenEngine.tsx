@@ -1,6 +1,6 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { worldgenScopeOperations, worldRuntimeKey } from '../era';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEraNavigate } from '@/services/worldEras/navigation';
 import MapToolWorkspace from '@/engines/local/mapTools/MapToolWorkspace';
 import { localMapTargetPath } from '@/engines/local/mapTools/catalog';
@@ -25,6 +25,8 @@ import WorldView, {
 import WorldDomainCreatePanel from './WorldDomainCreatePanel';
 import WorldCoverPanel from './WorldCoverPanel';
 import { worldCoverCopy } from '../worldCoverCopy';
+
+const InWorldMapPanel = lazy(() => import('../inWorldMaps/InWorldMapPanel'));
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   const scope = useWorldEraScope(projectId);
@@ -146,6 +148,13 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   }, [searchParams, setSearchParams, worlds, requestChange]);
 
   const activeWorld = worlds.find((w) => w.id === activeWorldId);
+  const requestedPlate = searchParams.get('inWorldMap');
+  const dismissPlateTarget = () => {
+    if (!requestedPlate) return;
+    const next = new URLSearchParams(queryRef.current);
+    next.delete('inWorldMap');
+    setSearchParams(next, { replace: true });
+  };
 
   const handleCreate = async (name: string) => {
     await requestChange(async () => {
@@ -203,6 +212,10 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
       {activeWorld && (
         <>
           <WorldCoverPanel scope={scope} world={activeWorld} onSaved={refresh} />
+          <Suspense fallback={null}>
+            <InWorldMapPanel key={worldRuntimeKey(activeWorld.id, scope.eraId)} scope={scope} row={activeWorld}
+              target={activeWorld.inWorldMaps?.some(map => map.id === requestedPlate) ? requestedPlate : null} clearTarget={dismissPlateTarget} />
+          </Suspense>
           <WorldView
             key={worldRuntimeKey(activeWorld.id, scope.eraId)}
             projectId={projectId}

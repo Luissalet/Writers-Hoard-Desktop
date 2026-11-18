@@ -963,7 +963,13 @@ export async function importProjectData(
     for (const row of data.writingSnapshots ?? []) await db.writingSnapshots.add({ ...row, id: remap(row.id, 'wsnap'), projectId: newProjectId, writingId: remap(row.writingId, 'wr'), sourceDraftId: row.sourceDraftId ? remap(row.sourceDraftId, 'wsnap') : undefined, content: richContent(row.content) });
     for (const row of data.notes ?? []) await db.notes.add({ ...row, id: remap(row.id, 'note'), projectId: newProjectId });
     for (const row of data.timelineConnections ?? []) await db.timelineConnections.add({ ...row, id: remap(row.id, 'tconn'), projectId: newProjectId, timelineId: remap(row.timelineId, 'tl'), sourceEventId: remap(row.sourceEventId, 'evt'), targetEventId: remap(row.targetEventId, 'evt') });
-    for (const world of data.generatedWorlds ?? []) await db.generatedWorlds.add({ ...world, id: remap(world.id, 'world'), projectId: newProjectId, originWorldId: world.originWorldId && data.generatedWorlds?.some(item => item.id === world.originWorldId) ? remap(world.originWorldId, 'world') : undefined });
+    for (const world of data.generatedWorlds ?? []) await db.generatedWorlds.add({
+      ...world, id: remap(world.id, 'world'), projectId: newProjectId,
+      originWorldId: world.originWorldId && data.generatedWorlds?.some(item => item.id === world.originWorldId) ? remap(world.originWorldId, 'world') : undefined,
+      ...(world.inWorldMaps && { inWorldMaps: world.inWorldMaps.map(map => ({
+        ...map, ...(map.entryId && { entryId: remap(map.entryId, 'codex') }),
+      })) }),
+    });
     for (const point of data.worldWaypoints ?? []) await db.worldWaypoints.add({ ...point, id: remap(point.id, 'waypoint'), worldId: remap(point.worldId, 'world'), projectId: newProjectId });
     if (eraAssets.length) await db.worldEraAssets.bulkAdd(eraAssets.map(asset => ({ ...asset, id: remap(asset.id, 'era-asset'), projectId: newProjectId })));
     if (clonedEraVariants.length) await db.worldEraVariants.bulkAdd(clonedEraVariants);
