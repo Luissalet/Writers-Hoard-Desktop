@@ -1,5 +1,6 @@
 import { TIMELINE_VIEWPORT_TOOLS } from '@/engines/timeline/viewportManifest';
 import { WORLD_WEATHER_TOOLS } from '@/engines/worldgen/weatherManifest';
+import { IN_WORLD_MAP_TOOLS } from '@/engines/worldgen/inWorldMaps/bridgeManifest';
 import {TIMELINE_BANNER_TOOLS,BANNER_EVENT_SCHEMA} from '@/engines/timeline/bannerManifest';
 import {WRITING_MANUSCRIPT_TOOLS} from '@/engines/writings/manuscriptManifest';
 import { HOME_TOOLS } from './manifestHome';
@@ -1565,7 +1566,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('visual', inEngine('gallery', GALLERY_TOOLS)),
   ...grouped('visual', inEngine('image-studio', IMAGE_STUDIO_TOOLS)),
   ...grouped('visual', inEngine('maps', inEra(MAP_TOOLS))),
-  ...grouped('visual', inEngine('worldgen', inEra([...WORLDGEN_TOOLS, ...WORLD_STYLE_TOOLS, ...WORLD_WEATHER_TOOLS]))),
+  ...grouped('visual', inEngine('worldgen', inEra([...WORLDGEN_TOOLS, ...WORLD_STYLE_TOOLS, ...WORLD_WEATHER_TOOLS, ...IN_WORLD_MAP_TOOLS]))),
   ...grouped('visual', inEngine('worldgen', WORLD_COVER_TOOLS)),
   ...WORLD_ERA_TOOLS,
   ...grouped('writing', inEngine('writings', READER_TOOLS)),
