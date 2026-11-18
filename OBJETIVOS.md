@@ -2,18 +2,15 @@
 
 ## Carril novelista: continuidad, siguientes pasos
 
-El verificador de viajes y el libro de estado están entregados (panel «Continuidad», rastro en el mapa, carriles de
-viaje en la línea de tiempo, estaciones por calendario, herramientas `wh_travel_check`, `wh_character_state`,
-`wh_state_ledger*`, `wh_continuity_mark`). Voz, ritmo y deriva ya leen la época activa. El ritmo admite tensión manual
-por escena y la voz resuelve pronombres con el género indicado en la ficha. Queda:
-
-- **Voz por personaje.** Queda probar la generación de la descripción con el modelo global de las Sparks en vivo.
-- **Deriva del plan.** Entregada (panel, propuesta con Deshacer, `wh_plan_drift*`). Queda la comparación semántica
-  opcional con el modelo global (qué sucede, no solo quién y dónde) cuando los nombres no bastan.
-- **Origen de las estaciones.** El año del calendario empieza en invierno por defecto; el tiempo atmosférico (#3337)
-  cuenta desde el equinoccio norte. Acordar un origen común y que los dos usen `seasonOfDate`.
+- **Voz por personaje.** Probar la generación de la descripción con el modelo global de las Sparks en vivo.
+- **Deriva del plan.** La comparación semántica opcional con el modelo global (qué sucede, no solo quién y dónde)
+  cuando los nombres no bastan.
+- **Estación del viaje en el panel.** `wh_plan_journey` con fecha toma la estación de `seasonOfDate`; en el panel de
+  Viaje la estación sigue siendo un selector aparte aunque se aplique el tiempo de la fecha. Proponerla desde la fecha.
 - **Puntos del libro de estado.** Ya se busca cualquier lugar con nombre del mundo; faltan las fichas de lugar del
-  Códex enlazadas a un lugar del mapa (dependen de la ficha «estar allí», #3339).
+  Códex enlazadas a un lugar del mapa.
+- **Del capítulo a la historia.** El contexto del capítulo muestra el lugar, su tiempo, sus lunas y la lengua del
+  reino; falta abrir desde ahí la historia simulada de ese lugar y de su reino.
 - **Juez.** La propuesta de línea del modo Estado de la historia se ha probado aceptándola desde el servicio; falta una
   pasada en vivo con el modelo global de las Sparks para ver la tarjeta con una respuesta real.
 
@@ -233,12 +230,10 @@ Siguiente:
 
 ## Mapas intramundo
 
-El objetivo de componer un mapa desde la perspectiva de una cultura o lugar
-queda cubierto con láminas fechadas, conocimiento basado en rutas comerciales,
-exónimos y correcciones manuales. La lámina se guarda con el mundo, enlaza con
-una ficha del Codex y se exporta en PNG, SVG o PDF o se inserta en un capítulo.
-La fecha consulta la economía estacional del mundo visible. La geografía
-histórica de otras épocas se elige con el selector de época del proyecto.
+- **Fronteras de la historia simulada.** La lámina fechada usa la geografía y la economía del mundo visible; cuando el
+  mundo tiene historia simulada, debería dibujar los reinos y los dueños de cada lugar en el año de la lámina.
+- **Desde el capítulo.** El capítulo no ofrece todavía las láminas que lo ilustran ni abre la del cartógrafo de su
+  lugar; hoy se llega desde el Generador de Mundos o desde la ficha del Códex.
 
 ## Mapas — continuación del catálogo de VVD (Ágora 1095)
 
