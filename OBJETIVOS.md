@@ -26,6 +26,20 @@ y órbitas), horizonte y salida de cada luna y búsqueda de itinerarios que opti
 las condiciones meteorológicas futuras. Esas capacidades no están implementadas
 por el modelo de inclinación fija ni por el recálculo sobre una ruta elegida.
 
+## Historia simulada del mundo: siguientes pasos
+
+Lo que falta sobre la simulación de historia:
+
+- **Ficha de reino.** Abrir el mapa en el año de máxima extensión desde la ficha del Códex.
+- **Proyecciones curvas y 3D.** El territorio solo se dibuja en las vistas cilíndricas del mapa.
+- **Topónimos.** Ofrecer «renombrar con la forma de la lengua de sus señores» como edición del mundo con Deshacer.
+- **Ficha de lugar.** Mostrar la historia del lugar (quién lo tuvo, cuándo cayó) en la ficha de lugar del mapa,
+  acordado con quien lleve `placeCards.ts`.
+- **Más hechos fijables.** «Esta ciudad se funda en», «estos dos reinos en guerra entre tal y tal año», «esta dinastía
+  reina en».
+- **Línea de tiempo.** Reenviar la historia tras volver a simular añade lo nuevo pero no retira lo que dejó de
+  ocurrir; ofrecer marcarlo.
+
 ## Lecturas y trámites por referencia a Links y Kafka
 
 Las vistas de Writer (`src/engines/publishing/native/links` y `paperwork`) siguen a mano a los clientes de Links Hoard y Kafka's Hoard (al día el 04-11-2026, #2222/#2223). Cuando esas apps añadan páginas, portarlas igual (prefijo `/links` o `/paperwork`, `publishingUrl` para medios) y refrescar el catálogo con `scripts/refresh-external-catalog.py`.
