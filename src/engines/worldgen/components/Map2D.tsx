@@ -205,6 +205,7 @@ interface Map2DProps {
   onPlaceStory?: (x: number, y: number) => void;
   onMoveStory?: (id: string, x: number, y: number) => void;
   /** While set, a click on the map is a point for this (a trade site being placed) and nothing else. */
+  onInspectGround?: (x: number, y: number) => void;
   onPickCell?: ((x: number, y: number) => void) | null;
   /** Right-click on the map: the world cell under the pointer and where the menu goes on screen. */
   onMapMenu?: (at: { x: number; y: number; clientX: number; clientY: number }) => void;
@@ -836,7 +837,7 @@ export default function Map2D({
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations, hour = null, zoneStart = null,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
-  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory, onPickCell, onMapMenu,
+  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory, onPickCell, onInspectGround, onMapMenu,
 }: Map2DProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
@@ -5241,6 +5242,8 @@ export default function Map2D({
     }
     onSelectWaypoint(null);
     onSelectSpatialEntity?.(null);
+    const point = screenToMap(sx, sy);
+    if (point) onInspectGround?.(point.u * W, point.v * H);
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {

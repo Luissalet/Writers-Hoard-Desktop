@@ -19,3 +19,50 @@ versions remain recoverable. Project JSON now includes `entityLinks` when presen
 and remaps both ends through the existing imported ID map, including spatial
 `world::key` identities; JSON without links keeps its prior shape. ZIP uses its
 existing project-tools/worldgen strategies.
+
+
+## Being there and dated weather
+
+The Place panel also reads the ground at any point. Click empty ground in 2D,
+Carta or 3D, or choose Place and cards in the atlas Index. With the Place panel
+active, a map click inspects that point. Ordinary town, waypoint, region and
+editing gestures retain their existing actions outside that panel.
+
+Choose Date in the world in the Place or Travel panel. This uses the project's
+calendar (including an inherited saga calendar). Only an exact valid day has
+weather; a year, a month or an approximate date never invents a daily sky.
+The reference shows relief, the biome's vegetation, inferred substrate, local
+building materials and possible food sources. Spoken language and its ancestry
+come from the existing realm/culture language tree. The nearest market and its
+production/price indices use the existing economy and authored sites, with a
+150 km local radius, also used for nearby settlements and ruins. Unknown culture
+or an absent market is shown explicitly. These are derived references and do
+not rewrite Codex cards or establish authored cultural facts.
+
+`wh_get_world_weather {worldId,key?,x?,y?,date:{year,month,day}}` reads daily
+conditions and sky; give an atlas key or a cell point. `wh_describe_world_presence`
+uses the same arguments with optional date. Both are read-only and use the same
+pending-generation, project and era boundaries as existing place tools.
+
+The weather model is `world-weather/1`. It reads the annual climate (already
+adjusted for height and ocean currents) and deterministic, spatially coherent
+weather fronts. The calendar sets the season, including custom starts, hemisphere
+and seasonless years. The sky uses representative seasonal tilts of ±23.44 degrees
+in summer and winter and zero in spring, autumn and seasonless worlds. Sunrise
+and sunset use the calendar's local day length, with explicit polar-day
+and polar-night states. Each moon is computed by the existing calendar function.
+Night light is a relative lunar illumination index attenuated by clouds, not lux
+or a claim that all moons are above the horizon.
+
+Travel's dated-weather option starts disabled. It keeps the selected path and
+spends each edge across moving days, sampling that date's conditions as the
+party advances, with hard-pace rest days included. Delays update duration,
+stretches and overnight stages together. It is not a dynamic route search for
+the weather-optimal path. Saved journeys retain the calendar/date snapshot.
+Creative journey captures retain sampled weather beside their existing origin
+receipt, and the generated note/scene text remains editable before saving.
+
+`ChapterWorldContext` is the read-only manuscript/reference component. It
+resolves the chapter's world date and its explicit atlas links, including scenes
+connected through outline beats. Multiple places remain separate; prose is not
+used to guess a location. A partial date still permits the place reference.

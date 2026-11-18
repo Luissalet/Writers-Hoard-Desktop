@@ -25,7 +25,7 @@ Es además el plugin Writer de la familia Hoard. Absorbe como módulos independi
 
 **Construcción de mundos**
 - Códex de fichas tipadas con propiedades, alias, tipos privados, fichas congeladas, relaciones, grafo del mundo, genealogía y árboles familiares.
-- Generador de mundos y cartografía: mundos generados con etiquetas editables, sellos, caminos, ríos, niebla por capítulo, viajes planificados con el ritmo propio del mundo, ciudades, hojas regionales, vista 3D y mapas clásicos dibujados o sobre imagen con chinchetas, regiones, rutas y herramienta de medición.
+- Generador de mundos y cartografía: mundos generados con etiquetas editables, sellos, caminos, ríos, niebla por capítulo, viajes planificados con el ritmo propio del mundo, ciudades, hojas regionales, vista 3D y mapas clásicos dibujados o sobre imagen con chinchetas, regiones, rutas y herramienta de medición. El tiempo y el cielo siguen la semilla y el calendario del mundo; la ficha del lugar conecta relieve, materiales, alimentos, lenguas, mercados cercanos y escenario del capítulo. El tiempo de la fecha puede retrasar los viajes de forma opcional.
 - Líneas de tiempo con calendarios propios, lunas, épocas, repeticiones, bandas y vistas guardadas; árboles de relaciones; gráficos de radar; diccionarios y glifos de lenguas inventadas; tablas tipadas y hojas de cálculo con fórmulas e importación y exportación de Excel.
 - Anotaciones y comentarios con estado de lectura y chinchetas en tableros; tableros con fichas, audio y vídeo.
 - SDK de herramientas locales: crea tus propias herramientas como documentos Source con campos, índices, tutoriales, iconos, traducciones y audio. Ver [docs/local-tool-sdk.md](docs/local-tool-sdk.md).

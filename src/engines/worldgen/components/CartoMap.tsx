@@ -94,6 +94,7 @@ interface CartoMapProps {
    * ground rather than open a town. Takes priority over `onPickSettlement`, so
    * the index can pick a sea or a mountain range and not only a dot.
    */
+  onInspectGround?: (x: number, y: number) => void;
   onInspect?: (x: number, y: number) => void;
   /**
    * Annotations drawn on the ink layer above the map: a planned route, the
@@ -144,7 +145,7 @@ interface LiveView { zoom: number; cu: number; cv: number }
 export default function CartoMap({
   placeImages, regionalEntities,
   world, theme, geography, layers, density, reliefAmount, title, subtitle,
-  onPickSettlement, onZoomTo, onInspect, onViewChange, annotations,
+  onPickSettlement, onZoomTo, onInspect, onInspectGround, onViewChange, annotations,
   viewport, onViewportChange, flyTarget, flyMark = null, canonWorld, canonEdits,
 }: CartoMapProps) {
   const pane = useEnginePane();
@@ -971,7 +972,8 @@ export default function CartoMap({
     const tol = (18 / rect.width) * v.w;
     const s = pickSettlement(world, geo, ((wx / world.width) % 1 + 1) % 1, wy / world.height, Math.max(6, tol));
     if (s) onPickSettlement(s);
-  }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world]);
+    else onInspectGround?.(((wx % world.width) + world.width) % world.width, Math.min(world.height - 1, Math.max(0, wy)));
+  }, [onPickSettlement, onInspect, onInspectGround, viewFor, size.w, size.h, world]);
 
   const setZoom = useCallback((z: number) => {
     live.current.zoom = Math.min(maxZoomFor(size.h), Math.max(MIN_ZOOM, z));

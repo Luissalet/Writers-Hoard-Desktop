@@ -80,6 +80,47 @@ import {
 
 const ENGINE = 'worldgen';
 
+export async function worldWeatherDate(args: ToolArgs, projectId: string, required = true) {
+  if (args.date === undefined && !required) return undefined;
+  const { resolveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
+  const resolved = await resolveWorldCalendar(projectId, undefined, worldEraToolScope(args)?.eraId);
+  if (!resolved) throw new BridgeError('bad-args', 'Define the project world calendar first.');
+  const { validateWeatherDate } = await import('@/engines/worldgen/core/weather');
+  const context = { calendar: resolved.calendar, date: args.date as import('@/engines/timeline/worldCalendar').WorldDate };
+  try { validateWeatherDate(context); } catch { throw new BridgeError('bad-args', 'date must be an exact valid {year,month,day} in the project calendar.'); }
+  return context;
+}
+
+async function readPresenceInput(args: ToolArgs, weatherRequired: boolean) {
+  const world = await loadWorld(args);
+  const context = await worldWeatherDate(args, world.projectId, weatherRequired);
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return { pending: pendingResult(world, opened) };
+  const key = optString(args, 'key');
+  if (key && (args.x !== undefined || args.y !== undefined)) throw new BridgeError('bad-args', 'Give key or x,y.');
+  const point = key ? opened.world.atlas.byKey.get(key) : { x: optNumber(args, 'x')!, y: optNumber(args, 'y')! };
+  if (!point) throw new BridgeError('not-found', 'The place key is unavailable.');
+  const { data } = opened.world;
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.y < 0 || point.y >= data.height
+    || data.domain?.topology === 'finite' && (point.x < 0 || point.x >= data.width)) throw new BridgeError('bad-args', 'Give a valid point inside the world.');
+  return { world, opened: opened.world, point, context };
+}
+
+export async function whGetWorldWeather(args: ToolArgs): Promise<unknown> {
+  const read = await readPresenceInput(args, true);
+  if ('pending' in read) return read.pending;
+  const { weatherAt } = await import('@/engines/worldgen/core/weather');
+  return { worldId: read.world.id, weather: weatherAt(read.opened.data, read.point, read.context!) };
+}
+
+export async function whDescribeWorldPresence(args: ToolArgs): Promise<unknown> {
+  const read = await readPresenceInput(args, false);
+  if ('pending' in read) return read.pending;
+  const { describeWorldPresence } = await import('@/engines/worldgen/placeCards');
+  const edits = liveWorld(worldRuntimeKey(read.world.id, worldEraToolScope(args)?.eraId))?.snapshot() ?? read.world.edits;
+  return { worldId: read.world.id, card: describeWorldPresence(read.opened.data, read.opened.geo, read.point, read.context, edits) };
+}
+
 async function loadCoverWorld(args: ToolArgs): Promise<GeneratedWorld> {
   try { return await loadWorld(args); }
   catch (error) {
@@ -1344,6 +1385,8 @@ export async function whSetWorldTravelSettings(args: ToolArgs): Promise<unknown>
  */
 export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
+  if (args.weatherAffectsTravel !== undefined && typeof args.weatherAffectsTravel !== 'boolean') throw new BridgeError('bad-args', 'weatherAffectsTravel must be boolean.');
+  const weather = args.weatherAffectsTravel ? await worldWeatherDate(args, world.projectId) : undefined;
   const { planRoute, normalizeTravelProfile, TRAVEL_PACES, effectiveHoursPerDay } = await import('@/engines/worldgen/core/travel');
   const modes = ['foot', 'horse', 'cart', 'boat', 'ship'] as const, seasons = ['spring', 'summer', 'autumn', 'winter'] as const;
   const mode = optEnum(args, 'mode', modes) ?? 'foot', season = optEnum(args, 'season', seasons) ?? 'summer';
@@ -1390,7 +1433,7 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     if (!way) throw new BridgeError('bad-args', `way must be one of the world's own ways: ${(profile.ways ?? []).map(candidate => candidate.id).join(', ') || 'none yet (wh_set_world_travel_settings profile.ways)'}.`);
     if (args.mode !== undefined || args.legModes !== undefined) throw new BridgeError('bad-args', 'Give way or mode/legModes, not both.');
   }
-  const options = { mode: way ? way.base : mode, season, ...(way ? { way: way.id } : {}), ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes && !way ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
+  const options = { weather, mode: way ? way.base : mode, season, ...(way ? { way: way.id } : {}), ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes && !way ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
   // Where the party is on a given day, as the journey player shows it.
   const setOffArg = optNumber(args, 'setOffHour');
   if (setOffArg !== undefined && !(Number.isInteger(setOffArg) && setOffArg >= 0 && setOffArg <= 23)) throw new BridgeError('bad-args', 'setOffHour must be a whole hour from 0 to 23.');
@@ -1408,24 +1451,24 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const { hardPaceRestEvery } = await import('@/engines/worldgen/core/travel');
   const restEvery = options.pace === 'hard' ? hardPaceRestEvery(options.profile) : 0;
   const clocks = words.legClocks(route, perDay, setOffHour, restEvery);
-  const arrival = words.clockAt(route.hours, perDay, setOffHour, true, restEvery);
+  const arrival = words.clockAt(route.hours, perDay, setOffHour, true, restEvery, route.weather?.dayHours ?? 24);
   return {
     worldId: world.id,
     stops: stops.map(stop => stop.name),
     mode: way ? way.base : mode, ...(way ? { way: { id: way.id, name: way.name, flies: !!way.flies, night: !!way.night } } : {}), season, pace: pace ?? 'steady', legModes: way ? null : legModes ?? null,
     hoursPerDay: r(perDay, 2),
-    km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0, restEvery,
+    weather: route.weather ?? null, km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0, restEvery,
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
     crossings: route.crossings.length, fords: route.crossings.filter(c => c.kind === 'river' && !c.bridge && !c.frozen).length, frozenRivers: route.crossings.filter(c => c.kind === 'river' && c.frozen).length, bridges: route.crossings.filter(c => c.kind === 'river' && c.bridge).length, realms: route.realms,
     ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),
     terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
     // The same ground in travel order, each stretch with the day and hour it begins.
-    stretches: words.routeStretches(route).slice(0, 30).map((leg, index) => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad, day: clocks[index].day, partOfDay: clocks[index].part, startsAt: words.clockText(clocks[index].hour) })),
+    stretches: words.routeStretches(route).slice(0, 30).map((leg, index) => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad, day: clocks[index].day, partOfDay: clocks[index].part, startsAt: words.clockText(clocks[index].hour, route.weather?.dayHours ?? 24) })),
     passes: words.placesPassed(data, geo, route, { limit: 20, ends: [stops[0].name, stops[stops.length - 1].name] }).map(place => ({ name: place.name, rank: place.rank, atKm: r(place.atKm), offKm: r(place.offKm) })),
     roads: words.roadsTaken(data, geo, route).map(road => ({ from: road.from, to: road.to, km: r(road.km) })),
     grounds: words.groundsCrossed(route, 6),
     kmOnWater: r(words.kmOnWater(route)),
-    clock: { setsOff: words.clockText(setOffHour), makesCamp: words.clockText(setOffHour + perDay), arrives: { day: arrival.day, at: words.clockText(arrival.hour), partOfDay: arrival.part } },
+    clock: { setsOff: words.clockText(setOffHour, route.weather?.dayHours ?? 24), makesCamp: words.clockText(setOffHour + perDay, route.weather?.dayHours ?? 24), arrives: { day: arrival.day, at: words.clockText(arrival.hour, route.weather?.dayHours ?? 24), partOfDay: arrival.part } },
     nights: route.stages.slice(0, 60).map(stage => ({ night: stage.night, x: Math.round(stage.x), y: Math.round(stage.y), rough: stage.rough, terrain: stage.terrain, nearest: stage.nearest ? { name: stage.nearest.name, km: r(stage.nearest.km) } : null, ...(stage.shelter ? { shelter: { name: stage.shelter.name, kind: stage.shelter.kind === 'ruina' || stage.shelter.kind === 'ruin' ? 'ruin' : 'inn' } } : {}) })),
     // The route's cells, at most 400 of them evenly spaced (ends kept): ready to
     // pass as `points` to wh_paint_reader_fog to mark the way as seen.

@@ -206,6 +206,8 @@ interface World3DProps {
   /** La chincheta de llegada. Se dibuja como una diana con su nombre y no se
    *  descarta nunca por amontonamiento: es lo que el lector fue a buscar. */
   flyMark?: FlyMark | null;
+  onInspectGround?: (x: number, y: number) => void;
+  inspectingGround?: boolean;
   onPickSettlement?: (s: Settlement) => void;
   onPickWaypoint?: (id: string) => void;
   /** The Punto tool with Chincheta selected. Normalized, which is how a pin is
@@ -528,7 +530,7 @@ export default function World3D({
   viewport, onViewportChange,
   skin, shape, stage = 'maqueta', block = 'roca', clouds = false, readerFog, onShape, noGlobe = false, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, flyMark = null, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
-  onZoomTo,
+  onZoomTo, onInspectGround, inspectingGround,
 }: World3DProps) {
   const { t } = useTranslation();
   const pane = useEnginePane();
@@ -750,6 +752,7 @@ export default function World3D({
     spatialEntities,
     selectedSpatialKey,
     onSelectSpatialEntity,
+    onInspectGround, inspectingGround,
     onViewportChange,
     onPickSettlement,
     onPickWaypoint,
@@ -768,6 +771,7 @@ export default function World3D({
     spatialEntities,
     selectedSpatialKey,
     onSelectSpatialEntity,
+    onInspectGround, inspectingGround,
     onViewportChange,
     onPickSettlement,
     onPickWaypoint,
@@ -3369,6 +3373,11 @@ export default function World3D({
 
     // No brush: a click that did not turn the world is a click on something.
     if (!p || p.moved || p.button !== 0 || brushingRef.current) return;
+    if (propsRef.current.inspectingGround) {
+      const point = cellUnder(e.clientX, e.clientY);
+      if (point) propsRef.current.onInspectGround?.(point.x, point.y);
+      return;
+    }
     const mark = markUnder(e.clientX, e.clientY);
     if (mark?.kind === 'waypoint' && mark.waypointId) {
       propsRef.current.onPickWaypoint?.(mark.waypointId);
@@ -3396,7 +3405,7 @@ export default function World3D({
     const tol = Math.max(4, (st2 ? st2.surface.uvWindow.size : 1) * world.width * 0.018);
     const s = pickSettlementNear(geo, world.width, cell.x, cell.y, tol);
     if (s) pick(s);
-    else propsRef.current.onSelectSpatialEntity?.(null);
+    else { propsRef.current.onSelectSpatialEntity?.(null); propsRef.current.onInspectGround?.(cell.x, cell.y); }
   }, [onEdit, onEdits, world, markUnder, cellUnder, request]);
 
   const cancel = useCallback(() => {
