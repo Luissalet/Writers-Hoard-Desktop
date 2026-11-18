@@ -96,6 +96,31 @@ el capítulo de este beat».
   dónde aparece. Solo se escribe al pulsar «Actualizar el beat», con Deshacer.
 - **MCP.** `wh_plan_drift` (lectura) y `wh_plan_drift_apply` (escritura, con Deshacer).
 
+## Historia simulada del mundo
+
+Pestaña «Historia» en el panel del mapa del mundo, junto a «Comercio».
+
+- **Simulación determinista.** Misma semilla y mismos ajustes, misma historia. El autor elige semilla, siglos (1–30),
+  agresividad y el año del mapa actual. Los reinos de hoy nacen en sus capitales y crecen por el terreno y los
+  caminos entre lugares; reinos antiguos nacen donde hoy hay ruinas y desaparecen al llegar al mapa actual. Hay guerras entre
+  vecinos, conquistas, saqueos, fundaciones, cambios de dinastía, caídas y migraciones que llevan una lengua a otra
+  región. Al final las fronteras coinciden con las del mapa actual (cesiones por tratado donde hace falta).
+- **Mapa.** Un deslizador de años (con reproducción) pinta el territorio de cada reino en ese año, con su nombre.
+- **Cronología** fechada con el calendario del mundo, filtrable por tipo; «Llevar a la línea de tiempo» crea una
+  línea de tiempo la primera vez y después solo añade lo que falte.
+- **Ruinas.** Cada ruina muestra la causa y la fecha de su caída y enlaza al acontecimiento y a la ficha
+  del reino si está aceptada en el Códex. También hay topónimos de sustrato y reinos con dinastías y gobernantes.
+- **Hechos fijados.** «Este reino existe en tal año» y «esta ciudad cae en tal año» (con conquistador opcional); la
+  simulación aplica el año exacto, incluido el último, y avisa si el hecho no puede cumplirse.
+- **Fichas del Códex propuestas** (reinos, dinastías, gobernantes, guerras, tratados, ruinas): nada se escribe hasta
+  aceptarlas, una a una o todas las de la lista; las aceptadas se conservan al volver a simular y no se duplican.
+- **Épocas.** Historia funciona con los mundos de Base y con los propios de cada época. Usa el calendario activo
+  y guarda en esa época los ajustes, las fichas aceptadas y su línea temporal.
+- **MCP.** `wh_world_history_simulate`, `wh_world_history`, `wh_world_history_proposals`, `wh_world_history_accept` y
+  `wh_world_history_to_timeline` (las de escritura, con Deshacer). Detalle en `docs/AI-BRIDGE.md`.
+- **Mapa cilíndrico.** Las fronteras históricas se dibujan en estas vistas. Las proyecciones curvas y la edición
+  de topónimos figuran en `OBJETIVOS.md`.
+
 ## Imágenes en documentos Source compartidos — 2114
 
 El perfil optativo de imágenes admite PNG en el cuerpo raíz. El editor y el SDK conservan la fuente y el tamaño por separado, con Deshacer por autor. Compartir contenido envía los archivos a la otra biblioteca antes de mostrar el cambio. El ZIP conserva las versiones necesarias para recuperar imágenes. MCP importa y consulta los bytes y captura cambios por canal con el mismo writer Source. El perfil optativo de 2161 añade un canal de alineación izquierda, centro o derecha y su acción `rich-image-align`. Deshacerlo conserva tamaño y fuente de otras personas. El perfil 2164 permite PNG, JPEG y WebP con sus bytes originales en el editor, el SDK y MCP. 2167 inserta también en una celda lógica mediante `rich-table-cell-image-insert` y la captura de celda. [Imágenes en celdas](tasks/vvd1095/verification-image-cells2167.md). [Formatos de imagen](tasks/vvd1095/verification-image-formats2164.md). [Alineación y pruebas](tasks/vvd1095/verification-image-alignment2161.md). [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).

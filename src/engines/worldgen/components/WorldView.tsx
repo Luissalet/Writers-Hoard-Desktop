@@ -19,6 +19,8 @@ import type { StoryMark } from '../cartography/storyMarks';
 import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSiteRestoreEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
 import type { TradeLayer } from '../cartography/tradeMarks';
 import TradePanel from './TradePanel';
+import HistoryPanel from './history/HistoryPanel';
+import { useWorldHistory } from '../history/useWorldHistory';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey, worldgenScopeOperations } from '../era';
@@ -379,7 +381,7 @@ export default function WorldView({
   const [showRoads, setShowRoads] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [panelTab, selectPanelTab] = useState<
-    'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'trade' | 'atlas' | 'regions' | 'places'
+    'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'trade' | 'history' | 'atlas' | 'regions' | 'places'
   >('params');
   const setPanelTab = useCallback((tab: typeof panelTab) => {
     selectPanelTab(tab);
@@ -929,7 +931,7 @@ export default function WorldView({
    * an improvement on no roads.
    */
   const needsFullGeo = view === 'carta' || view === 'map' || skin3D === 'dibujado' || skin3D === 'pintado'
-    || panelTab === 'atlas' || panelTab === 'journey' || panelTab === 'places';
+    || panelTab === 'atlas' || panelTab === 'journey' || panelTab === 'places' || panelTab === 'history';
   /**
    * The 2D and the 3D need the geography for their GROUND, not only for dots:
    * the satellite tile fetcher bails without it (`Map2D` → `regionClient`), so
@@ -1060,6 +1062,9 @@ export default function WorldView({
    * near every settlement plus the author's own, and two years month by month.
    */
   const [tradeMonth, setTradeMonth] = useState(0);
+  /** The history lens: realms and borders of a chosen year, worked out only while its tab is open. */
+  const historyLens = useWorldHistory(projectId, world, data, geography, panelTab === 'history' && !!data);
+  const historyLayer = historyLens.layer;
   const [tradePlacing, setTradePlacing] = useState<{ kind: SiteKind; size: SiteSize } | null>(null);
   /**
    * Worked out off the click: a moment after the tab opens or the last stroke
@@ -1169,7 +1174,7 @@ export default function WorldView({
       active: rg.id === regionAt?.savedId,
     }));
     const closedCrossings = closedCrossingMarks;
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours && !closedCrossings?.length && !zones.length && !characterTrail) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !historyLayer && !contours && !closedCrossings?.length && !zones.length && !characterTrail) return undefined;
     return {
       contours,
       zones: zones.length ? zones : undefined,
@@ -1177,6 +1182,7 @@ export default function WorldView({
       fog: fogLayer,
       story: storyMarks,
       trade: tradeLayer,
+      history: historyLayer,
       trail: characterTrail?.points,
       pins,
       linked,
@@ -1193,7 +1199,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId, closedCrossingMarks, zones, kmScale, townDots, trail, characterTrail]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, historyLayer, contourLines, themeId, closedCrossingMarks, zones, kmScale, townDots, trail, characterTrail]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -3034,6 +3040,7 @@ export default function WorldView({
             */}
             <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); if (view === '3d') setView('map'); }} label={t('worldgen.journey.title')} />
             <PanelTab active={panelTab === 'trade'} onClick={() => { setPanelTab('trade'); if (view === '3d') setView('map'); }} label={t('worldgen.trade.title')} />
+            <PanelTab active={panelTab === 'history'} onClick={() => { setPanelTab('history'); if (view === '3d') setView('map'); }} label={t('worldgen.history.title')} />
             <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); if (view === '3d') setView('map'); }} label={t('worldgen.panel.atlas')} />
             <PanelTab
               active={panelTab === 'regions'}
@@ -3202,6 +3209,8 @@ export default function WorldView({
                   {t('worldgen.panel.journeyBuilding')}
                 </p>
               )
+            ) : panelTab === 'history' ? (
+              <HistoryPanel lens={historyLens} projectId={projectId} worldId={world.id} worldTitle={world.title} onFocus={zoomToPoint} />
             ) : panelTab === 'trade' ? (
               trade ? (
                 <TradePanel

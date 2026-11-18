@@ -12,6 +12,7 @@ import {PROJECT_PIN_TOOLS} from '@/services/projectPin/bridgeManifest';
 import {PROJECT_DUPLICATE_TOOLS} from '@/services/projectDuplicate/bridgeManifest';
 import {WRITING_TOOL_DOCK_TOOLS} from '@/engines/writings/toolDock/bridgeManifest';
 import { CONTINUITY_TOOLS } from '@/services/continuity/bridgeManifest';
+import { WORLD_HISTORY_TOOLS } from '@/engines/worldgen/history/bridgeManifest';
 import { WORLD_GRAPH_QUERY_TOOLS } from '@/engines/codex/worldGraph/bridgeManifest';
 import { RELATION_TREE_ACTION_TOOLS } from '@/engines/genealogy/treeActionManifest';
 import { WIKI_PROFILE_TOOLS } from '@/services/wikiProfiles/bridgeManifest';
@@ -1526,6 +1527,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('people', inEngine('genealogy', GENEALOGY_BRIDGE_TOOLS)),
   ...grouped('people', inEngine('codex', CODEX_FOLDER_IMPORT_TOOLS)),
   ...grouped('story', inEngine('codex', CONTINUITY_TOOLS)),
+  ...grouped('story', inEngine('worldgen', WORLD_HISTORY_TOOLS)),
   ...grouped('story', inEngine('timeline', inEra(TIMELINE_TOOLS))),
   ...grouped('core', inEngine('archive', ARCHIVE_TOOLS)),
   ...grouped('writing', inEngine('writings', SPRINT_TOOLS)),
