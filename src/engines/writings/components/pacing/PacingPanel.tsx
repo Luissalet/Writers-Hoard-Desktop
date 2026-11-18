@@ -85,6 +85,9 @@ export default function PacingPanel({ projectId, writingId, onOpen }: { projectI
   const [undo, setUndo] = useState<{ eraId?: string; receipt: SceneTensionReceipt } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  // Each finished change refills the fields from the stored values, so an undo
+  // made before the report refreshed cannot leave a typed value on screen.
+  const [revision, setRevision] = useState(0);
 
   const run = async (action: () => Promise<SceneTensionReceipt | void>) => {
     setSaving(true);
@@ -92,6 +95,7 @@ export default function PacingPanel({ projectId, writingId, onOpen }: { projectI
     try {
       const receipt = await action();
       setUndo(receipt && receipt.before !== receipt.after ? { eraId: scope.eraId, receipt } : null);
+      setRevision((n) => n + 1);
     } catch {
       setSaveError(true);
     } finally {
@@ -136,7 +140,7 @@ export default function PacingPanel({ projectId, writingId, onOpen }: { projectI
                     {scenes.map((s) => (
                       <li key={s.id}>
                         <button type="button" className={button} onClick={() => onOpen(s.writingId, s.quote)}>{fill(t('pacing.sceneLine'), { n: s.index + 1, words: s.words, pace: pct(s.pace), dialogue: pct(s.dialogue) })}</button>
-                        <TensionControl key={JSON.stringify([scope.eraId, s.tension])} scene={s} disabled={saving || loading}
+                        <TensionControl key={JSON.stringify([scope.eraId, s.tension, revision])} scene={s} disabled={saving || loading}
                           onSave={(tension) => void run(() => setSceneTension(scope, s.writingId, s.anchor, tension, s.tension ?? null))} />
                       </li>
                     ))}
