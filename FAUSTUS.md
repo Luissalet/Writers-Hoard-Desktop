@@ -18,14 +18,15 @@ Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pest
   llegada, en el color del veredicto (gris si es intencionado); un clic abre el capítulo de destino.
 - **Épocas.** Con una época con nombre activa, el informe lee los capítulos y fichas de esa época y el libro de estado
   escribe en su versión de la ficha (Deshacer en la misma época). Un tramo sin ruta posible para el medio de viaje
-  cuenta como problema y se puede marcar como intencionado.
+  cuenta como problema y se puede marcar como intencionado. El filtro admite fichas creadas solo en la época.
 - **Estaciones.** El calendario del mundo dice cuándo empieza cada estación: el año en cuartos por días empezando por el
   invierno (por defecto), cada estación desde un mes, hemisferio sur (invierno y verano cambiados) o sin estaciones
   (se viaja como en verano). Se ajusta en «Calendario del mundo» (sección Estaciones).
 - **Libro de estado.** Por personaje y capítulo: está en, aprende, actúa sabiendo, consigue, pierde o entrega (a otro
   personaje), usa, estado físico, muere, revive, aparece. Las líneas viven en la ficha del personaje y se acumulan
   hasta el capítulo elegido: dónde está, qué sabe, qué lleva, estado físico y si vive. Comprobaciones: usa o entrega
-  un objeto que no lleva, aparece tras morir (también en sucesos del mapa), actúa sabiendo algo antes de aprenderlo,
+  un objeto que no lleva, aparece tras morir (también en sucesos del mapa y tras sucesivas muertes y resurrecciones),
+  actúa sabiendo algo antes de aprenderlo (también con dos posiciones explícitas en el mismo capítulo),
   dos sitios a la vez. Los hallazgos se marcan como intencionados con nota. La ubicación del libro alimenta los viajes;
   su punto de mapa se elige entre los que ya usa la historia, buscando cualquier lugar con nombre del mundo (atlas,
   rótulos y sellos propios, sin tildes) o escribiendo `x, y`.
@@ -42,19 +43,21 @@ Panel «Voz por personaje» junto al capítulo abierto (debajo de Continuidad) y
 de personaje del Códex; los dos leen el mismo informe.
 
 - **Parlamentos.** Rayas de diálogo (—…—dijo X—) y comillas («», “”, ""), con los incisos fuera del texto hablado.
-  Se atribuyen por el nombre o un alias del Códex en el inciso, por el párrafo narrativo anterior que nombra a un
-  solo personaje, por el turno de un intercambio a dos voces, y los bloques de Dialog Scene con su personaje.
+  Se atribuyen por el nombre o alias ligado al verbo de habla, el párrafo narrativo anterior que nombra a un solo
+  personaje o el turno de un intercambio a dos voces. Un pronombre como «ella» se contrasta con el turno y con un
+  campo de ficha «Género» o «Sexo» cuando la atribución es inequívoca. Los bloques de Dialog Scene usan su personaje.
 - **Perfil.** Parlamentos y palabras, frase media y dispersión, porcentaje de exclamaciones, preguntas y puntos
   suspensivos, tratamiento (tú, usted, vos) y el dominante, registro, léxico propio frente al resto del reparto
   (log-odds, sin artículos ni preposiciones) y muletillas (aperturas y cierres repetidos). Determinista.
 - **Fuera de perfil.** Parlamentos que suenan más a otro personaje, con frases mucho más largas o cortas de lo
-  habitual, o con el tratamiento que el personaje no usa; «Ir al texto» selecciona la frase en el capítulo (desde la
-  ficha, con `&quote=` en el enlace al capítulo).
+  habitual, o con el tratamiento que el personaje no usa. «Ir al texto» selecciona esa aparición en el capítulo,
+  aunque otro personaje haya dicho la misma frase.
 - **Prueba ciega.** 6, 10 o 20 parlamentos sin atribución repartidos entre los personajes; el autor elige quién habla
   y el resultado da los aciertos y a quién confunde con quién.
 - **Descripción.** Opcional: el modelo global la redacta a partir de las cifras y unas líneas; el autor la edita y la
   guarda en la ficha (`codexEntries.voice`), con Deshacer.
-- **MCP.** `wh_voice_profile`, `wh_voice_outliers` y `wh_voice_describe` (escritura, con Deshacer).
+- **Épocas y MCP.** El panel y la ficha usan la época activa. `wh_voice_profile`, `wh_voice_outliers` y
+  `wh_voice_describe` admiten `eraId`. Guardar o quitar una descripción se deshace en la misma ficha.
 
 ## Radiografía de ritmo
 
@@ -64,13 +67,16 @@ Panel «Radiografía de ritmo» junto al capítulo abierto (debajo de Voz por pe
   Por escena: palabras, parte de diálogo, narración y descripción (frases de estado e imperfecto), verbos de acción por
   cada 100 palabras de prosa, palabras por frase y un ritmo de 0 a 1 (diálogo, acción y frases cortas lo suben).
   Los capítulos promedian sus escenas por palabras.
-- **Curva.** El ritmo de cada escena a lo largo del manuscrito (por palabras), con los beats de los esquemas como
-  líneas moradas (en su capítulo enlazado o en su posición en la historia) y los tramos planos sombreados en ámbar.
+- **Curva.** La tensión manual o el ritmo calculado de cada escena a lo largo del manuscrito (por palabras),
+  con los beats de los esquemas en morado (en su capítulo enlazado o su posición en la historia) y los tramos
+  planos sombreados en ámbar.
   Clic en un punto, en una escena o en un aviso selecciona su comienzo en el capítulo; clic en un beat abre el esquema.
-- **Avisos.** Tramo plano (4 o más escenas seguidas con el mismo ritmo), escena casi toda descripción o casi toda
-  diálogo, escena larga sin diálogo, escena tres veces más larga que la mediana.
-- **Tensión.** La app no guarda tensión por escena ni por capítulo, así que la curva usa el ritmo calculado.
-- **MCP.** `wh_pacing` (lectura).
+- **Avisos.** Tramo plano (4 o más escenas seguidas dentro de una banda de 0,04 en la curva), escena casi toda
+  descripción o casi todo diálogo, escena larga sin diálogo, escena tres veces más larga que la mediana.
+- **Tensión.** El autor puede guardar un valor del 0 al 100 % por escena, dejarlo en blanco para usar el ritmo
+  calculado y deshacer el último ajuste. El capítulo y la tensión se leen y guardan en la época activa. El valor
+  sigue a la escena al moverla si conserva un extremo reconocible.
+- **MCP.** `wh_pacing` lee el informe y `wh_pacing_set_tension` fija o borra el valor, con Deshacer.
 
 ## Deriva del plan
 
@@ -81,7 +87,8 @@ el capítulo de este beat».
   fichas del Códex que nombra el beat (nombre o alias), y las semillas y pagos enlazados al beat; en el capítulo, los
   nombres del texto, los sucesos del mapa contados en él y las promesas por enlace o por su título en el texto.
   Estado: lo cumple, se ha desviado (menos de la mitad de lo que nombra el beat) o sin capítulo. Dice qué falta y qué
-  trae además el capítulo. Determinista, sin modelo.
+  trae además el capítulo. Determinista, sin modelo. Capítulos, fichas y sucesos del mapa se leen en la época
+  activa. Los beats y las promesas pertenecen al esquema compartido del proyecto.
 - **Vistas.** «Este capítulo» (sus beats) y «Todo el esquema» (beats desviados, sin capítulo o con propuesta, y los
   capítulos que ningún beat enlaza), con enlaces al beat y al capítulo.
 - **Actualizar el esquema desde el capítulo.** Propuesta con el antes y el después: el título del capítulo si el beat

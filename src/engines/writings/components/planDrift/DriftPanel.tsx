@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { ChevronDown, ChevronRight, GitCompare, Undo2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useDriftReport } from '@/services/planDrift/useDriftReport';
@@ -17,7 +18,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 function BeatCard({ report, drift, projectId, onDone }: { report: ProjectDrift; drift: BeatDrift; projectId: string; onDone: (receipt: DriftReceipt) => void }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
   const [showProposal, setShowProposal] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const row = report.beatRows[drift.beatId];
@@ -61,12 +62,13 @@ function BeatCard({ report, drift, projectId, onDone }: { report: ProjectDrift; 
  */
 export default function DriftPanel({ projectId, writingId }: { projectId: string; writingId: string }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
+  const { eraId } = useWorldEraScope(projectId);
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const [undo, setUndo] = useState<DriftReceipt | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const { report, loading, error } = useDriftReport(projectId, !open);
+  const { report, loading, error } = useDriftReport(projectId, !open, eraId);
   const drifted = report?.beats.filter((b) => b.status === 'drifted').length ?? 0;
   const shown = (report?.beats ?? []).filter((b) => (all ? b.status !== 'kept' || b.proposal : b.writingId === writingId));
   const base = `/project/${encodeURIComponent(projectId)}`;

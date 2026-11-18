@@ -1,10 +1,11 @@
 import { useTranslation } from '@/i18n/useTranslation';
 import { lineSource, type VoiceReport } from '@/services/voice/report';
+import type { DialogueAnchor } from '@/engines/writings/voice/dialogue';
 import type { VoiceOutlier } from '@/engines/writings/voice/profile';
 import { fillVoice, voiceButton } from './voiceUi';
 
 /** Lines that leave their speaker's profile, each with a jump to the text. */
-export default function VoiceOutliers({ report, outliers, onOpen }: { report: VoiceReport; outliers: readonly VoiceOutlier[]; onOpen: (writingId: string, quote: string) => void }) {
+export default function VoiceOutliers({ report, outliers, onOpen }: { report: VoiceReport; outliers: readonly VoiceOutlier[]; onOpen: (writingId: string, anchor: DialogueAnchor) => void }) {
   const { t } = useTranslation();
   if (!outliers.length) return <p className="text-[10px] text-text-dim">{t('charVoice.noOutliers')}</p>;
   return (
@@ -22,7 +23,7 @@ export default function VoiceOutliers({ report, outliers, onOpen }: { report: Vo
             <p className="line-clamp-2 italic text-text-muted">«{line.text}»</p>
             <div className="flex items-center justify-between gap-2 text-[10px] text-text-dim">
               <span className="truncate">{lineSource(report, line)}</span>
-              {line.writingId && <button type="button" data-testid="voice-outlier-open" className={voiceButton} onClick={() => onOpen(line.writingId!, line.quote)}>{t('charVoice.openLine')}</button>}
+              {line.writingId && line.anchor && <button type="button" data-testid="voice-outlier-open" className={voiceButton} onClick={() => onOpen(line.writingId!, line.anchor!)}>{t('charVoice.openLine')}</button>}
             </div>
           </li>
         );

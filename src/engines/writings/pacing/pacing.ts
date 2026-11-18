@@ -3,7 +3,16 @@
 // stay flat or lean too far one way. Pure and deterministic: plain text in.
 import { splitParagraph } from '../voice/dialogue';
 
-export interface PacingSource { writingId: string; chapter: number | null; title: string; text: string }
+export interface PacingSource {
+  writingId: string;
+  chapter: number | null;
+  title: string;
+  text: string;
+  sceneTension?: readonly SceneTension[];
+}
+
+export interface SceneAnchor { index: number; opening: string; closing: string }
+export interface SceneTension extends SceneAnchor { value: number }
 
 export interface PacingScene {
   /** `<writingId>#<index>`. */
@@ -11,6 +20,7 @@ export interface PacingScene {
   writingId: string;
   chapter: number | null;
   index: number;
+  anchor: SceneAnchor;
   /** First words of the scene, to find it in the chapter. */
   quote: string;
   words: number;
@@ -24,6 +34,8 @@ export interface PacingScene {
   sentence: number;
   /** 0 slow … 1 fast: dialogue, action and short sentences push it up. */
   pace: number;
+  /** Optional author-set value on the curve, from 0 to 1. */
+  tension?: number;
   /** Position of the scene's middle in the manuscript, 0…1 by words. */
   at: number;
 }
@@ -65,6 +77,42 @@ export function splitScenes(text: string): string[][] {
   return scenes.filter((s) => s.length);
 }
 
+const compact = (text: string) => text.trim().replace(/\s+/g, ' ');
+
+export function sceneAnchor(paragraphs: string[], index: number): SceneAnchor {
+  return { index, opening: compact(paragraphs[0]).slice(0, 96), closing: compact(paragraphs.at(-1)!).slice(-96) };
+}
+
+function anchorScore(candidate: SceneAnchor, stored: SceneAnchor): number {
+  // After splitting a scene, its tension follows the opening fragment.
+  return (candidate.opening === stored.opening ? 2 : 0) + (candidate.closing === stored.closing ? 1 : 0);
+}
+
+export function findSceneAnchor(anchors: readonly SceneAnchor[], stored: SceneAnchor): SceneAnchor | undefined {
+  let best = 0;
+  let candidates: SceneAnchor[] = [];
+  for (const anchor of anchors) {
+    const score = anchorScore(anchor, stored);
+    if (!score || score < best) continue;
+    if (score > best) candidates = [];
+    best = score;
+    candidates.push(anchor);
+  }
+  return candidates.length === 1 ? candidates[0] : candidates.find((anchor) => anchor.index === stored.index);
+}
+
+export function resolveTensions(anchors: readonly SceneAnchor[], stored: readonly SceneTension[]): Map<number, SceneTension> {
+  const resolved = new Map<number, SceneTension>();
+  for (const mark of stored) {
+    if (!(typeof mark.value === 'number' && mark.value >= 0 && mark.value <= 1)) continue;
+    const anchor = findSceneAnchor(anchors, mark);
+    if (!anchor) continue;
+    const prior = resolved.get(anchor.index);
+    if (!prior || anchorScore(anchor, mark) >= anchorScore(anchor, prior)) resolved.set(anchor.index, mark);
+  }
+  return resolved;
+}
+
 /** Word shares, action density and sentence length of a run of paragraphs. */
 export function measure(paragraphs: readonly string[]) {
   let dialogue = 0, description = 0, narration = 0, actionVerbs = 0, sentences = 0, words = 0;
@@ -94,24 +142,63 @@ export function paceOf(m: { dialogue: number; action: number; sentence: number }
   return round(0.4 * m.dialogue + 0.4 * Math.min(1, m.action / 8) + 0.2 * (1 - Math.min(1, m.sentence / 30)));
 }
 
-/** A run of this many scenes whose pace moves less than FLAT_SPREAD reads as flat. */
+/** A run of this many scenes whose curve values stay within FLAT_SPREAD reads as flat. */
 export const FLAT_RUN = 4;
 export const FLAT_SPREAD = 0.04;
+
+export const curveValue = (scene: PacingScene): number => scene.tension ?? scene.pace;
+
+function flatFlags(scenes: readonly PacingScene[]): PacingFlag[] {
+  const flags: PacingFlag[] = [];
+  const values = scenes.map(curveValue);
+  // Keep the window's extrema in monotonic queues, so moving its start
+  // past a short false start never discards a later, overlapping flat stretch.
+  const minima: number[] = [], maxima: number[] = [];
+  let minHead = 0, maxHead = 0, start = 0;
+  const emit = (end: number, low: number, high: number) => {
+    if (end - start >= FLAT_RUN) {
+      flags.push({ kind: 'flat', sceneIds: scenes.slice(start, end).map((s) => s.id), detail: String(round((low + high) / 2)) });
+    }
+  };
+  const tooWide = (low: number, high: number) => high - low > FLAT_SPREAD + Number.EPSILON;
+  for (let end = 0; end < scenes.length; end++) {
+    const next = values[end];
+    if (end > start) {
+      const low = values[minima[minHead]], high = values[maxima[maxHead]];
+      if (tooWide(Math.min(low, next), Math.max(high, next))) emit(end, low, high);
+    }
+    while (minima.length > minHead && values[minima.at(-1)!] >= next) minima.pop();
+    while (maxima.length > maxHead && values[maxima.at(-1)!] <= next) maxima.pop();
+    minima.push(end);
+    maxima.push(end);
+    while (tooWide(values[minima[minHead]], values[maxima[maxHead]])) {
+      if (minima[minHead] === start) minHead++;
+      if (maxima[maxHead] === start) maxHead++;
+      start++;
+    }
+  }
+  emit(scenes.length, values[minima[minHead]], values[maxima[maxHead]]);
+  return flags;
+}
 
 export function buildPacing(sources: readonly PacingSource[]): PacingReport {
   const scenes: PacingScene[] = [];
   for (const source of sources) {
-    splitScenes(source.text).forEach((paragraphs, index) => {
-      const m = measure(paragraphs);
-      if (!m.words) return;
-      const first = paragraphs[0].trim();
+    const parts = splitScenes(source.text).map((paragraphs, index) => ({
+      first: paragraphs[0].trim(), anchor: sceneAnchor(paragraphs, index), measures: measure(paragraphs),
+    })).filter((part) => part.measures.words);
+    const tensionByIndex = resolveTensions(parts.map((part) => part.anchor), source.sceneTension ?? []);
+    for (const { first, anchor, measures: m } of parts) {
+      const { index } = anchor;
+      const tension = tensionByIndex.get(index)?.value;
       scenes.push({
-        id: `${source.writingId}#${index}`, writingId: source.writingId, chapter: source.chapter, index,
+        id: `${source.writingId}#${index}`, writingId: source.writingId, chapter: source.chapter, index, anchor,
         quote: first.slice(0, Math.max(20, first.search(/[.!?…]/) + 1 || 80)).slice(0, 80).trim(),
         words: m.words, dialogue: round(m.dialogue), narration: round(m.narration), description: round(m.description),
         action: round(m.action, 1), sentence: round(m.sentence, 1), pace: paceOf(m), at: 0,
+        ...(tension === undefined ? {} : { tension }),
       });
-    });
+    }
   }
   const total = scenes.reduce((s, x) => s + x.words, 0);
   let done = 0;
@@ -124,18 +211,7 @@ export function buildPacing(sources: readonly PacingSource[]): PacingReport {
     return { writingId: source.writingId, chapter: source.chapter, title: source.title, words, dialogue: avg('dialogue'), narration: avg('narration'), description: avg('description'), action: avg('action'), pace: avg('pace'), scenes: own.length };
   }).filter((c) => c.words > 0);
 
-  const flags: PacingFlag[] = [];
-  // Flat stretches: maximal runs of scenes whose pace stays within a narrow band.
-  for (let start = 0; start < scenes.length;) {
-    let end = start, lo = scenes[start].pace, hi = scenes[start].pace;
-    while (end + 1 < scenes.length) {
-      const next = scenes[end + 1].pace;
-      if (Math.max(hi, next) - Math.min(lo, next) > FLAT_SPREAD) break;
-      lo = Math.min(lo, next); hi = Math.max(hi, next); end++;
-    }
-    if (end - start + 1 >= FLAT_RUN) flags.push({ kind: 'flat', sceneIds: scenes.slice(start, end + 1).map((s) => s.id), detail: String(round((lo + hi) / 2)) });
-    start = end + 1;
-  }
+  const flags = flatFlags(scenes);
   const lengths = scenes.map((s) => s.words).sort((a, b) => a - b);
   const median = lengths.length ? lengths[Math.floor(lengths.length / 2)] : 0;
   for (const s of scenes) {

@@ -21,14 +21,14 @@ Appearances are story events naming the character (wh_add_story_event who) and, 
     description: `What a character knows, carries, where they are and whether they live at the end of a chapter.
 The state ledger accumulates every line up to the chapter (by chapter number): last location, facts learnt, objects gained minus lost (gifts move to the receiver), last condition, alive or dead. Pass chapter (a number) or writingId.`,
     writes: false,
-    schema: { type: 'object', properties: { projectId: PROJECT_ID, characterId: CHARACTER, chapter: n('Chapter number.', { type: 'integer', minimum: 0 }), writingId: s('Manuscript chapter id instead of a number.') }, required: ['characterId'], additionalProperties: false },
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId: ERA, characterId: CHARACTER, chapter: n('Chapter number.', { type: 'integer', minimum: 0 }), writingId: s('Manuscript chapter id instead of a number.') }, required: ['characterId'], additionalProperties: false },
   },
   {
     name: 'wh_state_ledger',
     description: `List a character's state ledger lines and the continuity checks over every ledger.
-Checks: item-not-carried (uses or hands over an object not carried), after-death (any line or map event after dying), knows-before-learning (acts on a fact before the chapter where it is learnt), two-places (two locations at the same point of one chapter). Findings marked intended carry their note.`,
+Checks: item-not-carried (uses or hands over an object not carried), after-death (any line or map event after dying), knows-before-learning (acts on a fact before it is learnt, including explicit order within one chapter), two-places (two locations at the same point of one chapter). Findings marked intended carry their note.`,
     writes: false,
-    schema: { type: 'object', properties: { projectId: PROJECT_ID, characterId: s('Only this character\'s lines and findings; omit for all.') }, additionalProperties: false },
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId: ERA, characterId: s('Only this character\'s lines and findings; omit for all.') }, additionalProperties: false },
   },
   {
     name: 'wh_state_ledger_add',

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookUser, ChevronDown, ChevronRight, MessageSquareQuote } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
+import type { DialogueAnchor } from '@/engines/writings/voice/dialogue';
 import { useVoiceReport } from '@/services/voice/useVoiceReport';
 import BlindTest from './BlindTest';
 import VoiceOutliers from './VoiceOutliers';
@@ -15,7 +16,7 @@ type Tab = 'profiles' | 'outliers' | 'blind';
  * their dialogue, the lines that leave it, and the blind test. Same report as
  * the Codex card and the AI bridge.
  */
-export default function VoicePanel({ projectId, writingId, onOpenLine }: { projectId: string; writingId: string; onOpenLine: (writingId: string, quote: string) => void }) {
+export default function VoicePanel({ projectId, writingId, onOpenLine }: { projectId: string; writingId: string; onOpenLine: (writingId: string, anchor: DialogueAnchor) => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -52,9 +53,13 @@ export default function VoicePanel({ projectId, writingId, onOpenLine }: { proje
                     <select data-testid="voice-character" value={profile.characterId} onChange={(e) => setPick(e.target.value)} className="min-w-0 flex-1 rounded-md border border-border bg-elevated px-2 py-1 text-xs text-text-primary">
                       {profiles.map((p) => <option key={p.characterId} value={p.characterId}>{report.titles[p.characterId] ?? p.characterId} ({p.lines})</option>)}
                     </select>
-                    <button type="button" className={voiceButton} onClick={() => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(profile.characterId)}`)}><BookUser size={11} aria-hidden="true" />{t('charVoice.openCard')}</button>
+                    <button type="button" className={voiceButton} onClick={() => {
+                      const search = new URLSearchParams({ entry: profile.characterId });
+                      if (report.eraId) search.set('era', report.eraId);
+                      navigate(`/project/${encodeURIComponent(projectId)}/codex?${search}`);
+                    }}><BookUser size={11} aria-hidden="true" />{t('charVoice.openCard')}</button>
                   </div>
-                  <VoiceProfileCard report={report} profile={profile} projectId={projectId} />
+                  <VoiceProfileCard key={profile.characterId} report={report} profile={profile} projectId={projectId} />
                 </div>
               ))}
               {tab === 'outliers' && (
