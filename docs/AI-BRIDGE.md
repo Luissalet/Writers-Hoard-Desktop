@@ -1903,6 +1903,15 @@ latitud, con inclinación axial fija de 23,44 grados y la duración propia del d
 El índice de luz lunar considera nubes, sin órbitas, horizontes o lux físicos.
 [Contrato de las fichas](../src/engines/worldgen/PLACE-CARDS.md).
 
+## Mapas intramundo
+
+Seis herramientas del Generador de Mundos para las láminas de cartógrafo, registradas en el catálogo con Deshacer.
+
+- wh_list_in_world_maps lista las láminas guardadas de worldId. wh_list_cartographers devuelve orígenes con kind e id. Si la geografía se está preparando, devuelve pending y permite reintentar.
+- wh_save_in_world_map crea con title, origin y date o modifica una lámina existente con mapId. date usa el año absoluto del calendario del proyecto y admite mes y día. reach va de 0.025 a 0.35, distortion de 0 a 1 y themeId admite antique, wonder, relief y survey. chapter aplica la niebla por capítulo, entryId vincula una ficha y null retira la opción correspondiente. marks sustituye las correcciones ordenadas en celdas de origen con radio y estado seen, heard o hide.
+- wh_export_in_world_map devuelve PNG, SVG o PDF completos en base64, junto con el reparto de conocimiento, el número de rutas y los nombres conocidos. locale elige castellano o inglés. El PDF contiene la lámina rasterizada. El SVG conserva geometría y texto.
+- wh_insert_in_world_map inserta la lámina PNG al principio de writingId dentro del proyecto. wh_remove_in_world_map elimina la lámina del mundo. Con wh_undo se restaura la lámina afectada en su época o se retira la imagen insertada del capítulo.
+
 ## 28. Mapas: aspecto, viaje, medidas, épocas y rótulos (Ágora 1095)
 
 Cada capacidad nueva de los mapas tiene su herramienta, con validación, ámbito

@@ -689,6 +689,12 @@ Source `3ea6f14b`, revisión1 aprobada por Root, integrada en main `d61e174d` si
 
 Continuidad2367 ejecutada tras GO concreto de Root: manual párrafo389 con inserción213UTF16 y799párrafos/798ajenos/recurso inverso exactos; memoria append4184bytes con prefijo íntegro; dos conceptos Writer mediante Store embed=False,401/9/695→403/9/697, sin alterar filas o aristas previas. La revisión e integración de los cuatro MD tiene su voto independiente.
 
+## Mapas intramundo
+
+En el Generador de Mundos se puede guardar una perspectiva fechada de una cultura o lugar, vincularla a una ficha del Codex y corregir qué zonas aparecen. El alcance, la deformación, la niebla por capítulo y el estilo son propios de cada lámina. Desde el mapa se puede descargar en PNG, SVG o PDF e insertar una copia PNG al principio de un capítulo local.
+
+Las herramientas de Faustus para listar, guardar, exportar, insertar y eliminar estas láminas están preparadas. Su registro en el puente y el enlace con wh_undo están pendientes en esta rama.
+
 ## Portada local de mapas generados —2365
 
 World Generator permite elegir una imagen local de archivo o Galería para la tarjeta del mapa, cambiarla, quitarla y Deshacer. La portada es independiente de thumbnail: cuando no hay una elegida, la colección utiliza la vista generada disponible. La copia conserva sus bytes aunque cambie o se borre el original de Galería. No genera ni abre terreno ni modifica el lienzo, las exportaciones cartográficas o Reader.

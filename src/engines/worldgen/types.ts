@@ -9,6 +9,7 @@ import type { WorldParams } from './core/types';
 import type { MapHourName } from './core/hourLight';
 import type { RegionParams } from './region/types';
 import type { WorldJourney } from './journeyTypes';
+import type { InWorldMap } from './inWorldMaps/types';
 
 /**
  * A bookmarked regional view.
@@ -74,6 +75,8 @@ export interface GeneratedWorld {
   regions?: SavedWorldRegion[];
   /** Named travel plans; geographic paths and durations are derived on opening. */
   journeys?: WorldJourney[];
+  /** Cartographers' saved plates and knowledge corrections. */
+  inWorldMaps?: InWorldMap[];
   /** Own contextual manuscript links; absence inherits shared links. */
   manuscriptLinks?: import('@/types/projectTools').EntityLink[];
   /** Small JPEG data URL preview for dashboards / future use. */
