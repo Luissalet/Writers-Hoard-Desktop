@@ -1389,7 +1389,10 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const weather = args.weatherAffectsTravel ? await worldWeatherDate(args, world.projectId) : undefined;
   const { planRoute, normalizeTravelProfile, TRAVEL_PACES, effectiveHoursPerDay } = await import('@/engines/worldgen/core/travel');
   const modes = ['foot', 'horse', 'cart', 'boat', 'ship'] as const, seasons = ['spring', 'summer', 'autumn', 'winter'] as const;
-  const mode = optEnum(args, 'mode', modes) ?? 'foot', season = optEnum(args, 'season', seasons) ?? 'summer';
+  // A dated journey takes its season from the world calendar, like the travel verifier and the weather.
+  const { seasonOfDate } = await import('@/engines/timeline/worldCalendar');
+  const mode = optEnum(args, 'mode', modes) ?? 'foot';
+  const season = optEnum(args, 'season', seasons) ?? (weather ? seasonOfDate(weather.calendar, weather.date) : null) ?? 'summer';
   if (args.mode !== undefined && args.mode !== mode) throw new BridgeError('bad-args', `mode must be one of ${modes.join(', ')}.`);
   if (args.season !== undefined && args.season !== season) throw new BridgeError('bad-args', `season must be one of ${seasons.join(', ')}.`);
   const pace = args.pace === undefined ? world.travelPace : optEnum(args, 'pace', TRAVEL_PACES);
