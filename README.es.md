@@ -37,6 +37,7 @@ Es además el plugin Writer de la familia Hoard. Absorbe como módulos independi
 
 **Investigación**
 - Proyectos de investigación con fuentes graduadas y retractables, afirmaciones derivadas de extractos registrados, cronología con contradicciones, hipótesis rivales, búsquedas de entidades en Wikidata e informes en Markdown con comprobación de citas. Las personas privadas nunca se enriquecen.
+- Paquetes de evidencia de un puesto de investigación (un dosier de Coase por el Hub, o cualquier paquete de fuentes y afirmaciones con su cita) se archivan como fuentes cuyas afirmaciones conservan la cita literal, listas para citarse en un capítulo sin reescribirlo.
 
 **Publicación y exportación**
 - Wiki sin conexión con perfiles con nombre, 20 paletas, diseños de terminal, mapas con zoom y ediciones locales con lista de cambios.
