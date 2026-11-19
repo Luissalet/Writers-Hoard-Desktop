@@ -10,4 +10,3 @@ description: Compile a chapter's story context and approved visual references fo
 3. Call `wh_production_dossier` once with the chapter and the subject. Use `kind: "character"` or `"place"` with the relevant Codex ID, or `kind: "scene"` with an optional scene ID. Inspect missing fields and reference availability. Use `wh_view_image` to look at the listed image IDs when needed.
 4. For a studio draft, call `wh_production_to_prospero` with the same scope. Read the received dossier and asset IDs with `studio_production`. Carry `preserveDetails` into later illustration, video and 3D work and check each item against the result.
 5. To undo, use the bridge’s returned undo handle. Changes made in the studio after import are kept.
-

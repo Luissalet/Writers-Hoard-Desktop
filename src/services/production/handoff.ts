@@ -55,4 +55,3 @@ export async function undoProductionHandoff(undo: DossierUndo): Promise<void> {
   const response = await callFamily('prospero', tool, { ...undo });
   if (!response.ok) throw describeFailure('prospero', tool, response);
 }
-
