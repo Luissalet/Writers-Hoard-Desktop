@@ -37,7 +37,9 @@ export default function ProductionHandoff({ projectId, writingId, invalidTime }:
         ...scope, writingId, kind: selected?.type === 'character' ? 'character' : selected ? 'place' : 'scene',
         subjectId: selected?.id,
       });
-      setResult(await sendProductionDossier(dossier));
+      const next = await sendProductionDossier(dossier);
+      setResult(previous => previous?.production === next.production && !next.undo
+        ? { ...next, undo: previous.undo } : next);
       setMessage(t('production.sent'));
     } catch {
       setMessage(t('production.sendFailed'));
@@ -85,4 +87,3 @@ export default function ProductionHandoff({ projectId, writingId, invalidTime }:
     </details>
   );
 }
-

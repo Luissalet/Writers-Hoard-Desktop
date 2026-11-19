@@ -87,25 +87,29 @@ async function approvedReferences(projectId: string, ids: Set<string>) {
 }
 
 async function sceneWeather(scope: WorldEraScope, writing: Writing, point?: LedgerPlace) {
-  if (point?.worldId && typeof point.x === 'number' && typeof point.y === 'number') {
-    const calendar = await resolveWorldCalendar(scope.projectId, undefined, scope.eraId);
-    if (writing.worldDate && calendar) {
-      try {
-        validateWeatherDate({ calendar: calendar.calendar, date: writing.worldDate });
-      } catch {
-        return { status: 'undated', places: [] };
-      }
-      try {
-        return { status: 'ledger', point, sample: await whGetWorldWeather({
-          ...scope, worldId: point.worldId, x: point.x, y: point.y, date: writing.worldDate,
-        }) };
-      } catch (error) {
-        if (error instanceof BridgeError) return { status: 'unavailable', point, places: [] };
-        throw error;
-      }
+  if (point?.worldId && typeof point.x === 'number' && typeof point.y === 'number' && writing.worldDate) {
+    const resolved = await resolveWorldCalendar(scope.projectId, undefined, scope.eraId);
+    const fromLedger = { source: 'state-ledger', point, places: [] };
+    if (!resolved) return { ...fromLedger, status: 'undated', sample: null };
+    try {
+      validateWeatherDate({ calendar: resolved.calendar, date: writing.worldDate });
+    } catch {
+      return { ...fromLedger, status: 'undated', sample: null };
+    }
+    try {
+      const sample = await whGetWorldWeather({
+        ...scope, worldId: point.worldId, x: point.x, y: point.y, date: writing.worldDate,
+      });
+      const ready = sample && typeof sample === 'object' && 'weather' in sample;
+      return { ...fromLedger, status: ready ? 'ready' : 'pending', sample };
+    } catch (error) {
+      if (error instanceof BridgeError) return { ...fromLedger, status: 'unavailable', sample: null };
+      throw error;
     }
   }
-  return chapterWorldContext(scope, writing.id);
+  const context = await chapterWorldContext(scope, writing.id);
+  return { source: 'chapter-links', point: null, sample: null, ...context,
+    status: context.status === 'ready' && !context.places.length ? 'unavailable' : context.status };
 }
 
 export async function compileProductionDossier(input: DossierInput) {
@@ -130,13 +134,19 @@ export async function compileProductionDossier(input: DossierInput) {
   if (placeId && requestedPlace?.type !== 'location') throw new BridgeError('bad-args', 'Choose a place card in this project.');
 
   const castIds = new Set(scene.castIds);
+  const inManuscript = scene.id === writingId || scene.id.startsWith(`${writingId}#`);
   const chapterCast = voice.lines.filter(line => line.speakerId
-    && (line.sceneId === scene.id || (scene.id.startsWith(writing.id) && line.writingId === writingId)));
+    && (line.sceneId === scene.id || (inManuscript && line.writingId === writingId)));
   for (const line of chapterCast) if (line.speakerId) castIds.add(line.speakerId);
-  const text = scene.text.toLocaleLowerCase();
+  const words = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const sceneText = ` ${words(scene.text)} `;
+  const namedInScene = (title: string) => {
+    const name = words(title);
+    return Boolean(name) && sceneText.includes(` ${name} `);
+  };
   const characters = codex.filter(entry => entry.type === 'character' && (
     kind === 'character' ? entry.id === subjectId
-      : castIds.has(entry.id) || text.includes(entry.title.toLocaleLowerCase())
+      : castIds.has(entry.id) || namedInScene(entry.title)
         || (requestedPlace && writing.chapter !== undefined
           && characterStateAt(continuity, entry.id, writing.chapter).location?.entryId === requestedPlace.id)
   )).sort((a, b) => a.id.localeCompare(b.id)).map(entry => ({
@@ -184,4 +194,3 @@ export async function compileProductionDossier(input: DossierInput) {
 }
 
 export type ProductionDossier = Awaited<ReturnType<typeof compileProductionDossier>>;
-
