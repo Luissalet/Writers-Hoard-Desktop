@@ -2,6 +2,20 @@
 
 En Source compartido, pegar varios párrafos en bloques de texto raíz consecutivos o dentro de un mismo elemento de lista conserva el texto de ambos extremos y el formato del portapapeles. Si pegas en un encabezado, el primer bloque conserva su nivel y los siguientes son párrafos normales. Un solo Deshacer recupera el contenido anterior. El pegado lee la selección visible al llegar el evento, aunque acabe de cambiar con el teclado.
 
+## Expedientes de producción
+
+En «Editar proyecto» se guarda el estilo visual del mundo. En los metadatos
+del capítulo se guardan la hora local y los detalles que se deben conservar,
+uno por línea. «Expediente de producción» envía una escena, personaje o lugar
+como borrador con sus referencias aprobadas. La app de escritorio usa el
+puente de la familia, y permite deshacer el traspaso mientras el borrador
+siga intacto.
+
+Desde MCP, `wh_create_project` da de alta el proyecto. `wh_production_dossier`
+compila el expediente, y `wh_production_to_prospero` prepara el borrador.
+El [contrato del expediente](docs/AI-BRIDGE.md#expedientes-de-producción)
+describe los campos y su procedencia.
+
 ## Continuidad del manuscrito: viajes y libro de estado
 
 Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pestañas.

@@ -9,12 +9,40 @@
 // not running. They span engines, so none carries an engineId; the import
 // checks the engines it writes into itself.
 
-import { b, PROJECT_ID, s, type BridgeTool } from './schema';
+import { arr, b, PROJECT_ID, s, type BridgeTool } from './schema';
 
 const NEEDS_HUB =
   'Goes through the local Hoard hub; needs the desktop app, the hub and the other app running — if one is not, the error says which to start.';
 
+const DOSSIER_SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    projectId: PROJECT_ID,
+    eraId: s('Named era ID; omit for the shared base.'),
+    writingId: s('Chapter ID. State, date and time come from this chapter.'),
+    kind: s('Subject kind. Default scene.', { enum: ['character', 'scene', 'place'] }),
+    subjectId: s('Required codex ID for character or place. For scene, omit to use the chapter or pass a scene ID.'),
+    placeId: s('Optional codex location ID to use as the setting.'),
+    preserveDetails: arr('Additional exact details appended to those saved on the chapter.'),
+  },
+  required: ['writingId'],
+  additionalProperties: false,
+};
+
 export const FAMILY_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_production_dossier',
+    description: 'Compile one chapter dossier with cast, state, place, time, style, approved references and details to preserve.',
+    writes: false,
+    schema: DOSSIER_SCHEMA,
+  },
+  {
+    name: 'wh_production_to_prospero',
+    description: 'Send a chapter dossier and its approved images to Prospero as an undoable draft.',
+    writes: true,
+    timeoutMs: 120_000,
+    schema: DOSSIER_SCHEMA,
+  },
   {
     name: 'wh_character_to_prospero',
     description:

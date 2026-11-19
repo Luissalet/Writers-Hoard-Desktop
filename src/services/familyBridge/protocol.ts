@@ -7,7 +7,7 @@
 // data (Dexie), the main process owns the hub token, so a call crosses IPC as
 // `family:call` and main builds the one request that is allowed:
 //
-//   - the app and the tool must be on ALLOWED_CALLS (four tools, two apps),
+//   - the app and the tool must be on ALLOWED_CALLS,
 //   - the arguments are bounded (size, depth of nothing but JSON),
 //   - pictures never travel as paths from the renderer: they travel as base64
 //     `files`, main writes them to a private temporary folder, substitutes the
@@ -19,7 +19,7 @@
 
 /** Who may be called, and with what. Anything else is refused before the network. */
 export const ALLOWED_CALLS: Readonly<Record<string, readonly string[]>> = {
-  prospero: ['cast_import_character', 'production_from_storyboard'],
+  prospero: ['cast_import_character', 'production_from_storyboard', 'production_receive_dossier', 'production_discard_dossier'],
   scheherazade: ['world_export', 'world_import'],
 };
 

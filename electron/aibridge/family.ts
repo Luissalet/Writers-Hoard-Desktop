@@ -110,6 +110,7 @@ const MAX_ANSWER_BYTES = 8 * 1024 * 1024;
 export interface CallAppOptions {
   /** Seconds the hub may wait for the app (default 60, at most 300). */
   timeoutS?: number;
+  reason?: string;
   /** Replaced by the tests; the defaults talk to the real hub. */
   deps?: Partial<FamilyDeps>;
 }
@@ -209,7 +210,7 @@ export async function callApp(
   const timeoutS = Math.min(MAX_CALL_TIMEOUT_S, Math.max(1, Math.round(options.timeoutS ?? CALL_TIMEOUT_S)));
   const answer = await hubPost(
     `/api/apps/${encodeURIComponent(app)}/call`,
-    { tool, arguments: args, timeout_s: timeoutS },
+    { tool, arguments: args, timeout_s: timeoutS, ...(options.reason ? { reason: options.reason } : {}) },
     (timeoutS + 5) * 1000,
     options.deps,
   );

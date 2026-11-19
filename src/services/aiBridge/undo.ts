@@ -399,10 +399,35 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return{undone:true,kind,entityId:owner.documentId,what:summary};
   }
 
+  if (entry.tool === 'wh_production_to_prospero' && entry.before && typeof entry.before === 'object'
+    && '__productionHandoff' in entry.before) {
+    const { undoProductionHandoff } = await import('@/services/production/handoff');
+    try {
+      await undoProductionHandoff((entry.before as { __productionHandoff: import('@/services/production/handoff').DossierUndo }).__productionHandoff);
+    } catch (error) {
+      throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error));
+    }
+    return { undone: true, kind, entityId, what: summary };
+  }
+
+  if (entry.tool === 'wh_create_project' && entry.projectId === entityId && entry.before && typeof entry.before === 'object') {
+    const version = (entry.before as Record<string, unknown>).__newProjectVersion;
+    const { captureProjectDuplicate, duplicateSnapshotVersion } = await import('@/services/projectDuplicate/capture');
+    const { deleteProject } = await import('@/db/operations');
+    await db.transaction('rw', db.tables, async tx => {
+      if (!await db.projects.get(entityId)) throw new BridgeError('not-found', 'That project no longer exists.');
+      const current = await duplicateSnapshotVersion(await captureProjectDuplicate(tx, entityId));
+      if (version !== current) throw new BridgeError('cannot-undo', 'That project changed after creation.');
+      await deleteProject(entityId);
+    });
+    return { undone: true, kind, entityId, what: summary };
+  }
+
   if (entry.tool === 'wh_update_project_details' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
-    const before = (entry.before as Record<string, unknown>).__projectDetails as { title?: unknown; description?: unknown; author?: unknown; blurb?: unknown } | undefined;
+    const before = (entry.before as Record<string, unknown>).__projectDetails as { title?: unknown; description?: unknown; author?: unknown; blurb?: unknown; worldVisualStyle?: unknown } | undefined;
     if (!before || typeof before.title !== 'string') throw new BridgeError('cannot-undo', 'This change did not record the details before it.');
-    await db.projects.update(entry.projectId, { title: before.title, description: typeof before.description === 'string' ? before.description : '', author: typeof before.author === 'string' ? before.author : undefined, blurb: typeof before.blurb === 'string' ? before.blurb : undefined, updatedAt: Date.now() });
+    await db.projects.update(entry.projectId, { title: before.title, description: typeof before.description === 'string' ? before.description : '', author: typeof before.author === 'string' ? before.author : undefined, blurb: typeof before.blurb === 'string' ? before.blurb : undefined,
+      ...('worldVisualStyle' in before ? { worldVisualStyle: typeof before.worldVisualStyle === 'string' ? before.worldVisualStyle : undefined } : {}), updatedAt: Date.now() });
     const { notifyProjectsChanged } = await import('@/db/operations');
     notifyProjectsChanged();
     return { undone: true, kind, entityId, what: summary };
