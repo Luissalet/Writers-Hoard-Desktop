@@ -68,7 +68,7 @@ On Windows, `setup.bat` performs the one-time setup and `run.bat` starts the app
 - **Faustus copilot.** The desktop copilot mounts Faustus's shared chat panel; Faustus owns conversations, models and memory, Writer supplies the project, manuscript and live selection. `WH_FAUSTUS_URL` selects the service (default `http://127.0.0.1:7000`). See [docs/FAUSTUS-COPILOT.md](docs/FAUSTUS-COPILOT.md).
 - **External assistants.** Claude Desktop, Codex or Gemini CLI can connect to the bridge; **Settings > AI bridge** gives per-client configuration. See [docs/ai-external-connection.md](docs/ai-external-connection.md) and [docs/ai-subscriptions.md](docs/ai-subscriptions.md).
 - **Hand-offs.** A Codex character can be sent to Prospero's Hoard as a cast member, a storyboard as a production, and a world can travel to and from Scheherazade as a neutral `hoard.world/1` document. Imports create new records and can be undone.
-- **Other Hoards.** Links Hoard, Kafka's Hoard and the Hoard Hub are found through the hub; a bar shows whether each is running and starts it.
+- **Other Hoards.** Links Hoard, Kafka's Hoard and the Hoard Hub are found through the hub; a bar shows whether each is running and starts it. The Hub starts Writer from this source checkout (`scripts/dev-desktop.mjs`) and its MCP adapter is the repository build.
 - **Skills.** The app carries skills from the family library for connected agents: `manuscript-continuity-edit`, `writing-plans`, `notes-from-templates` and others for its absorbed modules.
 
 ## Screens
