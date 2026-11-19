@@ -48,6 +48,7 @@ export interface Project {
   footnotePlacement?: FootnotePlacement;
   /** Unpromoted ideas, alternatives and their provenance belong to the project archive. */
   creativePossibilities?: CreativePossibility[];
+  worldVisualStyle?: string;
   editorialProfile?: EditorialProfile;
   writingWorkflows?: WritingWorkflow[];
   /**
@@ -580,6 +581,8 @@ export interface StorySessionSource {
 }
 
 export interface Writing {
+  sceneTime?: string;
+  preserveDetails?: string[];
   /** Absent is the legacy principal; identity is shared across eras. */
   manuscriptId?: string;
   /** Explicit chapter sidecar; missing/null inherits the project default. */

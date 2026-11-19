@@ -27,6 +27,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
   const [description, setDescription] = useState(project.description ?? '');
   const [author, setAuthor] = useState(project.author ?? '');
   const [blurb, setBlurb] = useState(project.blurb ?? '');
+  const [worldVisualStyle, setWorldVisualStyle] = useState(project.worldVisualStyle ?? '');
   const [genres,setGenres]=useState(project.genres??[]);
   const [color, setColor] = useState(project.color || '#c4973b');
   const [icon, setIcon] = useState(project.icon ?? '');
@@ -39,6 +40,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
     || description !== (project.description ?? '')
     || author !== (project.author ?? '')
     || blurb !== (project.blurb ?? '')
+    || worldVisualStyle !== (project.worldVisualStyle ?? '')
     || JSON.stringify(genres)!==JSON.stringify(project.genres??[])
     || color !== (project.color || '#c4973b')
     || icon !== (project.icon ?? '');
@@ -59,6 +61,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
         description: description.trim(),
         author: author.trim() || undefined,
         blurb: blurb.trim() || undefined,
+        ...(worldVisualStyle !== (project.worldVisualStyle ?? '') ? { worldVisualStyle: worldVisualStyle.trim() || undefined } : {}),
         genres,
         color,
         icon: icon || undefined,
@@ -164,6 +167,18 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
             maxLength={4000}
             onChange={event => setBlurb(event.target.value)}
             placeholder={t('project.edit.blurbHint')}
+            rows={3}
+            className="w-full resize-none rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none transition focus:border-accent-gold"
+          />
+        </div>
+
+        <div>
+          <label htmlFor={`${fieldId}-world-style`} className="mb-1.5 block text-sm text-text-muted">{t('production.worldStyle')}</label>
+          <textarea
+            id={`${fieldId}-world-style`}
+            value={worldVisualStyle}
+            maxLength={4000}
+            onChange={event => setWorldVisualStyle(event.target.value)}
             rows={3}
             className="w-full resize-none rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none transition focus:border-accent-gold"
           />

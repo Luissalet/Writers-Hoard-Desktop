@@ -72,7 +72,7 @@ import { htmlFromMarkdown, resolveProjectForEngine, resolveProjectId } from './s
 import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whWorldMarkdownExport } from './worldMarkdown';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
-import { whEnableEngine, whGetContext, whListProjects, whUpdateProjectDetails, whSearch } from './context';
+import { whCreateProject, whEnableEngine, whGetContext, whListProjects, whUpdateProjectDetails, whSearch } from './context';
 import {
   whAppendWriting,
   whCreateWriting,
@@ -434,6 +434,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_workspace_focus_set: whWorkspaceFocusSet,
   wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),
   wh_list_projects: whListProjects,
+  wh_create_project: whCreateProject,
   wh_update_project_details: whUpdateProjectDetails,
   wh_enable_engine: whEnableEngine,
   wh_search: whSearch,

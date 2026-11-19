@@ -154,6 +154,7 @@ import {
 import { applyChapterNumbers } from '../chapterOrderPersist';
 import { chapterWorldLabel } from '../chapterWorldDate';
 import ChapterWorldDate from './ChapterWorldDate';
+import { clockMinutes, normalizeClock } from '@/engines/timeline/eventDetails';
 import { useWorldCalendar } from '@/engines/timeline/useWorldCalendar';
 import { toast } from '@/components/common/toast';
 import { ReadAloudPanel } from '@/components/read-aloud';
@@ -342,6 +343,16 @@ function WritingMetaFields({
 }) {
   const { t } = useTranslation();
   const pane = useEnginePane();
+  const hours = useWorldCalendar(projectId)?.calendar.hoursPerDay;
+  const timeField = useDebouncedField(writing.sceneTime ?? '', async (value) => {
+    const time = value.trim();
+    if (clockMinutes(time, hours) !== null) {
+      await onUpdate(writing.id, { sceneTime: time ? normalizeClock(time) : undefined });
+    }
+  });
+  const detailsField = useDebouncedField((writing.preserveDetails ?? []).join('\n'), (value) =>
+    onUpdate(writing.id, { preserveDetails: [...new Set(value.split('\n').map(line => line.trim()).filter(Boolean))] }));
+  const invalidTime = clockMinutes(timeField.value.trim(), hours) === null;
   const synopsisField = useDebouncedField(
     writing.synopsis ?? '',
     (value) => onUpdate(writing.id, { synopsis: value.trim() ? value : undefined }),
@@ -374,6 +385,30 @@ function WritingMetaFields({
       </div>
     </div>
     <ChapterWorldDate projectId={projectId} writing={writing} onUpdate={onUpdate} />
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-[9rem_minmax(0,1fr)]">
+      <label className="block text-sm text-text-muted">
+        {t('production.sceneTime')}
+        <input
+          value={timeField.value}
+          onChange={event => timeField.onChange(event.target.value)}
+          onBlur={timeField.onBlur}
+          aria-invalid={invalidTime}
+          placeholder="HH:mm"
+          className="mt-1 block w-full rounded-lg border border-border bg-elevated px-3 py-2 text-text-primary"
+        />
+        {invalidTime && <span className="text-xs text-red-300">{t('production.invalidTime')}</span>}
+      </label>
+      <label className="block text-sm text-text-muted">
+        {t('production.preserveDetails')}
+        <textarea
+          value={detailsField.value}
+          onChange={event => detailsField.onChange(event.target.value)}
+          onBlur={detailsField.onBlur}
+          rows={2}
+          className="mt-1 block w-full rounded-lg border border-border bg-elevated px-3 py-2 text-text-primary"
+        />
+      </label>
+    </div>
     </>
   );
 }
