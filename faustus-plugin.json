@@ -57,6 +57,7 @@
     },
     "launch_hint": {
       "kind": "process",
+      "opens_window": true,
       "executable": "node",
       "argv": ["{WRITER_DIR}/scripts/dev-desktop.mjs"],
       "cwd": "{WRITER_DIR}",
