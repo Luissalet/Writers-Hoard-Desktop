@@ -3,7 +3,11 @@
 // ============================================================================
 
 import { db } from '@/db';
-import { getAllProjects, notifyProjectsChanged, updateProject } from '@/db/operations';
+import { PROJECT_MODES } from '@/engines/_registry';
+import { generateId } from '@/utils/idGenerator';
+import type { Project } from '@/types';
+import { captureProjectDuplicate, duplicateSnapshotVersion } from '@/services/projectDuplicate/capture';
+import { createProject, getAllProjects, notifyProjectsChanged, updateProject } from '@/db/operations';
 import { searchProjectContent } from '@/services/projectSearchIndex';
 import { useAppStore } from '@/stores/appStore';
 import {listLocalToolDefinitions,localToolEngineId} from '@/engines/local/definitions';
@@ -14,8 +18,10 @@ import {
   BridgeError,
   clampLimit,
   currentEngineId,
+  optEnum,
   optNumber,
   optString,
+  optStringArray,
   requireString,
   resolveProjectId,
   withAudit,
@@ -81,6 +87,36 @@ export async function whGetContext(): Promise<unknown> {
     ...(host ? { hoardContext: await writerContext(host.data_space_id, projectId, engine, useLocaleStore.getState().locale) } : {}),
     writesEnabled,
   };
+}
+
+const PROJECT_TYPES = ['standalone', 'saga', 'collection', 'idea'] as const;
+
+export async function whCreateProject(args: ToolArgs): Promise<unknown> {
+  const title = requireString(args, 'title').trim();
+  const mode = optEnum(args, 'mode', PROJECT_MODES.map(item => item.id)) ?? 'novelist';
+  const description = optString(args, 'description')?.trim() ?? '';
+  if (title.length > 200 || description.length > 5000) {
+    throw new BridgeError('bad-args', 'Use at most 200 characters for the title and 5000 for the description.');
+  }
+  const now = Date.now();
+  const enabledEngines = [...new Set(optStringArray(args, 'engineIds') ?? PROJECT_MODES.find(config => config.id === mode)?.defaultEngines ?? [])];
+  if (!enabledEngines.length || enabledEngines.some(id => !BRIDGE_ENGINE_IDS.includes(id))) {
+    throw new BridgeError('bad-args', 'Choose at least one built-in engine. The custom preset requires engineIds.');
+  }
+  const project: Project = {
+    id: generateId('proj'), title, description, mode,
+    type: optEnum(args, 'type', PROJECT_TYPES) ?? 'standalone',
+    color: '#c4973b', enabledEngines, engineOrder: enabledEngines,
+    status: 'draft', createdAt: now, updatedAt: now,
+  };
+  const version = await db.transaction('rw', db.tables, async tx => {
+    await createProject(project);
+    return duplicateSnapshotVersion(await captureProjectDuplicate(tx, project.id));
+  });
+  return withAudit({ id: project.id, title, mode, enabledEngines, created: true }, {
+    projectId: project.id, entityId: project.id, kind: 'create',
+    summary: `created project "${title}"`, before: { __newProjectVersion: version },
+  });
 }
 
 export async function whListProjects(): Promise<unknown> {
@@ -167,13 +203,20 @@ export async function whUpdateProjectDetails(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const project = await db.projects.get(projectId);
   if (!project) throw new BridgeError('not-found', 'Project not found.');
-  const changes: { title?: string; description?: string; author?: string | undefined; blurb?: string | undefined } = {};
+  const changes: Partial<Pick<Project, 'title' | 'description' | 'author' | 'blurb' | 'worldVisualStyle'>> = {};
   if (args.title !== undefined) { const title = typeof args.title === 'string' ? args.title.trim() : ''; if (!title || title.length > 200) throw new BridgeError('bad-args', 'title is 1 to 200 characters.'); changes.title = title; }
   if (args.description !== undefined) { if (typeof args.description !== 'string' || args.description.length > 5000) throw new BridgeError('bad-args', 'description is up to 5000 characters.'); changes.description = args.description.trim(); }
   if (args.author !== undefined) { if (typeof args.author !== 'string' || args.author.length > 120) throw new BridgeError('bad-args', 'author is up to 120 characters; "" removes it.'); changes.author = args.author.trim() || undefined; }
   if (args.blurb !== undefined) { if (typeof args.blurb !== 'string' || args.blurb.length > 4000) throw new BridgeError('bad-args', 'blurb is up to 4000 characters; "" removes it.'); changes.blurb = args.blurb.trim() || undefined; }
-  if (!Object.keys(changes).length) throw new BridgeError('bad-args', 'Pass title, description, author or blurb.');
-  const before = { title: project.title, description: project.description, author: project.author ?? null, blurb: project.blurb ?? null };
+  if (args.worldVisualStyle !== undefined) {
+    if (typeof args.worldVisualStyle !== 'string' || args.worldVisualStyle.length > 4000) {
+      throw new BridgeError('bad-args', 'worldVisualStyle is up to 4000 characters.');
+    }
+    changes.worldVisualStyle = args.worldVisualStyle.trim() || undefined;
+  }
+  if (!Object.keys(changes).length) throw new BridgeError('bad-args', 'Pass title, description, author, blurb or worldVisualStyle.');
+  const before = { title: project.title, description: project.description, author: project.author ?? null, blurb: project.blurb ?? null,
+    ...('worldVisualStyle' in changes ? { worldVisualStyle: project.worldVisualStyle ?? null } : {}) };
   await db.projects.update(projectId, { ...changes, updatedAt: Date.now() });
   notifyProjectsChanged();
   return withAudit({ projectId, updated: Object.keys(changes), title: changes.title ?? project.title, author: ('author' in changes ? changes.author : project.author) ?? null }, { projectId, entityId: projectId, summary: `updated project details (${Object.keys(changes).join(', ')})`, before: { __projectDetails: before } });

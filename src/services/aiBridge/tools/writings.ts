@@ -8,6 +8,7 @@ import {selectManuscriptWritings,assertManuscriptOwner} from '@/engines/writings
 // an external model does here is undoable from the app's history panel.
 
 import type { Writing, WritingStatus } from '@/types';
+import { clockMinutes, normalizeClock } from '@/engines/timeline/eventDetails';
 import { WritingConflictError } from '@/engines/writings/operations';
 import { eraWritingOperations, eraSnapshotOperations } from '@/services/worldEras/writings';
 import { extractFootnotesFromHtml } from '@/components/editor/footnotes/footnoteModel';
@@ -91,6 +92,23 @@ async function worldDating(
 }
 
 /** A chapter's world date for a tool answer: structured plus the calendar's own text. */
+async function productionMetadata(projectId: string, args: ToolArgs): Promise<Partial<Pick<Writing, 'sceneTime' | 'preserveDetails'>>> {
+  const fields: Partial<Pick<Writing, 'sceneTime' | 'preserveDetails'>> = {};
+  if (args.sceneTime !== undefined) {
+    const time = optString(args, 'sceneTime')?.trim();
+    const calendar = await resolveWorldCalendar(projectId, undefined, optString(args, 'eraId'));
+    if (time === undefined || clockMinutes(time, calendar?.calendar.hoursPerDay) === null) {
+      throw new BridgeError('bad-args', 'sceneTime must be HH:mm or empty.');
+    }
+    fields.sceneTime = time ? normalizeClock(time) : undefined;
+  }
+  if (args.preserveDetails !== undefined) {
+    const details = optStringArray(args, 'preserveDetails') ?? [];
+    fields.preserveDetails = [...new Set(details.map(detail => detail.trim()).filter(Boolean))];
+  }
+  return fields;
+}
+
 function worldDateView(calendar: WorldCalendar | null, w: Pick<Writing, 'worldDate' | 'worldDateEnd'>): Record<string, unknown> {
   if (!w.worldDate) return {};
   let text: string | undefined;
@@ -205,6 +223,8 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
     synopsis: writing.synopsis,
     tags: writing.tags,
     ...worldDateView(calendar, writing),
+    sceneTime: writing.sceneTime ?? null,
+    preserveDetails: writing.preserveDetails ?? [],
     wordCount: projected ? countWords(finalHtml) : writing.wordCount,
     ...(projected ? { pendingRevisions: true, storedWordCount: writing.wordCount } : {}),
     updatedAt: writing.updatedAt,
@@ -232,6 +252,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
     ...bookPlacement(args),
     tags: optStringArray(args, 'tags') ?? [],
     ...(await worldDating(projectId, args)),
+    ...(await productionMetadata(projectId, args)),
     createdAt: now,
     updatedAt: now,
   };
@@ -355,7 +376,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   if (args.heldBack !== undefined) changes.heldBack = placement.heldBack;
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
-  Object.assign(changes, await worldDating(existing.projectId, args, existing));
+  Object.assign(changes, await worldDating(existing.projectId, args, existing), await productionMetadata(existing.projectId, args));
 
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');

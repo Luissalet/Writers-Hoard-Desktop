@@ -230,6 +230,7 @@ export function toolRisk(tool: BridgeTool): 'read' | 'write' | 'destructive' | '
     || tool.name === 'wh_download_snapshot_media'
     // These four reach another app (Prospero's or Scheherazade's Hoard) through the hub.
     || tool.name === 'wh_character_to_prospero'
+    || tool.name === 'wh_production_to_prospero'
     || tool.name === 'wh_storyboard_to_prospero'
     || tool.name === 'wh_world_to_scheherazade'
     || tool.name === 'wh_world_from_scheherazade'

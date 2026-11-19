@@ -1744,6 +1744,45 @@ asigna la gemela camelCase; gana la clave exacta). Las cuatro son de riesgo
 `external` y dejan siempre línea de auditoría. Descripción: la primera línea
 ≤110 caracteres.
 
+### Expedientes de producción
+
+`wh_create_project(title, mode?, type?, description?, engineIds?)` crea un
+proyecto vacío con el mismo preajuste de motores que el formulario. Por
+defecto usa el modo `novelist` y el tipo `standalone`. El modo `custom` necesita
+`engineIds`. Se puede deshacer el alta mientras el proyecto siga intacto.
+
+`wh_create_writing` y `wh_update_writing` admiten `sceneTime` (hora local
+`HH:mm` válida en el calendario) y `preserveDetails` (lista de datos exactos).
+`wh_update_project_details` admite `worldVisualStyle`. Los tres campos se
+pueden editar también en la interfaz.
+
+`wh_production_dossier({projectId, writingId, kind?, subjectId?, placeId?, eraId?, preserveDetails?})`
+devuelve un solo documento `hoard.production-dossier/1`:
+
+- `subject`, `project` y `chapter` contienen IDs, procedencia y el ámbito de la
+  consulta. El capítulo incluye fecha y hora local; para una escena se
+  puede pasar un ID de Dialog Scenes o uno de ritmo como `writingId#0`.
+- `scene` contiene el texto del capítulo o de la escena elegida. Para un
+  personaje o lugar, `subjectId` es el ID de su ficha. `placeId` permite elegir
+  el emplazamiento.
+- `characters` trae las fichas, voz, ejemplos y estado al cierre del capítulo
+  cuando el libro de estado tiene datos. `places` y `objects` traen las fichas
+  de los lugares y los objetos que constan en el inventario.
+- `world` contiene el estilo visual, tiempo y luna. El tiempo usa un punto
+  único del libro de estado o vínculos explícitos del mundo. Una fecha
+  imprecisa, un punto sin datos o un mapa pendiente quedan identificados.
+- `references` da IDs de galería, disponibilidad y roles de las imágenes
+  elegidas en el Estudio de imágenes. Los PNG se incorporan al borrador en
+  el traspaso. `preserveDetails` conserva el orden de los detalles guardados
+  y añade los que se pasen en la llamada.
+
+`wh_production_to_prospero` acepta los mismos argumentos. Envía el expediente
+y las imágenes aprobadas al estudio de escritorio por el Hub y devuelve el
+ID del borrador, el proyecto y los IDs de los recursos. No encola un render.
+El deshacer del puente o del control del capítulo devuelve el borrador a la
+papelera mientras siga intacto. Al reenviar el mismo expediente y las mismas
+imágenes, se reutiliza el mismo borrador.
+
 ### El formato `hoard.world/1`
 
 Documento neutro compartido con Scheherazade; el esquema completo está en
