@@ -72,6 +72,7 @@ async function main() {
     configFile: path.join(projectRoot, 'vite.config.ts'),
     server: {
       host: '127.0.0.1',
+      ...(process.env.WH_RENDERER_PORT ? { port: Number(process.env.WH_RENDERER_PORT) } : {}),
       // The renderer's origin is where its IndexedDB lives. A silently bumped
       // port (5175 because 5174 was busy) is a new origin with an empty
       // library, so fail loudly instead of opening the app on the wrong one.

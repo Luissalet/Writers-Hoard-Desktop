@@ -172,6 +172,7 @@ const isDev = !app.isPackaged;
 // A separate profile (library, settings, bridge token) for tests and portable
 // runs. Set before anything reads userData or takes the single-instance lock.
 if (process.env.WH_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.WH_USER_DATA_DIR));
+const headlessStudio = process.env.WH_HEADLESS === '1' && Boolean(process.env.WH_USER_DATA_DIR);
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || `${RENDERER_ORIGIN}/`;
 const PACKAGED_RENDERER_DIR = path.join(__dirname, '..', 'dist');
 // Development and the packaged app load the renderer from the same origin
@@ -755,7 +756,7 @@ async function createWindow(): Promise<void> {
   if (state.isMaximized) mainWindow.maximize();
   trackWindowState(mainWindow);
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  if (!headlessStudio) mainWindow.once('ready-to-show', () => mainWindow?.show());
 
   // External links (target=_blank, window.open) open in the OS browser,
   // never inside the app shell.
@@ -2305,6 +2306,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    if (headlessStudio) return;
     // Double-clicking the icon is the user saying "show me the app". This
     // instance owns the single-instance lock, so if it has no window left —
     // the app outlived its last one because something hidden was still open —
