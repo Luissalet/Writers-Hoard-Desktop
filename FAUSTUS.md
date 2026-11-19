@@ -23,7 +23,9 @@ investigación: con `coaseReportId` pide el dosier a Coase por el Hub; con
 `pack` acepta fuentes y afirmaciones con su cita literal. Cada afirmación
 queda como evidencia de su fuente, sin tocar la cita, y se cita en un
 capítulo con `wh_edit_writing_editorial` (`insertCitation` con `sourceId` y
-`evidenceId`) sin reescribir el texto. Deshacer quita las fuentes creadas.
+`evidenceId`) sin reescribir el texto. Si el mismo paquete vuelve con
+afirmaciones nuevas, se añaden a su fuente sin tocar las anteriores.
+Deshacer quita las fuentes creadas y las afirmaciones añadidas.
 
 ## Continuidad del manuscrito: viajes y libro de estado
 

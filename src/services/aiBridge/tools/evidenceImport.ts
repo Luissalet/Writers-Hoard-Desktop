@@ -43,13 +43,17 @@ export async function whImportEvidence(args: ToolArgs): Promise<unknown> {
     next: 'Cite a claim in a chapter with wh_edit_writing_editorial, operation {kind:"insertCitation", sourceId, evidenceId, '
       + 'range:{from:p,to:p}} (a collapsed range inserts without touching the text). The quotes are pending: check them before relying on them.',
   };
-  if (!filed.createdCitationIds.length) return result;
-  return withAudit({ ...result, created: true }, {
+  const added = filed.appended.reduce((sum, row) => sum + row.evidenceIds.length, 0);
+  if (!filed.createdCitationIds.length && !added) return result;
+  // Undo removes the sources this call created and the claims it added to
+  // sources filed before (__evidenceAppended); rows already there stay.
+  return withAudit({ ...result, ...(filed.createdCitationIds.length ? { created: true } : {}), claimsAdded: added }, {
     projectId,
     entityIds: filed.createdCitationIds,
-    entityId: filed.createdCitationIds[0],
+    entityId: filed.createdCitationIds[0] ?? filed.appended[0].citationId,
     table: 'citations',
-    kind: 'create',
-    summary: `filed ${filed.claims.length} claim(s) from ${filed.createdCitationIds.length} source(s) of ${filed.ref}`,
+    kind: filed.createdCitationIds.length ? 'create' : 'update',
+    before: { __evidenceAppended: filed.appended },
+    summary: `filed ${filed.claims.length} claim(s) from ${filed.createdCitationIds.length} new and ${filed.appended.length} known source(s) of ${filed.ref}`,
   });
 }

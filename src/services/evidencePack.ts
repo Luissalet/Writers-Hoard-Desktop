@@ -12,8 +12,9 @@
 //
 // Two shapes are read: the plain pack below, and a dossier report of Coase's
 // Hoard (`findings[].quotes[]` against `sources[]`), which is the same thing
-// under other names. Re-filing the same pack adds nothing: each source keeps
-// its pack reference in its notes and is recognised by it.
+// under other names. Each source keeps its pack reference in its notes and is
+// recognised by it when the pack is filed again: claims already there are
+// reused, and a claim the pack has gained since is added to that source.
 
 import { db } from '@/db';
 import type { Citation, ResearchEvidence } from '@/types/projectTools';
@@ -148,6 +149,8 @@ export interface FiledClaim {
 export interface FiledPack {
   ref: string;
   createdCitationIds: string[];
+  /** Evidence rows added to sources filed before, per source: what undo takes back there. */
+  appended: Array<{ citationId: string; evidenceIds: string[] }>;
   claims: FiledClaim[];
 }
 
@@ -160,60 +163,84 @@ function localDay(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
+function evidenceRow(pack: EvidencePack, claim: PackClaim, now: number): ResearchEvidence {
+  return {
+    id: generateId('evidence'), statement: claim.text, kind: claim.kind ?? 'fact', quote: claim.quote,
+    locator: claim.locator ?? '', status: 'pending',
+    notes: `Filed from ${pack.ref}${claim.id ? ` (claim ${claim.id})` : ''}. Check the quote against the source before relying on it.`,
+    createdAt: now, updatedAt: now,
+  };
+}
+
 /**
  * File the pack into the project: a citation per source (reused when the same
  * pack source was filed before) carrying one pending evidence row per claim.
- * Only new citations are created; an existing one is never edited, so undoing
- * the import is removing what it created.
+ * A reused citation only gains the rows of claims it did not have; nothing
+ * already there is edited, so undoing the import is removing what it added.
  */
 export async function filePack(projectId: string, pack: EvidencePack): Promise<FiledPack> {
   return db.transaction('rw', db.projects, db.citations, async () => {
     if (!await db.projects.get(projectId)) throw new EvidencePackError(`No project ${projectId}.`);
     const existing = await db.citations.where('projectId').equals(projectId).toArray();
     const createdCitationIds: string[] = [];
+    const appended: FiledPack['appended'] = [];
     const claims: FiledClaim[] = [];
     for (const source of pack.sources) {
       const ref = sourceRef(pack, source);
-      const mine = pack.claims.filter(c => c.sourceId === source.id);
       const found = existing.find(c => (c.notes ?? '').split('\n').includes(ref));
+      const citationId = found?.id ?? generateId('cite');
+      const rows = [...(found?.researchEvidence ?? [])];
+      const added: ResearchEvidence[] = [];
+      const now = Date.now();
+      for (const claim of pack.claims.filter(c => c.sourceId === source.id)) {
+        const match = rows.find(e => e.statement === claim.text && e.quote === claim.quote);
+        if (match) {
+          if (!added.includes(match)) claims.push({ claim: claim.text, quote: claim.quote, sourceId: citationId, evidenceId: match.id, packSourceId: source.id, created: false });
+          continue;
+        }
+        const row = evidenceRow(pack, claim, now);
+        rows.push(row);
+        added.push(row);
+        claims.push({ claim: claim.text, quote: claim.quote, sourceId: citationId, evidenceId: row.id, packSourceId: source.id, created: true });
+      }
       if (found) {
-        for (const claim of mine) {
-          const match = (found.researchEvidence ?? []).find(e => e.statement === claim.text && e.quote === claim.quote);
-          if (match) claims.push({ claim: claim.text, quote: claim.quote, sourceId: found.id, evidenceId: match.id, packSourceId: source.id, created: false });
+        if (added.length) {
+          await db.citations.update(found.id, { researchEvidence: rows, updatedAt: now });
+          appended.push({ citationId: found.id, evidenceIds: added.map(row => row.id) });
         }
         continue;
       }
-      const now = Date.now();
-      const seen = new Set<string>();
-      const evidence: ResearchEvidence[] = [];
-      for (const claim of mine) {
-        const key = `${claim.text}\n${claim.quote}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const row: ResearchEvidence = {
-          id: generateId('evidence'), statement: claim.text, kind: claim.kind ?? 'fact', quote: claim.quote,
-          locator: claim.locator ?? '', status: 'pending',
-          notes: `Filed from ${pack.ref}${claim.id ? ` (claim ${claim.id})` : ''}. Check the quote against the source before relying on it.`,
-          createdAt: now, updatedAt: now,
-        };
-        evidence.push(row);
-        claims.push({ claim: claim.text, quote: claim.quote, sourceId: '', evidenceId: row.id, packSourceId: source.id, created: true });
-      }
       const url = source.url ? safeResearchUrl(source.url) : undefined;
       const citation: Citation = {
-        id: generateId('cite'), projectId, title: source.title, authors: source.authors ?? [],
+        id: citationId, projectId, title: source.title, authors: source.authors ?? [],
         ...(source.publisher ? { publisher: source.publisher } : {}),
         ...(source.published ? { publishedAt: source.published } : {}),
         accessedAt: localDay(),
         ...(url ? { url } : {}),
         notes: `${ref}${pack.title ? `\nEvidence pack: ${pack.title}` : ''}`,
-        writingIds: [], tags: ['evidence-pack'], researchEvidence: evidence, createdAt: now, updatedAt: now,
+        writingIds: [], tags: ['evidence-pack'], researchEvidence: rows, createdAt: now, updatedAt: now,
       };
       await db.citations.add(citation);
       existing.push(citation);
       createdCitationIds.push(citation.id);
-      for (const filed of claims) if (filed.created && !filed.sourceId && filed.packSourceId === source.id) filed.sourceId = citation.id;
     }
-    return { ref: pack.ref, createdCitationIds, claims };
+    return { ref: pack.ref, createdCitationIds, appended, claims };
+  });
+}
+
+/** Undo the rows a re-filing added to sources filed before; other rows stay as they are. */
+export async function removeAppendedEvidence(appended: FiledPack['appended']): Promise<number> {
+  return db.transaction('rw', db.citations, async () => {
+    let removed = 0;
+    for (const { citationId, evidenceIds } of appended) {
+      const citation = await db.citations.get(citationId);
+      if (!citation) continue;
+      const rows = citation.researchEvidence ?? [];
+      const kept = rows.filter(row => !evidenceIds.includes(row.id));
+      if (kept.length === rows.length) continue;
+      removed += rows.length - kept.length;
+      await db.citations.update(citationId, { researchEvidence: kept, updatedAt: Date.now() });
+    }
+    return removed;
   });
 }
