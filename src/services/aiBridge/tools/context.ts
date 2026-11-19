@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { db } from '@/db';
-import { PROJECT_MODES, getEnginesForMode } from '@/engines';
+import { PROJECT_MODES } from '@/engines/_registry';
 import { generateId } from '@/utils/idGenerator';
 import type { Project } from '@/types';
 import { captureProjectDuplicate, duplicateSnapshotVersion } from '@/services/projectDuplicate/capture';
@@ -99,7 +99,7 @@ export async function whCreateProject(args: ToolArgs): Promise<unknown> {
     throw new BridgeError('bad-args', 'Use at most 200 characters for the title and 5000 for the description.');
   }
   const now = Date.now();
-  const enabledEngines = [...new Set(optStringArray(args, 'engineIds') ?? getEnginesForMode(mode).map(engine => engine.id))];
+  const enabledEngines = [...new Set(optStringArray(args, 'engineIds') ?? PROJECT_MODES.find(config => config.id === mode)?.defaultEngines ?? [])];
   if (!enabledEngines.length || enabledEngines.some(id => !BRIDGE_ENGINE_IDS.includes(id))) {
     throw new BridgeError('bad-args', 'Choose at least one built-in engine. The custom preset requires engineIds.');
   }

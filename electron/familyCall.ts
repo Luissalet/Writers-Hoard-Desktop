@@ -69,7 +69,7 @@ export function checkFamilyCall(raw: unknown): { request: FamilyCallRequest } | 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'The request must be an object.' };
   const request = raw as Record<string, unknown>;
   if (!isAllowedCall(request.app, request.tool)) {
-    return { error: 'That app and tool may not be called from Writers Hoard (allowed: Prospero cast_import_character and production_from_storyboard; Scheherazade world_export and world_import).' };
+    return { error: 'That app and tool may not be called from Writers Hoard.' };
   }
   const args = request.args;
   if (!args || typeof args !== 'object' || Array.isArray(args)) return { error: 'The arguments must be an object.' };
@@ -170,7 +170,9 @@ export async function familyCall(raw: unknown, deps: FamilyCallDeps = {}): Promi
     } catch (error) {
       return bad(error instanceof Error ? error.message : String(error));
     }
-    return await (deps.call ?? callApp)(request.app, request.tool, args, { timeoutS: request.timeoutS, deps: deps.deps });
+    const reason = request.tool === 'production_receive_dossier' ? 'Prepare the requested production dossier as a draft.'
+      : request.tool === 'production_discard_dossier' ? 'Undo the requested production dossier handoff.' : undefined;
+    return await (deps.call ?? callApp)(request.app, request.tool, args, { timeoutS: request.timeoutS, deps: deps.deps, ...(reason ? { reason } : {}) });
   } catch (error) {
     return { ok: false, code: 'bad_response', error: error instanceof Error ? error.message : String(error), app: request.app, tool: request.tool };
   } finally {

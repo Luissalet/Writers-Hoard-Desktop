@@ -154,6 +154,7 @@ import {
 import { applyChapterNumbers } from '../chapterOrderPersist';
 import { chapterWorldLabel } from '../chapterWorldDate';
 import ChapterWorldDate from './ChapterWorldDate';
+import ProductionHandoff from '@/services/production/ProductionHandoff';
 import { clockMinutes, normalizeClock } from '@/engines/timeline/eventDetails';
 import { useWorldCalendar } from '@/engines/timeline/useWorldCalendar';
 import { toast } from '@/components/common/toast';
@@ -409,6 +410,7 @@ function WritingMetaFields({
         />
       </label>
     </div>
+    <ProductionHandoff projectId={projectId} writingId={writing.id} invalidTime={invalidTime} />
     </>
   );
 }
