@@ -2414,10 +2414,11 @@ if (!gotLock) {
 
     // The bridge answers from the main window, so it needs a way to find it.
     setBridgeWindowResolver(() => mainWindow);
+    if (headlessStudio) await getBridgeToken();
     await syncAiBridgeNow();
 
     void createWindow();
-    registerQuickNoteShortcut();
+    if (!headlessStudio) registerQuickNoteShortcut();
     initAutoUpdates();
 
     app.on('activate', () => {
