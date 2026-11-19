@@ -13,6 +13,7 @@ It is also the Writer plugin of the Hoard family. It absorbs the former interact
 ## What it does
 
 **Writing**
+- Production dossiers for a character, scene or place in a chapter, including scene time, visual style, approved references and details to preserve. Send a dossier as a studio draft or read it through MCP.
 - Rich document editor: styles, fonts, colours, tables, footnotes, page breaks, a "/" menu with 26 blocks (callouts, read-aloud boxes, messages, letters, game-prep blocks), chapters with kickers and header images, several manuscripts per world.
 - Native document engine (Rust) for DOCX, PDF and other formats, a Changes panel with anchored proposals, named editorial styles, headers and footers, local Spanish spelling and optional grammar (LanguageTool, needs Java 17+), and a document check against documentation rules.
 - Suggested continuation (ghost text): off by default, local models only, Tab to accept.
@@ -63,7 +64,7 @@ On Windows, `setup.bat` performs the one-time setup and `run.bat` starts the app
 ## Connection with Faustus and the Hoard family
 
 - **Plugin.** Writer declares itself in [`faustus-plugin.json`](faustus-plugin.json) (id `writer`). The AI bridge is off by default: turn it on in **Settings > AI bridge**. It then answers on `127.0.0.1:8766` (`/api/health` needs no token; everything else needs the bridge token, kept in your profile). Faustus launches the stdio adapter shipped with the app.
-- **MCP tools.** The bridge exposes `wh_*` tools covering projects and context, writings, Codex cards, notes, outlines, maps and world generation, timelines, tables, boards, annotations, assets, imports and exports, publishing, investigation, themes and the local tool SDK; plus the fiction tools. Writes are revision-checked and undoable. Named access keys can be created and revoked per client. Full reference: [docs/AI-BRIDGE.md](docs/AI-BRIDGE.md).
+- **MCP tools.** The bridge exposes `wh_*` tools covering project creation and context, writings, Codex cards, notes, outlines, maps and world generation, timelines, tables, boards, annotations, assets, imports and exports, publishing, investigation, themes and the local tool SDK; plus the fiction tools. Writes are revision-checked and undoable. Named access keys can be created and revoked per client. Full reference: [docs/AI-BRIDGE.md](docs/AI-BRIDGE.md).
 - **Faustus copilot.** The desktop copilot mounts Faustus's shared chat panel; Faustus owns conversations, models and memory, Writer supplies the project, manuscript and live selection. `WH_FAUSTUS_URL` selects the service (default `http://127.0.0.1:7000`). See [docs/FAUSTUS-COPILOT.md](docs/FAUSTUS-COPILOT.md).
 - **External assistants.** Claude Desktop, Codex or Gemini CLI can connect to the bridge; **Settings > AI bridge** gives per-client configuration. See [docs/ai-external-connection.md](docs/ai-external-connection.md) and [docs/ai-subscriptions.md](docs/ai-subscriptions.md).
 - **Hand-offs.** A Codex character can be sent to Prospero's Hoard as a cast member, a storyboard as a production, and a world can travel to and from Scheherazade as a neutral `hoard.world/1` document. Imports create new records and can be undone.

@@ -29,6 +29,7 @@ import { CODEX_OPTION_LIST_HANDLERS } from '@/engines/codex/optionListBridge';
 // runtime in front of a model.
 
 import type { ToolArgs } from './shared';
+import { whProductionDossier, whProductionToProspero } from './production';
 import { DOCUMENT_HANDLERS } from './documents';
 import { FICTION_HANDLERS } from './fiction';
 import { PUBLISHING_HANDLERS } from './publishing';
@@ -435,6 +436,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),
   wh_list_projects: whListProjects,
   wh_create_project: whCreateProject,
+  wh_production_dossier: whProductionDossier,
+  wh_production_to_prospero: whProductionToProspero,
   wh_update_project_details: whUpdateProjectDetails,
   wh_enable_engine: whEnableEngine,
   wh_search: whSearch,
