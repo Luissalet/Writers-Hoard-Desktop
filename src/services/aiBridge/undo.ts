@@ -689,6 +689,16 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     };
   }
 
+  // An evidence pack filed again: the claims it added to sources filed before
+  // go, the rows those sources already had stay; new sources go below.
+  if (entry.tool === 'wh_import_evidence' && entry.before && typeof entry.before === 'object' && '__evidenceAppended' in entry.before) {
+    const appended = (entry.before as Record<string, unknown>).__evidenceAppended;
+    if (!Array.isArray(appended)) throw new BridgeError('cannot-undo', 'This import did not record the claims it added.');
+    const { removeAppendedEvidence } = await import('@/services/evidencePack');
+    await removeAppendedEvidence(appended.filter((row): row is { citationId: string; evidenceIds: string[] } => !!row && typeof (row as { citationId?: unknown }).citationId === 'string' && Array.isArray((row as { evidenceIds?: unknown }).evidenceIds)));
+    if (!listed.length) return { undone: true, kind, entityId, what: summary };
+  }
+
   if (kind === 'create') {
     const targets = listed.length ? listed : [entityId];
     let removed = 0;

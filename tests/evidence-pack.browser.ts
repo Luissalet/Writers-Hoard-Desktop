@@ -81,6 +81,31 @@ export async function testEvidencePackBridge(): Promise<string[]> {
       'the sentence around the citation is unchanged');
     out.push('a filed claim is cited in the chapter without rewriting it');
 
+    // The same pack comes back with a new claim B on a source already filed (C2):
+    // B joins that source, A keeps its row, and undo takes back B alone.
+    const claimB = { text: 'Cada CFS guarda cuatro bobinas secas.', source_id: 'C2', quote: 'El CFS mantiene secas las cuatro bobinas que aloja.', locator: 'FAQ 5' };
+    // It also brings a new source Z, so one call both creates and adds.
+    const sourceZ = { id: 'Z1', title: 'Bambu Lab — ficha de H2D', url: 'https://bambulab.com/h2d' };
+    const claimZ = { text: 'La H2D tiene dos boquillas.', source_id: 'Z1', quote: 'Sistema de doble boquilla.' };
+    const grown = await call('wh_import_evidence', { pack: { ...PACK, sources: [...PACK.sources, sourceZ], claims: [...PACK.claims, claimB, claimZ] } });
+    const grownClaims = grown.claims as Claim[];
+    const filedB = grownClaims.find(c => c.claim === claimB.text);
+    assert(grown.sourcesCreated === 1 && filedB && !filedB.alreadyFiled && filedB.sourceId === sixteen.sourceId && grown.__audit,
+      `a new claim on a filed source is added to it: ${JSON.stringify(grown)}`);
+    assert(grownClaims.find(c => c.claim === sixteen.claim)?.evidenceId === sixteen.evidenceId, 'claim A keeps its evidence row');
+    const widened = (await db.citations.get(sixteen.sourceId))!.researchEvidence ?? [];
+    assert(widened.length === 2 && widened.some(e => e.id === filedB.evidenceId && e.quote === claimB.quote && e.statement === claimB.text),
+      `the source now holds A and B with B's quote verbatim: ${JSON.stringify(widened)}`);
+    assert((await db.citations.where('projectId').equals(projectId).count()) === 3, 'the new source Z is filed');
+    out.push('a re-filed pack with a new claim adds it to its source');
+
+    await undo('wh_import_evidence', grown);
+    const narrowed = (await db.citations.get(sixteen.sourceId))!.researchEvidence ?? [];
+    assert(narrowed.length === 1 && narrowed[0].id === sixteen.evidenceId, `undo removes B and keeps A: ${JSON.stringify(narrowed)}`);
+    assert((await db.writings.get(writingId))!.content === after, 'the paragraph citing A is untouched by the undo');
+    assert((await db.citations.where('projectId').equals(projectId).count()) === 2, 'undo removes the new source Z and no other');
+    out.push('undo of the re-filing takes back the new claim only');
+
     const asked: Array<{ app: string; tool: string; args: Record<string, unknown> }> = [];
     setFamilyTransport(async request => {
       asked.push(request);
