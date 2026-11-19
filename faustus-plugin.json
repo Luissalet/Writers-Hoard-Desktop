@@ -87,6 +87,16 @@
     ]
   },
   "x-family": {
+    "production": {
+      "handoffs": [
+        {"accepts": "production-brief", "produces": ["scene-brief", "editable-report"], "skill": "writing-plans", "check": {"en": "Reread the chapter, world date and character details, or reopen the exported report and compare citations with its sources.", "es": "Relee el capítulo, la fecha del mundo y los detalles del personaje, o abre el informe exportado y coteja las citas con sus fuentes."}},
+        {"accepts": "research-dossier", "produces": ["editable-report"], "skill": "notes-from-templates", "check": {"en": "Reopen the report and check that cited sources, links and tables survived export.", "es": "Abre el informe y comprueba que la exportación conserva las citas, los enlaces y las tablas."}}
+      ]
+    },
+    "module_controls": {
+      "publishing": {"list": "wh_publishing_modules", "set": "wh_publishing_module_set", "name_field": "id"},
+      "story": {"list": "wh_story_modules", "set": "wh_story_module_set", "name_field": "id", "automatic": false}
+    },
     "stack": "node",
     "copilot": {
       "contract_version": "1.0",
