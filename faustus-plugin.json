@@ -136,7 +136,7 @@
   },
   "notes": "The Hub starts the repository's desktop launcher. Set up the source checkout first. Turn on the AI bridge in Settings when you want agents to connect. The source launcher and MCP adapter use the repository build.",
   "provides": {
-    "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates"], "limit": 3}
+    "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates", "studio-writer-production-brief", "studio-writer-report"], "limit": 5}
   },
-  "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates"], "limit": 3}
+  "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates", "studio-writer-production-brief", "studio-writer-report"], "limit": 5}
 }
