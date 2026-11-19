@@ -29,17 +29,13 @@
     "APP_URL",
     "TOKEN_FILE",
     "DATA_DIR",
-    "WRITER_EXE",
-    "WRITER_ADAPTER",
-    "WRITER_INSTALL_DIR"
+    "WRITER_ADAPTER"
   ],
   "defaults": {
     "APP_URL": "http://127.0.0.1:8766",
     "TOKEN_FILE": "%APPDATA%/writers-hoard/aibridge/token",
     "DATA_DIR": "%APPDATA%/writers-hoard/backups",
-    "WRITER_EXE": "%LOCALAPPDATA%/Programs/Writers Hoard/Writers Hoard.exe",
-    "WRITER_ADAPTER": "{WRITER_DIR}/dist-electron/aibridge/mcpStdio.cjs",
-    "WRITER_INSTALL_DIR": "%LOCALAPPDATA%/Programs/Writers Hoard"
+    "WRITER_ADAPTER": "{WRITER_DIR}/dist-electron/aibridge/mcpStdio.cjs"
   },
   "app": {
     "url_default": "http://127.0.0.1:8766",
@@ -61,26 +57,25 @@
     },
     "launch_hint": {
       "kind": "process",
-      "executable": "{WRITER_EXE}",
-      "argv": [],
-      "cwd": "{WRITER_INSTALL_DIR}",
+      "executable": "node",
+      "argv": ["{WRITER_DIR}/scripts/dev-desktop.mjs"],
+      "cwd": "{WRITER_DIR}",
       "readiness": {
         "url": "{APP_URL}/api/health",
-        "timeout_s": 40
+        "timeout_s": 120
       }
     }
   },
   "mcp": {
     "transport": "stdio",
-    "command": "{WRITER_EXE}",
+    "command": "node",
     "args": [
       "{WRITER_ADAPTER}"
     ],
     "env": {
       "WH_BRIDGE_URL": "{APP_URL}",
       "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}",
-      "WH_SKILLS_DIR": "{DATA_DIR}/skills",
-      "ELECTRON_RUN_AS_NODE": "1"
+      "WH_SKILLS_DIR": "{DATA_DIR}/skills"
     },
     "optional_env": [
       "WH_BRIDGE_GROUPS"
@@ -138,7 +133,7 @@
       "data": "in-place selectable directory; no automatic migration"
     }
   },
-  "notes": "The AI bridge is off by default; turn it on in Writers Hoard \u2192 Settings \u2192 AI bridge. /api/health answers without a token; every other route needs the bridge token as a Bearer.",
+  "notes": "The Hub starts the repository's desktop launcher. Set up the source checkout first. Turn on the AI bridge in Settings when you want agents to connect. The source launcher and MCP adapter use the repository build.",
   "provides": {
     "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates"], "limit": 3}
   },
