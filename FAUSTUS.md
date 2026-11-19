@@ -16,6 +16,15 @@ compila el expediente, y `wh_production_to_prospero` prepara el borrador.
 El [contrato del expediente](docs/AI-BRIDGE.md#expedientes-de-producción)
 describe los campos y su procedencia.
 
+## Evidencia de un puesto de investigación
+
+`wh_import_evidence` archiva el paquete de evidencia de un puesto de
+investigación: con `coaseReportId` pide el dosier a Coase por el Hub; con
+`pack` acepta fuentes y afirmaciones con su cita literal. Cada afirmación
+queda como evidencia de su fuente, sin tocar la cita, y se cita en un
+capítulo con `wh_edit_writing_editorial` (`insertCitation` con `sourceId` y
+`evidenceId`) sin reescribir el texto. Deshacer quita las fuentes creadas.
+
 ## Continuidad del manuscrito: viajes y libro de estado
 
 Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pestañas.
