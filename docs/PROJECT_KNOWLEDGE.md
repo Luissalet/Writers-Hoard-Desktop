@@ -11,17 +11,21 @@ ideas are now implemented, so it should not be treated as the current map.
 ## Focused renderer tests
 
 The runner takes a test file, an exported function and an optional timeout in
-milliseconds.
+milliseconds (1,000 to 600,000, default 60,000). The budget covers Vite startup,
+Electron startup, page load, the test and shutdown. A timeout reports the phase
+and exits with an error.
 
 ```sh
 npx electron scripts/run-focused-browser-tests.cjs tests/proofing-core.browser.ts testProofingCore
 ```
 
-The runner starts Vite on a temporary loopback port and uses a temporary
-profile and cache. Module workers resolve from their source files and public
-assets use the renderer origin. The spelling test loads the Spanish Hunspell
-dictionaries and checks suggestions, formatting and undo. Fixtures still
-control local source-tool registration.
+The runner starts Vite on a temporary loopback port and gives every run its
+own temporary Electron profile. Vite reuses optimized dependencies under
+`wh-focused-vite` in the system temporary directory for the same worktree,
+test file and lockfile contents. Module workers resolve from their source files
+and public assets use the renderer origin. The spelling test loads the Spanish
+Hunspell dictionaries and checks suggestions, formatting and undo. Fixtures
+still control local source-tool registration.
 
 ## AI subscription and external-client extension (2026-09-08)
 
