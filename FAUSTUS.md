@@ -27,6 +27,12 @@ capítulo con `wh_edit_writing_editorial` (`insertCitation` con `sourceId` y
 afirmaciones nuevas, se añaden a su fuente sin tocar las anteriores.
 Deshacer quita las fuentes creadas y las afirmaciones añadidas.
 
+Con `nightingale` (`{chart_id}` o `{dataset, columns?, filter?}`) pide a Nightingale por el Hub la tabla de un
+gráfico o de un conjunto de datos con su procedencia: una fuente por versión y huella de los datos, una
+afirmación por fila con la fila tal como la escribió Nightingale, y la tabla guardada en la fuente.
+`insertDataTable` (en `wh_edit_writing_editorial`) la inserta en el capítulo con su cita, sin reescribir
+ninguna cifra; deshacer la quita.
+
 ## Continuidad del manuscrito: viajes y libro de estado
 
 Panel «Continuidad» junto al capítulo abierto (debajo del Juez), con dos pestañas.

@@ -130,6 +130,57 @@ export async function testEvidencePackBridge(): Promise<string[]> {
     assert(!(await db.citations.get(coaseClaim.sourceId)), 'undo removes the source the import created');
     assert((await db.citations.where('projectId').equals(projectId).count()) === 2, 'the earlier sources stay');
     out.push('undo removes what the import created and nothing else');
+
+    // A Nightingale table: asked through the Hub, filed with one claim per row, inserted cited without retyping a figure.
+    const handoff = (version: number, rows: Array<[string, number]>) => ({
+      kind: 'data-chart', title: 'Devoluciones por puesto', columns: ['station', 'returns'], rows,
+      csv: ['station,returns', ...rows.map(([s, n]) => `${s},${n}`)].join('\n') + '\n',
+      chart: { id: 4, type: 'bar', x: 'station', y: 'returns', agg: 'sum' },
+      provenance: { app: 'nightingale', ref: 'hoard://nightingale/chart/4', dataset: 'returns', version, version_created_at: '2026-11-20 02:20:00',
+        query: 'SELECT "station" AS x, SUM("returns") AS y FROM "returns" GROUP BY "station"', fingerprint: `${version}abcdef0123456789` },
+    });
+    let served = handoff(0, [['writer', 5], ['cicero', 1], ['hypatia', 1]]);
+    const askedNg: Array<{ app: string; tool: string; args: Record<string, unknown> }> = [];
+    setFamilyTransport(async request => { askedNg.push(request); return { ok: true, app: request.app, tool: request.tool, result: served } as never; });
+    const ng = await call('wh_import_evidence', { nightingale: { chart_id: 4 } });
+    assert(askedNg.length === 1 && askedNg[0].app === 'nightingale' && askedNg[0].tool === 'data_handoff' && askedNg[0].args.chart_id === 4, 'the table is asked of Nightingale through the Hub');
+    const ngTable = ng.table as { sourceId: string; rows: number; version: number };
+    const ngSource = await db.citations.get(ngTable.sourceId);
+    assert(ngTable.rows === 3 && ngTable.version === 0 && ngSource?.dataTable?.ref === 'hoard://nightingale/chart/4' && ngSource.publisher === "Nightingale's Hoard",
+      `the source keeps the table and where it comes from: ${JSON.stringify(ng)}`);
+    const rowClaims = ng.claims as Claim[];
+    assert(rowClaims.length === 3 && rowClaims[0].claim === 'station: writer · returns: 5' && rowClaims[0].quote === 'writer,5', `one claim per row, quoted as Nightingale wrote it: ${JSON.stringify(rowClaims)}`);
+    out.push('a Nightingale table is filed as a source with one quoted claim per row');
+
+    const plain = (await db.writings.get(writingId))!.content;
+    const inserted = await call('wh_edit_writing_editorial', { id: writingId, operation: { kind: 'insertDataTable', sourceId: ngTable.sourceId } });
+    const withTable = (await db.writings.get(writingId))!.content;
+    assert(withTable.includes('<table') && withTable.includes('<th') && withTable.includes('hypatia') && /<td[^>]*>(<p>)?5(<\/p>)?<\/td>/.test(withTable),
+      `the table is in the chapter with Nightingale's figures: ${withTable}`);
+    assert(withTable.includes('data-wh-citation') && withTable.includes(ngTable.sourceId), 'the table caption cites its source');
+    assert(/<\/table><p><span[^>]*data-wh-citation/.test(withTable), `by default the caption is the citation alone, not its title twice: ${withTable}`);
+    assert(withTable.includes('Para dieciséis colores hay que pensar en el espacio.'), 'the text before it is unchanged');
+    await undo('wh_edit_writing_editorial', inserted);
+    assert((await db.writings.get(writingId))!.content === plain, 'undo takes the table out');
+    const captioned = await call('wh_edit_writing_editorial', { id: writingId, operation: { kind: 'insertDataTable', sourceId: ngTable.sourceId, caption: 'Fuente:' } });
+    const withCaption = (await db.writings.get(writingId))!.content;
+    assert(/<p>Fuente:(&nbsp;| )<span[^>]*data-wh-citation/.test(withCaption), `a caption goes before the citation, spaced: ${withCaption}`);
+    await undo('wh_edit_writing_editorial', captioned);
+    out.push('insertDataTable puts the table in the chapter, cited, and undo takes it out');
+
+    const same = await call('wh_import_evidence', { nightingale: { chart_id: 4 } });
+    assert(same.sourcesCreated === 0 && (same.claims as Claim[]).every(c => c.alreadyFiled), 'the same table filed again is recognised');
+    served = handoff(1, [['writer', 4], ['cicero', 2], ['hypatia', 1]]);
+    const moved = await call('wh_import_evidence', { nightingale: { chart_id: 4 } });
+    assert(moved.sourcesCreated === 1 && (moved.table as { sourceId: string }).sourceId !== ngTable.sourceId, 'new data in Nightingale is a new source, the old one stays');
+    out.push('a new version of the data is a new source; the same one is recognised');
+
+    const noTable = await runBridgeTool('wh_edit_writing_editorial', { projectId, id: writingId, operation: { kind: 'insertDataTable', sourceId: sixteen.sourceId } });
+    assert(!noTable.ok && JSON.stringify(noTable).includes('tabla de datos'), 'a source without a table is refused with a reason');
+    setFamilyTransport(async () => ({ ok: false, code: 'app_unavailable', error: 'Nightingale is not running' }) as never);
+    const ngDown = await runBridgeTool('wh_import_evidence', { projectId, nightingale: { chart_id: 4 } });
+    assert(!ngDown.ok && JSON.stringify(ngDown).includes("Start Nightingale's Hoard"), 'a stopped Nightingale is explained');
+    out.push('a source without a table and a stopped Nightingale are refused with a reason');
   } finally {
     setFamilyTransport(null);
     await db.citations.where('projectId').equals(projectId).delete();
