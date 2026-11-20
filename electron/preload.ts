@@ -649,6 +649,7 @@ const api = {
   // The only main→renderer request/response lane in the app: main relays a
   // tool call from the local HTTP port, this window answers it from Dexie.
   aiBridge: {
+    ready: (): Promise<void> => ipcRenderer.invoke('aibridge:ready'),
     onRequest: (callback: (request: AiBridgeRequest) => void): (() => void) => {
       const listener = (_e: unknown, request: AiBridgeRequest) => callback(request);
       ipcRenderer.on('aibridge:request', listener);

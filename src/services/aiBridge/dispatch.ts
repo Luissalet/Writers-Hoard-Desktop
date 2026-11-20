@@ -117,4 +117,6 @@ if (bridge && !window.__whAiBridgeWired) {
       await bridge.reply({ ...reply, id: request.id });
     })();
   });
+  // The Hub can report readiness once this renderer accepts bridge requests.
+  void bridge.ready?.();
 }
