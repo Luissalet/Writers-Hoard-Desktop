@@ -17,7 +17,7 @@
 // reused, and a claim the pack has gained since is added to that source.
 
 import { db } from '@/db';
-import type { Citation, ResearchEvidence } from '@/types/projectTools';
+import type { Citation, CitationDataTable, ResearchEvidence } from '@/types/projectTools';
 import { generateId } from '@/utils/idGenerator';
 import { safeResearchUrl } from '@/services/researchEvidence';
 
@@ -28,6 +28,8 @@ export interface PackSource {
   publisher?: string;
   published?: string;
   authors?: string[];
+  /** A data station's table, kept on the citation so it can be inserted without retyping a figure. */
+  table?: CitationDataTable;
 }
 
 export interface PackClaim {
@@ -137,6 +139,54 @@ export function normalizePack(raw: unknown, ref = ''): EvidencePack {
   return { ref: packRef, title, sources: sources.filter(s => claims.some(c => c.sourceId === s.id)), claims };
 }
 
+type Cell = string | number | boolean | null;
+
+function cellOf(value: unknown): Cell {
+  if (value === null || value === undefined) return null;
+  return typeof value === 'number' || typeof value === 'boolean' ? value : String(value).slice(0, 2000);
+}
+
+/**
+ * The pack of a table Nightingale hands over (its `data_handoff` answer): one
+ * source per version and print of the rows, carrying the table itself, and one
+ * claim per row whose quote is that row as Nightingale wrote it. A table whose
+ * data changed is a new source; the same table filed again is recognised.
+ */
+export function packFromHandoff(raw: unknown): EvidencePack {
+  const root = record(raw);
+  const provenance = record(root?.provenance);
+  const columns = list(root?.columns).map(c => text(c, 200));
+  const rows = list(root?.rows).filter((row): row is unknown[] => Array.isArray(row));
+  const ref = text(provenance?.ref, 500);
+  if (!root || !ref || !columns.length || columns.some(c => !c) || !rows.length) {
+    throw new EvidencePackError('Nightingale handed over no table with columns, rows and a provenance ref.');
+  }
+  if (rows.length > MAX_CLAIMS) throw new EvidencePackError(`A cited table holds at most ${MAX_CLAIMS} rows: ask Nightingale for fewer (limit or filter).`);
+  const version = typeof provenance?.version === 'number' ? provenance.version : undefined;
+  const fingerprint = text(provenance?.fingerprint, 128);
+  const dataset = text(provenance?.dataset, 200);
+  const title = text(root.title, 300) || dataset || 'Nightingale';
+  const sourceId = `v${version ?? 0}-${fingerprint.slice(0, 12) || 'rows'}`;
+  const table: CitationDataTable = {
+    columns, rows: rows.map(row => columns.map((_, i) => cellOf(row[i]))), ref,
+    ...(version !== undefined ? { version } : {}), ...(fingerprint ? { fingerprint } : {}),
+    ...(text(provenance?.query, 4000) ? { query: text(provenance?.query, 4000) } : {}),
+  };
+  const lines = text(root.csv, 20_000_000).split(/\r?\n/);
+  const claims: PackClaim[] = table.rows.map((row, i) => {
+    const statement = columns.map((column, j) => `${column}: ${row[j] ?? '—'}`).join(' · ');
+    return { id: `row-${i + 1}`, text: statement, sourceId, quote: lines[i + 1]?.trim() || statement, locator: `row ${i + 1}`, kind: 'fact' };
+  });
+  const source: PackSource = {
+    id: sourceId,
+    title: `${title}${dataset && dataset !== title ? ` · ${dataset}` : ''}${version !== undefined ? ` · v${version}` : ''}`,
+    publisher: "Nightingale's Hoard",
+    ...(text(provenance?.version_created_at, 40) ? { published: text(provenance?.version_created_at, 40).slice(0, 10) } : {}),
+    table,
+  };
+  return { ref, title, sources: [source], claims };
+}
+
 export interface FiledClaim {
   claim: string;
   quote: string;
@@ -218,7 +268,8 @@ export async function filePack(projectId: string, pack: EvidencePack): Promise<F
         accessedAt: localDay(),
         ...(url ? { url } : {}),
         notes: `${ref}${pack.title ? `\nEvidence pack: ${pack.title}` : ''}`,
-        writingIds: [], tags: ['evidence-pack'], researchEvidence: rows, createdAt: now, updatedAt: now,
+        writingIds: [], tags: source.table ? ['evidence-pack', 'data-table'] : ['evidence-pack'], researchEvidence: rows,
+        ...(source.table ? { dataTable: source.table } : {}), createdAt: now, updatedAt: now,
       };
       await db.citations.add(citation);
       existing.push(citation);
