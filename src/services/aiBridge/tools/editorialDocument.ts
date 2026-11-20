@@ -59,7 +59,8 @@ async function insertDataTable(writing: Writing, request: Record<string, unknown
   if (!reference) throw new BridgeError('not-found', 'La fuente no pertenece al proyecto del capítulo.');
   const table = reference.dataTable;
   if (!table) throw new BridgeError('bad-args', 'Esa fuente no trae una tabla de datos: archívala con wh_import_evidence {nightingale}.');
-  const caption = typeof request.caption === 'string' && request.caption.trim() ? request.caption.trim() : reference.title;
+  // The caption paragraph holds the citation (its label names the source); optional text goes before it, spaced.
+  const caption = typeof request.caption === 'string' && request.caption.trim() ? `${request.caption.trim()}\u00a0` : '';
   const editor = createWritingEditor(writing.content);
   try {
     const size = editor.state.doc.content.size;
