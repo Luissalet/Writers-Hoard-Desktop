@@ -174,8 +174,8 @@ export async function testEditorialCore(): Promise<string[]> {
   });
   run('named formatting preserves pending replacements and metadata operations do not invent tracked text', () => {
     const { editor, cleanup } = mount('<p>Original</p>'); try {
-      proposeRevision(editor, { from: 1, to: 9, text: 'Candidate', author: 'Luis', source: 'test' }); const before = describeRevisions(editor);
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'manual' }); upsertEditorialStyle(editor, style); applyEditorialStyle(editor, { id: style.id, from: 2, to: editor.state.doc.content.size - 1 }); setEditorialSection(editor, { id: 'sec', ...DEFAULT_EDITORIAL_SECTION });
+      proposeRevision(editor, { from: 1, to: 9, text: 'Candidate', author: 'Revisora', source: 'test' }); const before = describeRevisions(editor);
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'manual' }); upsertEditorialStyle(editor, style); applyEditorialStyle(editor, { id: style.id, from: 2, to: editor.state.doc.content.size - 1 }); setEditorialSection(editor, { id: 'sec', ...DEFAULT_EDITORIAL_SECTION });
       const after = describeRevisions(editor); equal(after.map(r => [r.id, r.originalText, r.proposedText]), before.map(r => [r.id, r.originalText, r.proposedText]), 'proposals unchanged');
     } finally { cleanup(); }
   });

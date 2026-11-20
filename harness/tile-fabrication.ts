@@ -3,7 +3,7 @@
 // ============================================
 // La rama que NUNCA se ejercitaba fuera de Electron: los Web Workers entregan
 // `reply.bitmap` directo, así que todos los bancos y el smoke pasaban en verde
-// mientras en la máquina de Luis `createImageBitmap` rechazaba EN SILENCIO
+// mientras en la máquina de referencia `createImageBitmap` rechazaba EN SILENCIO
 // cada tesela de la Forja — «✓ entregada», resolve(null), plan 0/28 y el
 // suelo borroso para siempre (su log del 2026-08-12: tile-821 entregada y el
 // mismo suelo re-nace 100 ms después como tile-850). La fabricación es ahora

@@ -92,7 +92,7 @@ export const MIN_PX_PER_CELL = 2.5;
  * verdad para siempre en cuanto te acercas — un bloque de medio mundo contiene
  * cualquier cosa — así que la vista se quedaba en el primer nivel que eligió,
  * a vista de planeta, y acercarse no cambiaba nada. Medido en la máquina de
- * Luis: `suelo z4 · 9,8 km/px` con un encuadre de mil quinientos kilómetros.
+ * Petición: `suelo z4 · 9,8 km/px` con un encuadre de mil quinientos kilómetros.
  *
  * No hace falta histéresis contra esto: quien llama compara el plan nuevo con
  * el viejo y no hace nada si salen iguales.

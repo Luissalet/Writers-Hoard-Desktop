@@ -227,7 +227,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
         const built: { key: string; data: RegionData }[] = [];
         const satellite = message.ink === 'satellite';
         /**
-         * EL CONTRATO «SÓLO CONSUMIR» (el 3D; decisión de Luis, 2026-08-11).
+         * EL CONTRATO «SÓLO CONSUMIR» (el 3D; decisión de la persona usuaria, 2026-08-11).
          *
          * Una tesela honda se dibuja componiendo superteselas de canon, y
          * generar una supertesela son SEGUNDOS. Con `consumeOnly`, antes de

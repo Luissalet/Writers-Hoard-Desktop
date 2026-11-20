@@ -49,7 +49,7 @@ let canonPersistence: CanonPersistence | null = null;
  *
  * Un plan de 28 teselas hondas pide las MISMAS 4-12 superteselas: sin esto
  * eran ~100 lecturas simultáneas de 2,2 MB contra IndexedDB, que las
- * serializa — la última tardaba OCHO SEGUNDOS en el log de Luis
+ * serializa — la última tardaba OCHO SEGUNDOS en el registro de la sesión de referencia
  * («siembra c:245:155 HIT 2.2MB 8279 ms») y cada una copiaba su buffer al
  * worker. Con la dedupe son 4-12 lecturas y el resto se cuelga de la misma
  * promesa. La entrada se borra al resolverse: esto NO es una caché de bytes
@@ -128,12 +128,12 @@ export function setCanonPersistence(persistence: CanonPersistence | null): void 
 }
 
 /**
- * DEBUG (temporal, Luis 2026-08-12): contadores de sesión de la vía de
+ * DEBUG (temporal, requisito de 2026-08-12): contadores de sesión de la vía de
  * teselas, para que los HUD del 2D y del 3D puedan decir POR QUÉ el suelo
  * está borroso — «pedida y declinada», «entregada», «sembrada del almacén» y
  * «error» se ven idénticas desde fuera y son cuatro historias distintas.
  */
-/** TRAZA COMPLETA en consola (temporal, lo pidió Luis el 2026-08-12): cada
+/** TRAZA COMPLETA en consola (temporal, se pidió el 2026-08-12): cada
  *  petición cuenta su vida entera — nace, sesión, siembra (con el porqué de
  *  cada acierto o fallo), post, respuesta, caducidad. Apagar aquí. */
 export const DEBUG_TRACE = true;
@@ -170,7 +170,7 @@ export function oldestInFlightMs(): number {
 }
 
 /**
- * EL VIGILANTE DE PETICIONES (el agujero que la captura de Luis retrató el
+ * EL VIGILANTE DE PETICIONES (el agujero que la captura de referencia retrató el
  * 2026-08-12: EN VUELO 1 eterno, entregadas 0/35, forja «sí»). El puente de
  * la Forja sólo vigila la PRIMERA respuesta de cada proceso: un hijo que
  * muere DESPUÉS de haber contestado algo deja su petición en vuelo para
@@ -257,7 +257,7 @@ interface ActiveRequest {
 
 /**
  * UN OBRERO DE LA GRANJA — el sustituto de las «sesiones» (2026-08-14, orden
- * de Luis: «manda a tomar por culo el sistema actual y haz uno que funcione»).
+ * de Petición: «manda a tomar por culo el sistema actual y haz uno que funcione»).
  *
  * El pool viejo casaba sesiones por identidad de objeto y las mataba para
  * abrir hueco: cuatro modos de cuelgue distintos en dos días (la fila india,
@@ -792,7 +792,7 @@ export class RegionWorkerClient {
       // el servicio o deja de intentar (`abandoned`). Fuera el plazo por
       // petición, el rearme y el pulso de cola: era la maquinaria que
       // mantenía vivo el cuelgue que decía curar (los 20 huecos de vuelo
-      // clavados en el acquire de los logs de Luis, re-armados eternamente
+      // clavados en el acquire de los registros de la sesión de referencia, re-armados eternamente
       // por el progreso de las sábanas).
       // Storage and single-flight coordination happen BEFORE taking a worker.
       // The old order reserved every worker during 3-8 s IndexedDB reads, which
@@ -900,7 +900,7 @@ export class RegionWorkerClient {
           if (reply.declined) {
             // La declinación es una respuesta SANA del contrato consumeOnly
             // (el 3D pide, el canon no está, el worker contesta en µs) — no
-            // una fabricación fallida. Contarla como FÁBRICA-ERR mandó a Luis
+            // una fabricación fallida. Contarla como FÁBRICA-ERR hizo que la persona usuaria
             // a la consola a buscar un error que no existía: su HUD del
             // 2026-08-12 decía «declinadas 475 · FÁBRICA-ERR 475» y las 475
             // eran el 3D consumiendo suelo frío, tal y como está decidido.
@@ -910,7 +910,7 @@ export class RegionWorkerClient {
           } else if (reply.rgba && reply.width && reply.height) {
             // Los píxeles de la Forja cruzan la frontera de proceso crudos y
             // el mapa de bits se reconstruye aquí — EN LIENZO, no con
-            // `createImageBitmap`. En la máquina de Luis (2026-08-12) esa
+            // `createImageBitmap`. En la máquina de referencia (2026-08-12) esa
             // llamada RECHAZABA en silencio para cada tesela: el cliente
             // cantaba «✓ entregada», la promesa se resolvía null y el plan se
             // quedaba en 0/28 con el suelo borroso para siempre. Su log lo
@@ -1404,7 +1404,7 @@ export class RegionWorkerClient {
 // process, so the pool tracks the core count directly; a web-worker session
 // lives inside the renderer, so that path stays at half the cores.
 // EL TECHO DE LA GRANJA: min(cores, 8). Los 20 obreros que permitía el
-// core-count fueron parte del funeral del renderer de Luis (2026-08-14,
+// core-count fueron parte del funeral del renderer de referencia (2026-08-14,
 // «RangeError: Array buffer allocation failed»): cada configure clona el
 // mundo A TRAVÉS del renderer aunque el obrero viva en su propio proceso, y
 // veinte clones de un 2048 en ráfaga son gigas de tránsito. Ocho obreros
@@ -1414,7 +1414,7 @@ export class RegionWorkerClient {
 // RegionData vivían en el HILO PRINCIPAL del renderer, junto a los mapas de
 // bits del almacén de pantalla y al mundo mismo: ese apilamiento es lo que
 // reventó con «RangeError: Array buffer allocation failed» al pedir 3,6 MB
-// (log de Luis, 2026-08-14). Desde la pasada 8 el canon vive en Dexie y
+// (registro de la sesión de referencia, 2026-08-14). Desde la pasada 8 el canon vive en Dexie y
 // desde la 10 la tinta también, así que una caché de sábanas enorme en RAM
 // ya no ahorra minutos — ahorra milisegundos y cuesta el renderer.
 export const regionClient = new RegionWorkerClient(

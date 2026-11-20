@@ -54,7 +54,7 @@ interface AtlasPanelProps {
   /**
    * Abrir la lámina de la ciudad, para EDITARLA.
    *
-   * Desde el 2026-08-15 pinchar una ciudad en el mapa BAJA hasta ella (Luis:
+   * Desde el 2026-08-15 pinchar una ciudad en el mapa BAJA hasta ella (Petición:
    * «el modal de la ciudad no lo veo necesariamente pero como una acción
    * secundaria para editar la ciudad»), así que la lámina —renombrar, volver a
    * tirar los dados, exportar— necesitaba una puerta que no fuera el gesto

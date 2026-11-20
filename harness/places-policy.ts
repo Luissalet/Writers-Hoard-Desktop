@@ -1,7 +1,7 @@
 // ============================================================================
 // BANCO DE LA POLÍTICA DE LUGARES (el grifo y el pincel de zonas)
 // ============================================================================
-// Luis, 2026-08-12: «no he pedido abadías, casas, monasterios». El sembrado
+// requisito de 2026-08-12: «no he pedido abadías, casas, monasterios». El sembrado
 // regional pasa a estar APAGADO por defecto (`sites: 'auto'` sin ediciones),
 // se abre entero con `placesEverywhere` y por zonas con `placesZone`. Este
 // banco pregunta lo que puede salir mal:
@@ -14,7 +14,7 @@
 //   D. 'auto' + una zona `add`: lugares SOLO dentro de la zona.
 //   E. 'auto' + grifo abierto + zona `remove`: la zona queda vacía y el resto
 //      no se entera.
-// Y desde el segundo parte de Luis (2026-08-13, «se ha creado ya con ciudades
+// Y desde el segundo parte de referencia (2026-08-13, «se ha creado ya con ciudades
 // y caminos») el grifo también manda EN EL MUNDO:
 //   G. Un mundo desnudo (sin ediciones) no genera ciudades, ni calzadas, ni
 //      ruinas — nada humano que no esté pintado.
@@ -40,7 +40,7 @@ const di = (que: string, ok: boolean, detalle: string) => {
 // `getWorld` desempaqueta un objeto NUEVO por llamada; el grifo de uno no
 // alcanza al otro.
 //
-// LA SEMÁNTICA (corregida el 2026-08-13, tras borrarle a Luis el contenido
+// LA SEMÁNTICA (corregida el 2026-08-13, tras perder el contenido
 // de sus mundos): la AUSENCIA de edición de lugares es LEGADO — el mundo
 // conserva el país con el que nació. El desnudo es una edición EXPLÍCITA
 // (`placesEverywhere:false`) que el flujo de creación escribe en los mundos
@@ -57,7 +57,7 @@ const w = getWorld({ seed: 'banco-lugares', width: 256 });
 applyEdits(w, [{ kind: 'placesEverywhere', enabled: true }]);
 const g = getGeography(w, 'full');
 
-// F. LA RESTAURACIÓN — la vara del parte de Luis: un mundo EXISTENTE (sin
+// F. LA RESTAURACIÓN — la vara del parte de referencia: un mundo EXISTENTE (sin
 // ediciones de lugares) conserva su país entero, ciudad a ciudad.
 const legado = buildHumanGeography(wLegado, DEFAULT_HUMAN_PARAMS, 'full', false);
 const ciudades = (lista: { name: string; x: number; y: number }[]) =>
@@ -120,7 +120,7 @@ di('B1 · auto sin ediciones == everywhere (legado)',
 di('B1 · los pueblos del mundo se quedan', mundoB === mundoA, `${mundoB} ≠ ${mundoA}`);
 
 // B2. El grifo CERRADO A MANO: enrejado a cero, pueblos del mundo intactos,
-// y los hitos NOMBRADOS también callan (Luis: «lo mismo con fuentes,
+// y los hitos NOMBRADOS también callan (Petición: «lo mismo con fuentes,
 // puentes» — el accidente es geografía, su nombre es contenido inventado).
 const B2 = sheet('auto', [{ kind: 'placesEverywhere', enabled: false }]);
 const mundoB2 = B2.places.filter((p) => p.worldId !== undefined).length;

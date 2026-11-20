@@ -18,11 +18,11 @@ The existing desktop editor, Rust document engine, IndexedDB archive, MCP interf
 
 ## Capabilities and Constraints
 
-Luis authorized merging Scheherazade into Writer while preserving all functions and data. Fiction, narration, voice and illustrations have independent switches and begin disabled. Opening the app or reading the tool catalogue must not start the fiction worker. Faustus is opened explicitly. Model execution follows the family's global policy.
+The brief authorises merging Scheherazade into Writer while preserving all functions and data. Fiction, narration, voice and illustrations have independent switches and begin disabled. Opening the app or reading the tool catalogue must not start the fiction worker. Faustus is opened explicitly. Model execution follows the family's global policy.
 
 ## Brand Commitments
 
-Luis explicitly requires consistency with the Hoard family, including its icons. This merger inherits Writer's existing interface and canonical Faustus mark. It does not authorize replacing the product identity.
+The interface must stay consistent with the Hoard family, including its icons. This merger inherits Writer's existing interface and canonical Faustus mark. It does not authorize replacing the product identity.
 
 ## Evidence on Hand
 

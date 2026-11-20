@@ -30,7 +30,7 @@ export async function seedCoverageFixture() {
   const project: Project = {
     id: COVERAGE_FIXTURE_ID,
     title: 'Synthetic coverage manuscript',
-    description: 'Isolated #140 QA fixture — not Luis data.',
+    description: 'Isolated #140 QA fixture — synthetic data only.',
     mode: 'novelist',
     type: 'standalone',
     color: '#234',
@@ -55,9 +55,9 @@ export async function seedCoverageFixture() {
     createdAt: now,
     updatedAt: now,
   };
-  const luis: CodexEntry = {
-    id: 'char-luis',
-    title: 'Luis Ortega',
+  const guide: CodexEntry = {
+    id: 'char-guide',
+    title: 'Guía de ruta',
     type: 'character',
     projectId: project.id,
     fields: {},
@@ -79,14 +79,14 @@ export async function seedCoverageFixture() {
     createdAt: now,
     updatedAt: now,
   };
-  await db.codexEntries.bulkPut([ana, luis, foreignChar]);
+  await db.codexEntries.bulkPut([ana, guide, foreignChar]);
 
   const writings: Writing[] = Array.from({ length: 30 }, (_, i) => {
     const n = i + 1;
     const status = (['idea', 'draft', 'finished'] as const)[i % 3];
     let content = `<p>Chapter ${n} opens on the pier. Basically, the harbour waits.</p>`;
     if (n === 1) content = '<p>Ana Ruiz walks the pier. Basically basically the tide turns.</p>';
-    if (n === 2) content = '<p>A. sketches the map. Luis Ortega is only planned, not here.</p>';
+    if (n === 2) content = '<p>A. sketches the map. Guía de ruta is only planned, not here.</p>';
     if (n === 3) content = '<p>pov:Ana Ruiz watches the glass.</p>';
     if (n === 4) content = '';
     if (n === 5) {
@@ -124,7 +124,7 @@ export async function seedCoverageFixture() {
   });
 
   const link: EntityLink = {
-    id: 'link-plan-luis',
+    id: 'link-plan-guide',
     projectId: project.id,
     sourceEngineId: 'writings',
     sourceEntityType: 'writing',
@@ -132,8 +132,8 @@ export async function seedCoverageFixture() {
     sourceTitle: 'Chapter 2',
     targetEngineId: 'codex',
     targetEntityType: 'codex-entry',
-    targetEntityId: 'char-luis',
-    targetTitle: 'Luis Ortega',
+    targetEntityId: 'char-guide',
+    targetTitle: 'Guía de ruta',
     relation: 'presence',
     provenance: 'manual',
     createdAt: now,
@@ -221,14 +221,14 @@ export async function testNarrativeCoverage(): Promise<string[]> {
 
   const matrix = await loadCoverageMatrix(project.id);
   const ana1 = matrix.cells.find((c) => c.characterId === 'char-ana' && c.writingId === 'w1');
-  const luis2 = matrix.cells.find((c) => c.characterId === 'char-luis' && c.writingId === 'w2');
+  const guide2 = matrix.cells.find((c) => c.characterId === 'char-guide' && c.writingId === 'w2');
   const ana3 = matrix.cells.find((c) => c.characterId === 'char-ana' && c.writingId === 'w3');
   assert(ana1?.role === 'mention', 'Ana mentioned in ch1 is mention');
-  assert(luis2, 'Luis×ch2 cell exists');
-  assert(luis2.plannedPresence === true, 'planning link sets plannedPresence');
-  assert(luis2.role !== 'presence' && luis2.role !== 'pov', 'planning link does not raise presence/POV');
-  // Ch2 also names Luis in prose → mention is honest; still not presence.
-  assert(luis2.role === 'mention' || luis2.role === 'absent', 'Luis role stays mention|absent');
+  assert(guide2, 'The guide×ch2 cell exists');
+  assert(guide2.plannedPresence === true, 'planning link sets plannedPresence');
+  assert(guide2.role !== 'presence' && guide2.role !== 'pov', 'planning link does not raise presence/POV');
+  // Ch2 also names The guide in prose → mention is honest; still not presence.
+  assert(guide2.role === 'mention' || guide2.role === 'absent', 'The guide role stays mention|absent');
   assert(ana3?.role === 'pov', 'pov: tag raises POV');
   assert(matrix.emptyLinkedBeats.some((b) => b.linkedWritingId === 'w4'), 'empty linked beat listed');
   assert(!matrix.characters.some((c) => c.id === 'char-foreign'), 'foreign character excluded');
@@ -267,7 +267,7 @@ export async function testNarrativeCoverage(): Promise<string[]> {
 
   await setCoverageCell({
     projectId: project.id,
-    characterId: 'char-luis',
+    characterId: 'char-guide',
     writingId: 'w2',
     role: 'presence',
   });
@@ -277,7 +277,7 @@ export async function testNarrativeCoverage(): Promise<string[]> {
   });
   const matrixAfter = await loadCoverageMatrix(project.id);
   const luisAfter = matrixAfter.cells.find(
-    (c) => c.characterId === 'char-luis' && c.writingId === 'w2',
+    (c) => c.characterId === 'char-guide' && c.writingId === 'w2',
   )!;
   assert(luisAfter.overrideStale === true, 'coverage manual override becomes stale');
   assert(luisAfter.role !== 'presence', 'stale coverage falls back from presence');

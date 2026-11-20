@@ -1,6 +1,6 @@
 # Implementación del editor avanzado de Writers
 
-Luis autoriza implementar la mejor vía y exige que cualquier código tomado de Wordcraft sea una copia propia separada: código de Writers adaptado a nuestro entorno, sin enlace operativo, submódulo, dependencia Git, updater ni obligación de seguir el repositorio original. Los avisos de licencia y procedencia histórica se conservan.
+El encargo autoriza elegir la implementación y exige que cualquier código tomado de Wordcraft sea una copia propia separada: código de Writers adaptado a nuestro entorno, sin enlace operativo, submódulo, dependencia Git, updater ni obligación de seguir el repositorio original. Los avisos de licencia y procedencia histórica se conservan.
 
 Dirección: React/TypeScript para Writers e interacción del editor; núcleo Rust propio para documentos e intercambio, incorporando código útil del commit Wordcraft 6526b134befbf6933fd87a63bfea37a7828f29c4. No migrar toda la aplicación ni cambiar Electron como requisito.
 

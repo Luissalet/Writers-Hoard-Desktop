@@ -104,7 +104,7 @@ export function planRadiusMetres(size: number): number {
  * usa `settlementCellCenter`**. Media celda de un mundo de 40.075 km son diez
  * kilómetros (más en un mundo pequeño: en uno de 512 son cuarenta), y el vuelo
  * pide entre 0,5 y 2 km de vano — así que al llegar, la ciudad estaba a varias
- * pantallas de distancia y la diana marcaba campo vacío. Luis lo retrató el
+ * pantallas de distancia y la diana marcaba campo vacío. La captura lo documenta el
  * 2026-08-16: la cruz siempre al noroeste del punto de la ciudad, que es
  * exactamente donde cae la esquina respecto al centro.
  *

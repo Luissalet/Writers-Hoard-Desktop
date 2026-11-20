@@ -19,7 +19,7 @@ export async function testRevisionsExport(): Promise<string[]> {
   const original = editor.getHTML();
   const passed: string[] = [];
   try {
-    assert(proposeRevision(editor, { from: 1, to: 11, text: 'Nuevo', author: 'Luis', source: 'editor' }).ok, 'Proposal failed');
+    assert(proposeRevision(editor, { from: 1, to: 11, text: 'Nuevo', author: 'Revisora', source: 'editor' }).ok, 'Proposal failed');
     const pending = editor.getHTML();
     const final = projectWritingHtml(pending);
     const rejected = projectWritingHtml(pending, 'reject');

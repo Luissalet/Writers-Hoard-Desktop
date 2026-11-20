@@ -1,7 +1,7 @@
 // ============================================================================
 // BANCO DE RETENCIÓN DE TESELAS (2D hondo)
 // ============================================================================
-// Reproduce la captura de Luis del 2026-08-12 (vano 41 km, «pide z13», HUD
+// Reproduce la captura de referencia del 2026-08-12 (vano 41 km, «pide z13», HUD
 // «entregadas 0/45» eterno): su volcado de consola enseñó el MISMO suelo
 // z13(3490,955) naciendo CINCO veces en cuatro segundos, cada vez entregado
 // en menos de un segundo y cada vez perdido — 66 de 72 coordenadas renacidas.
@@ -144,11 +144,11 @@ async function preparar(width: number, legado = false) {
   mundo = generateWorld({ ...DEFAULT_PARAMS, seed: 'banco-retencion', width });
   bindCanonWorld(mundo, 'banco-retencion');
   // EL GRIFO ABIERTO: desde la pasada 10 un mundo nace desnudo, y este paseo
-  // retrata «suelo firme con caminos y casas» — la captura original de Luis.
+  // retrata «suelo firme con caminos y casas» — la captura original.
   // Las MISMAS ediciones viajan serializadas como canonEdits (abajo), que es
   // exactamente lo que hace WorldView: sin ellas, el worker replicaría un
   // canon desnudo bajo una geografía habitada.
-  // LEGADO = el caso de Luis: un mundo SIN ediciones (el grifo abierto por
+  // LEGADO = el caso de referencia: un mundo SIN ediciones (el grifo abierto por
   // ausencia) y `canonEdits` vacío, como lo manda WorldView. Es la
   // combinación que su HUD retrataba con 0/28 y disco 0/863.
   if (legado) {
@@ -242,7 +242,7 @@ function informe(nivel: number, reposoDesdeT: number) {
   let entregadasNivel = 0;
   // EL BUCLE DE LA CAPTURA, medido con exactitud: una coordenada que vuelve a
   // nacer DESPUÉS de su primera entrega es una tesela entregada que alguien
-  // tiró — el z13(3490,955) del log de Luis, cinco vidas en cuatro segundos.
+  // tiró — el z13(3490,955) del registro de la sesión de referencia, cinco vidas en cuatro segundos.
   const renacidasTrasEntrega: string[] = [];
   for (const [clave, e] of mapa) {
     if (e.naceT.length > 1) renacidas++;

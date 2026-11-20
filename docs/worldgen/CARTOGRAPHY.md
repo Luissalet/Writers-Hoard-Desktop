@@ -79,7 +79,7 @@ Pinchar en un punto del mapa y generar su plano es una llamada, y siempre sale i
 
 ## Rendimiento
 
-Luis: «el modo carta va lagueado, muy lagueado». Lo era, y por dos causas
+Petición: «el modo carta va lagueado, muy lagueado». Lo era, y por dos causas
 independientes. Se perfiló antes de tocar nada (`harness/profile.ts`).
 
 **Causa 1 — el papel era el 76% de cada redibujado.** 1971 ms de 2609, y se
@@ -130,7 +130,7 @@ principal se bloquea una vez por gesto, que es tolerable pero no ideal.
 
 ## La forma de los continentes
 
-Luis: «son demasiado redondeados». Tenía razón, y la causa era exacta.
+Petición: «son demasiado redondeados». El problema se reprodujo tal como se había descrito.
 
 El campo de tierra era `crust = falloff(distancia_al_cratón × mod(dirección))`.
 Eso es un **dominio estelar**: desde el centro, en cualquier dirección, la costa

@@ -62,7 +62,7 @@ for (const km of [40000, 20000, 12000, 8000, 5000, 3000, 2000, 1500, 1200, 900, 
 // ---------------------------------------------------------------------------
 // Un bloque hecho a vista de planeta CONTIENE cualquier encuadre posterior, así
 // que la prueba «¿sigue cabiendo?» es verdad para siempre y la escalera nunca
-// baja. Medido en la máquina de Luis: `suelo z4 · 9,8 km/px` con el encuadre a
+// baja. Medido en la máquina de referencia: `suelo z4 · 9,8 km/px` con el encuadre a
 // mil quinientos kilómetros. Esto simula el paseo entero: un plan, y luego
 // acercarse paso a paso comprobando si el plan sigue valiendo.
 import { zoomSkinCovers as covers, samePlan } from '../src/engines/worldgen/cartography/zoomSkin';

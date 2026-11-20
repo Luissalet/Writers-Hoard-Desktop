@@ -13,7 +13,7 @@ import fixtureSource from './local-tool-source-list-additive.browser.ts?raw';
 /** Baseline-runnable: only public existing declarations/creator/writer, no future imports.
  * Registry fixtures are normal runtime modules with real manifest hashes; this is
  * not a SourceHost/compiler/CLI installation test. The standard hidden runner owns
- * a new empty private library; it never opens Luis's library. */
+ * a new empty private library; it never opens the regular library. */
 export async function testSourceListAdditiveDeclarationRed(){
  const checks:string[]=[],projects:string[]=[];
  const equal=(label:string,actual:unknown,expected:unknown)=>{

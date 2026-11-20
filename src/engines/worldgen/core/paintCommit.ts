@@ -438,7 +438,7 @@ export function pickGeneratedAt(
  * a colour and a description, and it lives in its own table so that a deep link
  * to it keeps working and so that regenerating the world does not touch it.
  *
- * It is still the same TOOL — Luis asked for that: "los rótulos, waypoints, etc.
+ * It is still the same TOOL — that was part of the request: "los rótulos, waypoints, etc.
  * deberían ser variantes de tipo de punto". So the gesture is shared and only
  * the destination differs, and the view is the only thing that can know that,
  * because the edit list is exactly what a pin must stay out of.

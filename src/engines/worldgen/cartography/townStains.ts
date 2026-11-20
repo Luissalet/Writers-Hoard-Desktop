@@ -1,7 +1,7 @@
 // ============================================
 // World Generator — la mancha urbana, como capa pura
 // ============================================
-// «Coloca las ciudades» (Luis, 2026-08-11): en el 3D las ciudades tienen que
+// «Coloca las ciudades» (requisito de 2026-08-11): en el 3D las ciudades tienen que
 // verse EN EL SUELO siempre, no sólo donde el canon está caliente. Esta capa
 // dibuja la misma mancha parda que las teselas hondas (lóbulos solapados y un
 // corazón denso) pero desde `geography.settlements`, en el hilo principal y a
