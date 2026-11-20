@@ -2348,7 +2348,7 @@ if (!gotLock) {
       args: app.isPackaged ? [] : [path.join(storyRoot, 'worker.py')],
       cwd: storyRoot,
     });
-    if (process.platform === 'win32') app.setAppUserModelId('com.luissalet.writershoard');
+    if (process.platform === 'win32') app.setAppUserModelId('org.hoardfamily.writers');
     await loadMediaLibraryLocation();
     registerIpc();
     buildMenu();
