@@ -137,7 +137,7 @@ export interface HumanGeographyParams {
    * undefined, así que el hash de todo lo guardado no se mueve. Con 'auto'
    * (la puerta de la APLICACIÓN, en cartography/texture) la política se lee
    * de `world.painted.sitesPolicy` — el grifo y las zonas que el replay de
-   * ediciones deja escritos en el propio mundo. Luis, 2026-08-13: «todo lo
+   * ediciones deja escritos en el propio mundo. requisito de 2026-08-13: «todo lo
    * que no sea geografía, o aleatorio a elección o pintado». Lo PINTADO
    * (marcadores, calzadas a mano) no pasa por aquí jamás.
    */
@@ -414,7 +414,7 @@ export function buildHumanGeography(
   // grifo abierto — el mismo defecto que `sitesPolicyFrom` sin ediciones.
   // El «desnudo por defecto» de los mundos nuevos viaja como una edición
   // explícita `placesEverywhere:false`, nunca como ausencia (2026-08-13:
-  // la ausencia-como-negativa vació los mundos existentes de Luis).
+  // la ausencia-como-negativa vació los mundos existentes).
   const sitesPolicy = params.sites === 'auto'
     ? (world.painted?.sitesPolicy ?? { everywhere: true, zones: [] })
     : null;

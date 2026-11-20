@@ -13,7 +13,7 @@ Operate, on Electron desktop using React. The user selects which optional functi
 
 ## Scope and authority
 
-Local extension of Writer's existing interface. Luis requested all functions and data be preserved, optional functions be independently controlled, everything begin disabled, and Hoard aesthetics and icons remain coherent. This is the confirmed brief; it introduces no redesign or unconfirmed product claims.
+Local extension of Writer's existing interface. The brief requires preserving all functions and data, optional functions be independently controlled, everything begin disabled, and Hoard aesthetics and icons remain coherent. This is the confirmed brief; it introduces no redesign or unconfirmed product claims.
 
 ## Existing visual language
 

@@ -81,7 +81,7 @@ fn writers_revision_docx_identity_author_date_unicode_and_decisions() {
 #[test]
 fn tracked_paragraph_separators_images_and_notes_survive_docx_and_rejection() {
     let mut engine = DocumentEngine::default();
-    let boundary = "data-wh-revision-break-id=\"split\" data-wh-revision-break-kind=\"insertion\" data-wh-revision-break-author=\"Luis\" data-wh-revision-break-source=\"editor\" data-wh-revision-break-created-at=\"123456\"";
+    let boundary = "data-wh-revision-break-id=\"split\" data-wh-revision-break-kind=\"insertion\" data-wh-revision-break-author=\"Revisora\" data-wh-revision-break-source=\"editor\" data-wh-revision-break-created-at=\"123456\"";
     let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
     let html = format!(
         "<p>Antes{}</p><p {boundary}>{}</p>",
@@ -188,7 +188,7 @@ fn repeated_style_ids_are_local_to_chapters_and_materialized_overrides_win() {
 #[test]
 fn final_projection_joins_deleted_separator_without_changing_session() {
     let mut engine = DocumentEngine::default();
-    let html = "<p>Primero</p><p data-wh-revision-break-id=\"join\" data-wh-revision-break-kind=\"deletion\" data-wh-revision-break-author=\"Luis\" data-wh-revision-break-source=\"editor\" data-wh-revision-break-created-at=\"123\">Segundo</p>";
+    let html = "<p>Primero</p><p data-wh-revision-break-id=\"join\" data-wh-revision-break-kind=\"deletion\" data-wh-revision-break-author=\"Revisora\" data-wh-revision-break-source=\"editor\" data-wh-revision-break-created-at=\"123\">Segundo</p>";
     let id = import_html(&mut engine, html);
     let before = engine.dispatch("document.inspect", &json!({"sessionId":id})).unwrap();
     let exported = engine.dispatch("document.exportHtml", &json!({"sessionId":id})).unwrap();

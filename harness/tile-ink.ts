@@ -1,7 +1,7 @@
 // ============================================================================
 // BANCO DE ENTINTADO GOOGLE-MAPS (¿la tesela DIBUJA la ciudad y los caminos?)
 // ============================================================================
-// Luis, 2026-08-13: «Tiene que ser literalmente un google maps. deberías poder
+// requisito de 2026-08-13: «Tiene que ser literalmente un google maps. deberías poder
 // acercarte y ver caminos y la propia ciudad en el mapa. No solo si la
 // pinchas.» Su z12 enseñaba verde plano — pero era el RASTER del mundo de
 // respaldo (las teselas nunca llegaban, la fila india del pool). Este banco

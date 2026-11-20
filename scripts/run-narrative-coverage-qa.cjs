@@ -365,7 +365,7 @@ testNarrativeCoverage()
       `- artifacts: ${artifactRoot}`,
       `- methods: Electron isolated profile + Dexie seed + runBridgeTool + HTTP probe + MCP stdio`,
       `- status: PASS renderer contrasts + MCP catalogue/tools/readonly/foreign`,
-      `- limits: no shared :8766; no Luis userdata; Vite not used (Electron+esbuild harness)`,
+      `- limits: no shared :8766; synthetic profiles only; Vite not used (Electron+esbuild harness)`,
       '',
     ].join('\n'),
   );

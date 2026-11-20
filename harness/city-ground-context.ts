@@ -127,7 +127,7 @@ for (const settlement of riverSettlements.slice(0, 20)) {
    * «Ningún edificio en el canal» se cumplía de la peor manera posible: cada
    * prueba de «aquí no se construye» era un múltiplo del ANCHO del cauce, así
    * que al pasar el ancho a físico la ciudad se apartaba del agua entera. Medido
-   * sobre el mundo de Luis antes de arreglarlo: 78 m de media entre la casa más
+   * sobre el mundo de referencia antes de arreglarlo: 78 m de media entre la casa más
    * cercana y su propia orilla, en las 32 ciudades fluviales, y ni un muelle.
    * Un río al que nadie se asoma no explica por qué el pueblo está ahí.
    */

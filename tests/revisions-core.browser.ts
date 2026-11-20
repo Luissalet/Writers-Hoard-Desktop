@@ -15,14 +15,14 @@ function mount(content: string, chapters = false) {
   const editor = new Editor({ element: host, extensions: [StarterKit.configure({ document: chapters ? false : {} }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...(chapters ? [BookDocument, ChapterHeadingNode.configure({ nodeView: false })] : [])], content });
   return { editor, cleanup: () => { editor.destroy(); host.remove(); } };
 }
-const input = { author: 'Luis ñ "quotes"', source: 'AI <source>', createdAt: 123456 };
+const input = { author: 'Revisora ñ "quotes"', source: 'AI <source>', createdAt: 123456 };
 
 export async function testRevisionsCore(): Promise<string[]> {
   const passed: string[] = [];
   const run = (name: string, fn: () => void) => { fn(); passed.push(name); };
   run('metadata normalizes only actual typed revision records', () => {
     assert(normalizeRevisionMetadata({ id: 'id', kind: 'deletion', ...input }), 'valid metadata');
-    equal(normalizeRevisionMetadata({ id: 'id', kind: 'insertion', author: 'Luis', source: 'manual', createdAt: Infinity }), null, 'finite timestamp');
+    equal(normalizeRevisionMetadata({ id: 'id', kind: 'insertion', author: 'Revisora', source: 'manual', createdAt: Infinity }), null, 'finite timestamp');
     equal(normalizeRevisionMetadata({ id: 'id', kind: 'replacement', ...input }), null, 'only persisted insertion/deletion');
   });
   run('replacement retains rich original and plain candidate, one ID, accept/reject and undo', () => {
@@ -124,7 +124,7 @@ export async function testRevisionsCore(): Promise<string[]> {
     } finally { cleanup(); }
   });
   run('scope prevents duplicate imported IDs from resolving outside the chapter', () => {
-    const span = (text: string) => `<span data-wh-revision-id="duplicate" data-wh-revision-kind="insertion" data-wh-revision-author="Luis" data-wh-revision-source="manual" data-wh-revision-created-at="1">${text}</span>`;
+    const span = (text: string) => `<span data-wh-revision-id="duplicate" data-wh-revision-kind="insertion" data-wh-revision-author="Revisora" data-wh-revision-source="manual" data-wh-revision-created-at="1">${text}</span>`;
     const { editor, cleanup } = mount(`<p>${span('First')}</p><p>${span('Second')}</p>`);
     try {
       const secondBefore = editor.getHTML().split('</p>')[1];
@@ -187,13 +187,13 @@ export async function testRevisionsCore(): Promise<string[]> {
   run('tracking disabled uses ordinary unmarked edits and metadata config getter updates', () => {
     const { editor, cleanup } = mount('<p>Original</p>'); try {
       editor.commands.setTextSelection(1); editor.commands.insertContent('Normal '); equal(describeRevisions(editor).length, 0, 'untracked default');
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' }); equal(getRevisionTracking(editor).enabled, true, 'mode state');
-      setRevisionTracking(editor, { enabled: false, author: 'Luis', source: 'typing' }); editor.commands.insertContent('Again '); equal(describeRevisions(editor).length, 0, 'untracked disabled');
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' }); equal(getRevisionTracking(editor).enabled, true, 'mode state');
+      setRevisionTracking(editor, { enabled: false, author: 'Revisora', source: 'typing' }); editor.commands.insertContent('Again '); equal(describeRevisions(editor).length, 0, 'untracked disabled');
     } finally { cleanup(); }
   });
   run('normal tracked typing groups adjacent text, deletion keeps original and resolve/undo works', () => {
     const { editor, cleanup } = mount('<p>Original 😀</p>'); try {
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' }); editor.commands.setTextSelection(1);
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' }); editor.commands.setTextSelection(1);
       editor.commands.insertContent('New '); editor.commands.insertContent('ñ'); equal(describeRevisions(editor).length, 1, 'one adjacent typing group');
       assert(resolveRevisions(editor, { decision: 'reject' }).ok, 'reject typed'); equal(editor.getHTML(), '<p>Original 😀</p>', 'original after reject');
       editor.view.dispatch(closeHistory(editor.state.tr)); editor.commands.setTextSelection({ from: 1, to: 9 }); editor.commands.deleteSelection();
@@ -204,7 +204,7 @@ export async function testRevisionsCore(): Promise<string[]> {
   });
   run('composition transaction and paste marks preserve Unicode and original formatting', () => {
     const { editor, cleanup } = mount('<p><strong>Original</strong></p>'); try {
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' });
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' });
       editor.view.dispatch(editor.state.tr.insertText('日本語 😀', 1).setMeta('composition', 1));
       assert(describeRevisions(editor)[0].proposedText.includes('日本語 😀'), 'IME Unicode tracked');
       resolveRevisions(editor, { decision: 'reject' });
@@ -215,21 +215,21 @@ export async function testRevisionsCore(): Promise<string[]> {
   });
   run('remote silent refresh is not tracked and does not produce a structural warning', () => {
     const { editor, cleanup } = mount('<p>Original</p>'); try {
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' });
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' });
       editor.commands.setContent('<p>Remote</p><p>More</p>', { emitUpdate: false });
       equal(describeRevisions(editor).length, 0, 'remote not a local revision'); assert(!getRevisionTracking(editor).warning, 'no remote scope warning');
     } finally { cleanup(); }
   });
   run('recent typing never reuses an imported or previous author proposal ID', () => {
-    const { editor, cleanup } = mount('<p><span data-wh-revision-id="old" data-wh-revision-kind="insertion" data-wh-revision-author="Luis" data-wh-revision-source="typing" data-wh-revision-created-at="1">Old</span></p>');
+    const { editor, cleanup } = mount('<p><span data-wh-revision-id="old" data-wh-revision-kind="insertion" data-wh-revision-author="Revisora" data-wh-revision-source="typing" data-wh-revision-created-at="1">Old</span></p>');
     try {
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' }); editor.commands.setTextSelection(4); editor.commands.insertContent(' new');
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' }); editor.commands.setTextSelection(4); editor.commands.insertContent(' new');
       equal(describeRevisions(editor).length, 2, 'new user input separate from old imported proposal');
     } finally { cleanup(); }
   });
   run('multiple insertion and character-mark steps share one tracked input without reconstruction', () => {
     const { editor, cleanup } = mount('<p>Original</p>'); try {
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' });
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' });
       editor.view.dispatch(editor.state.tr.insertText('One', 1).insertText('Two', 4).addMark(1, 7, editor.schema.marks.bold.create()));
       assert(editor.state.doc.textContent.includes('OneTwo'), 'ordinary input retained'); assert(!getRevisionTracking(editor).warning, 'multi insert tracked');
       equal(describeRevisions(editor).length, 1, 'one input group'); equal(describeRevisions(editor)[0].proposedText, 'OneTwo', 'new fragments tracked');
@@ -238,7 +238,7 @@ export async function testRevisionsCore(): Promise<string[]> {
   });
   run('structural tracking keeps ordinary paragraphs and informs scope without blocking writing', () => {
     const { editor, cleanup } = mount('<p>Text</p>'); try {
-      setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'typing' }); editor.commands.setTextSelection(3); editor.commands.splitBlock();
+      setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'typing' }); editor.commands.setTextSelection(3); editor.commands.splitBlock();
       equal(editor.state.doc.childCount, 2, 'normal structural edit kept'); assert(getRevisionTracking(editor).warning, 'tracking scope explained');
     } finally { cleanup(); }
   });

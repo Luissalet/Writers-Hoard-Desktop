@@ -150,7 +150,7 @@ export function canonParams(world: WorldData, base?: Partial<RegionParams>): Reg
     aspect: 1,
     // El canon SIEMPRE deriva su sembrado de las ediciones (`sites: 'auto'`):
     // cerrado por defecto, el tick del menú lo abre entero, el pincel por
-    // zonas (Luis, 2026-08-12). Forzado tras `base` igual que `res`: es parte
+    // zonas (requisito de 2026-08-12). Forzado tras `base` igual que `res`: es parte
     // del contrato del canon, no una preferencia del llamante.
     sites: 'auto',
   };

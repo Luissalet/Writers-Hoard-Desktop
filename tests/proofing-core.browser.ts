@@ -41,7 +41,7 @@ export async function testProofingCore(): Promise<string[]> {
   });
   await run('pending deleted proposal text is skipped and the visible candidate remains checked', async () => {
     const { editor, cleanup } = mount('<p>zzzzzzz</p>'); try {
-      proposeRevision(editor, { from: 1, to: 8, text: 'publicacion', author: 'Luis', source: 'test' }); const result = await checkDocument(editor, { language: 'es-ES' }); equal(result.findings.map(f => f.original), ['publicacion'], 'candidate only');
+      proposeRevision(editor, { from: 1, to: 8, text: 'publicacion', author: 'Revisora', source: 'test' }); const result = await checkDocument(editor, { language: 'es-ES' }); equal(result.findings.map(f => f.original), ['publicacion'], 'candidate only');
     } finally { cleanup(); }
   });
   await run('apply correction preserves bold color link and one undo restores the original HTML', async () => {
@@ -56,7 +56,7 @@ export async function testProofingCore(): Promise<string[]> {
   });
   await run('a correction within a pending insertion preserves its original proposal group', async () => {
     const { editor, cleanup } = mount('<p>Texto</p>'); try {
-      proposeRevision(editor, { from: 1, to: 6, text: 'publicacion', author: 'Luis', source: 'test' }); const before = describeRevisions(editor)[0]; const report = await checkDocument(editor, { language: 'es-ES' }); assert(applySuggestion(editor, report.findings[0], 'publicación').ok, 'candidate corrected'); const after = describeRevisions(editor)[0]; equal(after.id, before.id, 'same revision'); equal(after.originalText, 'Texto', 'original retained'); equal(after.proposedText, 'publicación', 'candidate corrected');
+      proposeRevision(editor, { from: 1, to: 6, text: 'publicacion', author: 'Revisora', source: 'test' }); const before = describeRevisions(editor)[0]; const report = await checkDocument(editor, { language: 'es-ES' }); assert(applySuggestion(editor, report.findings[0], 'publicación').ok, 'candidate corrected'); const after = describeRevisions(editor)[0]; equal(after.id, before.id, 'same revision'); equal(after.originalText, 'Texto', 'original retained'); equal(after.proposedText, 'publicación', 'candidate corrected');
     } finally { cleanup(); }
   });
   await run('project personal words persist in real IndexedDB and concurrent settings additions survive', async () => {
@@ -70,7 +70,7 @@ export async function testProofingCore(): Promise<string[]> {
   });
   await run('ordinary correction is recorded by enabled tracking with undo and candidate markers intact', async () => {
     const { editor, cleanup } = mount('<p>publicacion</p>'); try {
-      const report = await checkDocument(editor, { language: 'es-ES' }); setRevisionTracking(editor, { enabled: true, author: 'Luis', source: 'manual' }); assert(applySuggestion(editor, report.findings[0], 'publicación').ok, 'tracked correction'); const revisions = describeRevisions(editor); equal(revisions.length, 1, 'one replacement'); equal(revisions[0].originalText, 'o', 'changed original retained'); equal(revisions[0].proposedText, 'ó', 'changed candidate');
+      const report = await checkDocument(editor, { language: 'es-ES' }); setRevisionTracking(editor, { enabled: true, author: 'Revisora', source: 'manual' }); assert(applySuggestion(editor, report.findings[0], 'publicación').ok, 'tracked correction'); const revisions = describeRevisions(editor); equal(revisions.length, 1, 'one replacement'); equal(revisions[0].originalText, 'o', 'changed original retained'); equal(revisions[0].proposedText, 'ó', 'changed candidate');
       editor.commands.undo(); equal(editor.state.doc.textContent, 'publicacion', 'undo tracked correction');
     } finally { cleanup(); }
   });

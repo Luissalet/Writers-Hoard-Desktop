@@ -2,7 +2,7 @@
 // El servicio de teselas — la cola corta y descartable delante del pool
 // ============================================================================
 // La pieza central de la reestructura (tasks/ARQUITECTURA-TESELAS.md, encargo
-// de Luis del 2026-08-13: «investiga cómo se hacen este tipo de aplicaciones
+// del 2026-08-13: «investiga cómo se hacen este tipo de aplicaciones
 // de mapas… esto ya se ha resuelto en otras apps»). Es la regla de renderd,
 // el servidor de teselas de OpenStreetMap, traída a casa:
 //
@@ -13,7 +13,7 @@
 //      del pool: nunca se despacha trabajo que sólo puede esperar. Lo que la
 //      vista deja de querer ANTES de despacharse sale de la cola y ya está —
 //      sin plazos por petición, sin vigilantes, sin pulso. La fila india del
-//      log de Luis (404 peticiones por una sola sesión) no puede formarse:
+//      registro de la sesión de referencia (404 peticiones por una sola sesión) no puede formarse:
 //      la cola honda vivía en el pool, y al pool ya sólo llegan ≤techo.
 //   3. LO DESPACHADO NO SE CANCELA: SE RECOGE Y SE GUARDA. Un render en curso
 //      ya está pagado. Si el lector se fue, la tesela aterriza igual, se
@@ -144,7 +144,7 @@ let enVuelo = 0;
  * el lector ya dejó mientras el nivel que MIRA esperaba, y el desborde
  * descartaba por la cabeza… que era el CENTRO de la pantalla (el `want`
  * pide del centro afuera, así que lo más cercano entraba primero y moría
- * primero: las z10(488-491,308-311) renaciendo en bucle en el log de Luis
+ * primero: las z10(488-491,308-311) renaciendo en bucle en el registro de la sesión de referencia
  * del 2026-08-13, con el río en el centro pixelado para siempre). Con olas:
  * se despacha la ola más NUEVA en su orden (centro afuera), y el desborde
  * se come la ola más VIEJA — exactamente las dos prioridades de renderd.

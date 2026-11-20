@@ -893,7 +893,7 @@ su nombre. (`worldgen` estuvo exento hasta §23; hoy ya no hay exenciones: los
 
 ### Verificado en vivo
 
-Contra un proyecto real de Luis, «VIdeos sobre libros», con `seeds` apagado:
+Contra un proyecto de referencia con `seeds` apagado:
 `wh_create_seed` devolvió `engine-disabled` y **no escribió nada**. Antes de
 esto habría dejado una semilla que él no habría visto nunca.
 
@@ -1130,7 +1130,7 @@ ids (`connectionKey`), nunca sobre la identidad de un array de la store.
 
 ## 19. Fase 6B — imágenes sin servidor ajeno, y velocidad medida
 
-Novena pasada (2026-08-31, segunda mitad de la noche). Tres encargos de Luis
+Novena pasada (2026-08-31, segunda mitad de la noche). Tres encargos
 al despertar a medias: que el modelo de texto por defecto fuera el Qwen que
 mejor se adaptara a su equipo, que el veredicto de velocidad midiera en vez de
 estimar, y que la fase 6B del plan —descargar y ejecutar modelos de imagen en
@@ -1212,8 +1212,7 @@ tokens» bajo cada respuesta.
 obligatorias, etiqueta de fit, banda de velocidad, tokens/s (la medida cuenta
 entera, la estimación al 70 %: una conjetura no adelanta a una lectura por
 dos tokens), huella de memoria (más ligero antes), general antes que «coder»,
-visión, parámetros. En Valores por defecto: «Usar el mejor modelo local». En el
-equipo de Luis eligió `qwen3-coder:30b` (MoE, 19 GB, bien · 28 tok/s medidos)
+visión, parámetros. En Valores por defecto: «Usar el mejor modelo local». La máquina de referencia usó `qwen3-coder:30b` (MoE, 19 GB, bien · 28 tok/s medidos)
 y es lo que quedó por defecto. Las funciones clásicas además **recaen** en ese
 mismo ranking si la ruta por defecto no responde —el proxy CLIProxyAPI
 apagado dejaba «resumen» muerto— y avisan una vez con un toast de qué modelo
@@ -1371,7 +1370,7 @@ trozo).
 
 ## 21. Del texto a la imagen, y referencias (2026-08-31, mañana)
 
-Dos funciones pedidas por Luis, hechas y verificadas en vivo.
+Dos funciones solicitadas, implementadas y verificadas en vivo.
 
 ### Seleccionar texto en Escritos → generar imagen
 
@@ -1528,7 +1527,7 @@ the scene» conserva `wh_link_place` y «gazetteer summary» conserva
 
 ### Lo que se probó
 
-- En vivo, sobre «mundo 2» de Luis (2048×1024, 10 ediciones): lectura sin vista
+- En vivo, sobre un mundo de referencia (2048×1024, 10 ediciones): lectura sin vista
   abierta (`wh_list_places` 638 ms en `places`; `full` 12 s la primera vez y
   ~20 ms después, por la caché privada), `wh_find_place`, `wh_place_at`,
   `wh_world_summary` (26 k caracteres). Con la vista abierta: `wh_add_place`
@@ -1546,7 +1545,7 @@ the scene» conserva `wh_link_place` y «gazetteer summary» conserva
 - Novedad de método: los harnesses de navegador (`tests/critical.browser.ts`
   y el autotest) corren también en Chromium headless (Playwright) fuera de
   Electron, con IndexedDB real. Es lo que permitió iterar sin la máquina de
-  Luis; el gate sigue siendo el de Windows.
+  la persona usuaria; el gate sigue siendo el de Windows.
 
 
 ## 24. Mejoras pendientes cerradas, y el Atlas real (2026-08-31, tarde)
@@ -1588,7 +1587,7 @@ cuesta segundos, fallar cuesta minutos. La contención sigue siendo física
 
 ### Atlas real — motor `real-atlas`
 
-La pregunta de Luis: ¿motor aparte o preset de worldgen para quien escribe en
+La pregunta: ¿motor aparte o preset de worldgen para quien escribe en
 el mundo real (o el real con cambios)? Motor aparte, y además un preset. En
 worldgen los lugares se DERIVAN del relieve que el lector pinta; en el mundo
 real son hechos que el autor afirma: Lisboa está donde está, el bar de la
@@ -1629,7 +1628,7 @@ el binario de Electron descargado y `xvfb-run`, la suite crítica ENTERA
 (nativa + navegador + arranque + Vite) corre en el contenedor de Claude, y los
 harnesses de navegador corren además en Chromium headless (Playwright) con un
 user-agent de Electron (sin él, `isDesktop()` es falso y el arranque escoge
-`BrowserRouter`). La máquina de Luis queda para la confirmación final y las
+`BrowserRouter`). La máquina de referencia queda para la confirmación final y las
 pruebas en vivo, no para cada iteración.
 
 ## 25. Investigación: fuentes graduadas, afirmaciones derivadas y 14 herramientas nuevas
