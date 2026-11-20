@@ -132,6 +132,28 @@ Every source of the research library as a published reference list, sorted by fi
       additionalProperties: false,
     },
   },
+  {
+    name: 'wh_import_evidence',
+    description:
+      `File a research station's evidence pack as cited sources: each claim keeps its source and quote.
+coaseReportId pulls a Coase dossier report through the Hub; pack takes {ref, title, sources:[{id,title,url,publisher,published}], claims:[{text, source_id, quote, locator}]}. Each source becomes a citation, each claim a pending evidence row of it with the quote verbatim. Filing the same pack again reuses what is there and adds only new claims. Returns sourceId and evidenceId per claim for insertCitation. Undo removes what it added.
+Keywords: evidence pack, research dossier, import citations; importar evidencia, dosier, citas`,
+    writes: true,
+    timeoutMs: 90_000,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        coaseReportId: s('Id of a Coase dossier report (from coase_reports). Writer reads it through the Hub.'),
+        pack: {
+          type: 'object',
+          description: 'An evidence pack: {ref, title?, sources:[{id, title, url?, publisher?, published?, authors?}], claims:[{text, source_id, quote, locator?, kind?}]}. A Coase report object is read as well.',
+        },
+        ref: s('Where the pack comes from (e.g. hoard://faustus/research/<id>), when the pack does not say.'),
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
