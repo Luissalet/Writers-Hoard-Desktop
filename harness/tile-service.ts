@@ -228,7 +228,7 @@ async function main() {
   await drenar(); resetTileServiceForBench(); filas.clear();
 
   // ---- G · la ola nueva va por delante -------------------------------------
-  // El 0/60 de Luis (2026-08-13): los restos del nivel que dejó atrás
+  // El 0/60 de la captura de referencia (2026-08-13): los restos del nivel que dejó atrás
   // despachaban por delante del plan que MIRABA. Aquí: se llena el vuelo, se
   // encola una ola vieja, llega una ola nueva — y la nueva despacha primero.
   {

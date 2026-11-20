@@ -353,7 +353,7 @@ export class DisplayTileStore {
    * sólo dibuja `onArrive`… que un nulo no dispara. Si el plan entero se
    * resuelve en nulos (la cola del servicio descartó una ola completa), no
    * queda ninguna llegada que despierte el bucle: el 0/60 clavado con
-   * EN VUELO 0 de la captura de Luis (2026-08-13) — el mapa congelado en
+   * EN VUELO 0 de la captura de referencia (2026-08-13) — el mapa congelado en
    * borroso para siempre sobre una vista perfectamente sana. Este empujón
    * coalescido convierte el nulo en lo que siempre debió ser: «ahora no —
    * vuelve a preguntar en nada». Los 400 ms le dan a la cola tiempo de
@@ -363,7 +363,7 @@ export class DisplayTileStore {
    *  real lo multiplica (×1,7 hasta 6 s) y cualquier tesela que SÍ llega lo
    *  devuelve a 400 ms. Sin esto, el 3D sobre canon frío era un bucle de
    *  sondeo eterno — pedir → declinar en µs → null → empujón a los 400 ms →
-   *  pedir… (las 432 declinadas del tercer parte de Luis, 2026-08-14). */
+   *  pedir… (las 432 declinadas del tercer parte de referencia, 2026-08-14). */
   private nudgeDelayMs = 400;
 
   private nudge(): void {

@@ -70,7 +70,7 @@ export const GLOBE_RELIEF = 0.3;
  *
  * No hay relieve inventado en ese acercamiento y no lo va a haber: la
  * geometría sigue siendo interpolación LISA del campo del mundo (doctrina
- * «CERCA = LISO», Luis 2026-08-11). Lo que trae la calle es la PIEL.
+ * «CERCA = LISO», requisito de 2026-08-11). Lo que trae la calle es la PIEL.
  */
 export const MIN_UV_WINDOW = 1e-6;
 

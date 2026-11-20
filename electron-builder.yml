@@ -1,4 +1,4 @@
-appId: com.luissalet.writershoard
+appId: org.hoardfamily.writers
 productName: Writers Hoard
 copyright: Copyright © 2026 Luis Salet
 
@@ -77,6 +77,8 @@ win:
         - x64
 
 nsis:
+  # Keep the registry identity of existing Windows installations.
+  guid: 6d47b0f1-cec1-5d95-b73f-47fda51f91dd
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

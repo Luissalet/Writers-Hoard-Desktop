@@ -34,7 +34,7 @@ export function hashEditsString(s: string): string {
  * mismo mundo decodificado de la instantánea pueden llevar las mismas claves
  * en distinto orden — con lo que una clave de invalidación «cambiaba» entre
  * sesiones y el almacén nunca acertaba: trece superteselas guardadas y cero
- * sembradas (la captura de Luis, 2026-08-12). La identidad debe depender del
+ * sembradas (la captura de referencia, 2026-08-12). La identidad debe depender del
  * CONTENIDO, nunca del orden en que un objeto fue construido. Vive aquí — el
  * módulo puro que ya comparten cliente, workers y puertas de persistencia —
  * porque dos copias de esta función son dos claves que pueden divergir.
@@ -186,7 +186,7 @@ export interface RegionRenderTileWorkerRequest {
    * SÓLO CONSUMIR: una tesela honda se entinta únicamente si TODAS sus
    * superteselas de canon ya son residentes en la caché del worker; si falta
    * alguna, el worker responde `declined` en microsegundos en vez de pagar
-   * segundos de generación. Es el contrato del 3D (decisión de Luis,
+   * segundos de generación. Es el contrato del 3D (decisión de la persona usuaria,
    * 2026-08-11: «el 3D consume, no genera»): la vista pide lo que el 2D ya
    * dibujó barato y nada más. Ausente = falso, todos los llamantes de antes
    * quedan igual.
@@ -226,7 +226,7 @@ export type RegionWorkerReply =
      * del cliente (`session.seeded`) daba por residente lo que el worker ya
      * había tirado, la siembra de 300 ms se saltaba, y la tesela pagaba una
      * REGENERACIÓN de decenas de segundos — el atasco cuadrático del primer
-     * paseo hondo (0/45 con EN VUELO 4, captura de Luis 2026-08-12). La vía
+     * paseo hondo (0/45 con EN VUELO 4, captura de referencia 2026-08-12). La vía
      * `consumeOnly` ya tenía su tachadura vía `declined`; ésta es la misma
      * verdad para la vía que genera.
      */

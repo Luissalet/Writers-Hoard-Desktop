@@ -74,7 +74,7 @@ export const MIN_SPAN_KM = 0.25;
 //     confundir las dos cosas fue lo que obligó a revertir la bajada. Acercarse
 //     a mirar es una decisión del lector; que le dejen caer ahí, no.
 //
-// 25, POR DECISIÓN DE LUIS (2026-08-11): «puedes hacer zoom sin necesidad de
+// 25, POR CRITERIO DE PRODUCTO (2026-08-11): «puedes hacer zoom sin necesidad de
 // hacer esa teselación exagerada — el terreno es bastante llano». La regla
 // antigua («el suelo sólo baja cuando el relieve tenga algo debajo») queda
 // REVOCADA: el suelo de cerca es la interpolación LISA del campo del mundo, a
@@ -83,7 +83,7 @@ export const MIN_SPAN_KM = 0.25;
 // PIEL: bajo «consume», un encuadre de 25 km pide teselas z14 (~10 m/px) y
 // donde el 2D ya generó ese canon el 3D las entinta gratis — tejados y mancha
 // urbana incluidos. Frío, se queda en el respaldo z8: borroso pero liso.
-// …y 10 desde el 2026-08-12 (Luis: quiere llegar a VER la ciudad — «que las
+// …y 10 desde el 2026-08-12 (Petición: quiere llegar a VER la ciudad — «que las
 // ciudades estén ahí literalmente»). A 10 km de vano el plan pide z15–z16
 // (2,4–5 m/px): los planos de ciudad de las teselas se leen calle a calle.
 // Sigue siendo interpolación lisa del campo del mundo — el relieve no se
@@ -129,7 +129,7 @@ export const MIN_SPAN_KM = 0.25;
  *    0,000. Por eso este número es ahora el del contrato compartido.
  *
  * Sigue siendo interpolación LISA del campo del mundo — el relieve no se
- * inventa, doctrina «CERCA = LISO» (Luis, 2026-08-11) — y bajo «consume» la
+ * inventa, doctrina «CERCA = LISO» (requisito de 2026-08-11) — y bajo «consume» la
  * piel honda sale de la residencia o del canon persistido; fría, del respaldo
  * liso de siempre. Lo que trae la calle es la PIEL, y a 0,25 km la pirámide da
  * z18 ≈ 0,60 m/px, ocho veces por debajo de los 5 m/px que necesita el plano.

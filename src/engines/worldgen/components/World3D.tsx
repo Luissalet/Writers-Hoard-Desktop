@@ -247,7 +247,7 @@ const MESH_STEPS = [512, 1024, 1536];
 
 /*
  * La piel del 3D es UNA textura del mundo entero, y a mil doscientos kilómetros
- * de encuadre eso son veinte kilómetros de suelo por téxel: es la queja de Luis
+ * de encuadre eso son veinte kilómetros de suelo por téxel: es la incidencia registrada
  * («los biomas y los ríos se ven pixeladísimos sobre la topología») y sigue sin
  * resolver. Intenté renderizar la pintura para la ventana de la cámara y el
  * agua pintada dejó de caer sobre el cauce excavado en el terreno, de una forma
@@ -264,7 +264,7 @@ const VIEWPORT_REPORT_MS = 180;
  * `harness/descent-3d.ts` la compara contra lo que la piel puede servir.
  */
 
-/** HUD de depuración de la piel (TEMPORAL — Luis, 2026-08-12): añade a la
+/** HUD de depuración de la piel (TEMPORAL — requisito de 2026-08-12): añade a la
  *  línea de la piel el techo del plan, el estado del contrato consume y los
  *  contadores de sesión de la vía de teselas. Quitar tras el diagnóstico. */
 const DEBUG_HUD = false;
@@ -280,7 +280,7 @@ const DEBUG_HUD = false;
  * una muestra cada veinte kilómetros. Acercarse a mirar es una decisión; que te
  * dejen caer ahí, no.
  *
- * 150 desde que el suelo del lector bajó a 25 (decisión de Luis, 2026-08-11):
+ * 150 desde que el suelo del lector bajó a 25 (decisión de la persona usuaria, 2026-08-11):
  * venir del 2D mirando una comarca abre EN esa comarca, no a 1200 km — pero
  * nunca más cerca de lo que un posado deliberado enseña con dignidad.
  */
@@ -316,7 +316,7 @@ const WALK_LOOK = 0.9;
  *
  * z8 es el último nivel que sale del ráster del MUNDO amplificado por píxel; a
  * partir de z9 la tesela se dibuja sobre el canon de 153 m. La decisión de
- * producto, tomada por Luis (2026-08-11): **el 3D CONSUME, no genera** —
+ * producto, acordada (2026-08-11): **el 3D CONSUME, no genera** —
  * «hasta que lo optimicemos de verdad». Así que el techo sube hasta donde la
  * pirámide de este mundo llega, pero cada petición honda viaja con
  * `consumeOnly`: el worker sólo entinta teselas cuyo canon YA es residente
@@ -544,7 +544,7 @@ export default function World3D({
   const [contour, setContour] = useState(0);
   /** Ver `sunAt`: las 15:00 reproducen el sol fijo que esta vista tenía. */
   const [hour, setHour] = useState(15);
-  /** A CERO por defecto (Luis, 2026-08-11): el ruido de detalle por píxel es
+  /** A CERO por defecto (requisito de 2026-08-11): el ruido de detalle por píxel es
    *  exactamente lo que él describe como «picos y poros» al acercarse. El
    *  suelo de cerca es LISO por decisión; quien quiera el grano inventado
    *  tiene el mando «Detalle de cerca» y se lo sube. */
@@ -591,7 +591,7 @@ export default function World3D({
    *  desde fuera, y porque es el número que decide si merece la pena acercarse
    *  más. */
   const [skinInfo, setSkinInfo] = useState('');
-  /** La chuleta de navegación, detrás del «?» (Luis, 2026-08-12). */
+  /** La chuleta de navegación, detrás del «?» (requisito de 2026-08-12). */
   const [hintsOpen, setHintsOpen] = useState(false);
   /** What the modifier keys are doing to the brush right now. */
   const [modifier, setModifier] = useState<'' | 'smooth' | 'invert'>('');
@@ -1014,9 +1014,9 @@ export default function World3D({
           density: 1,
           reliefAmount: 1,
           // `?? ''`: hondo sin ediciones sigue siendo contenido direccionable
-          // (ver la nota gemela en Map2D — el `s:r3` del log de Luis).
+          // (ver la nota gemela en Map2D — el `s:r3` del registro de la sesión de referencia).
           edits: deep ? (q.canonEdits ?? '') : undefined,
-          // EL 3D CONSUME (decisión de Luis, 2026-08-11): una tesela honda
+          // EL 3D CONSUME (decisión de la persona usuaria, 2026-08-11): una tesela honda
           // sólo se entinta si su canon ya es residente en el worker; si no,
           // el worker la declina al instante. Ninguna rueda de ratón paga
           // superteselas de 156 km desde esta vista. (El almacén de
@@ -1190,7 +1190,7 @@ export default function World3D({
      * Lo que NO cambia hoy, a propósito: el ángulo. `near·4 = dist` obliga a
      * mirar desde unos 58° sobre el horizonte en cuanto te acercas, así que la
      * órbita no rasa aunque la piel ya lo permita. Bajar ese ángulo es un
-     * cambio de tacto en una vista que Luis ya dio por buena, y para ir a ras
+     * cambio de tacto en una vista que ya se había aprobado, y para ir a ras
      * de suelo está el PASEO. Queda anotado, no hecho.
      */
     const orbitDist = st.camera.position.distanceTo(st.controls.target);
@@ -1747,7 +1747,7 @@ export default function World3D({
      * EL 3D NO DECÍA A QUÉ ESCALA ESTABA, NI POR DÓNDE CAÍA EL NORTE.
      *
      * El 2D lleva su barra de escala desde la pasada de cohesión; ésta la vista
-     * PRINCIPAL (Luis, en mayúsculas: «el mapa 3D es el que más importa») y no
+     * PRINCIPAL (Petición en mayúsculas: «el mapa 3D es el que más importa») y no
      * tenía ninguna de las dos. Sin escala, un valle y un continente son la
      * misma mancha verde con un río; y sin norte, en cuanto orbitas medio giro
      * ya no sabes si ese río va al mar del sur o baja de las montañas del
@@ -1928,7 +1928,7 @@ export default function World3D({
     //    agujero negro sobre el relieve. Por trozos, porque la ventana puede
     //    cruzar la costura y el lienzo de origen no se envuelve solo.
     //    SIN RÍOS cuando hay versión sin ellos (`albedoBase`): un río cocido a
-    //    resolución de mundo y ampliado ×8 es la cinta gorda que Luis
+    //    resolución de mundo y ampliado ×8 es la cinta gorda que la persona usuaria
     //    fotografió; aquí se rellena la base limpia y los ríos se dibujan
     //    después A LA RESOLUCIÓN DEL BLOQUE, con su anchura de suelo.
     const base = st.albedoBase ?? st.albedoCanvas;
@@ -1968,7 +1968,7 @@ export default function World3D({
      * EL SUELO DE NITIDEZ BAJO «CONSUME». Un plan hondo con el canon frío se
      * declina ENTERO (contrato consumeOnly) y este lienzo se quedaría en el
      * albedo ampliado — peor que el techo z8 que había antes, que es
-     * exactamente lo que Luis fotografió: mancha borrosa con un río gordo.
+     * exactamente lo que muestra la captura: mancha borrosa con un río gordo.
      * El último nivel SOMERO (z8 en satélite, z9 en carta) no toca canon y
      * nunca se declina: se pide SIEMPRE como respaldo del mismo encuadre — se
      * pide PRIMERO, para que el pool fabrique antes lo que seguro se va a ver
@@ -1984,7 +1984,7 @@ export default function World3D({
     const mPerPx = (plan.view.w * physicalKmPerWorldCell(w) * 1000) / plan.width;
     const done = got.exact >= got.needed;
 
-    // 2b. LAS CIUDADES DEL RELLENO. «Coloca las ciudades» (Luis, 2026-08-11):
+    // 2b. LAS CIUDADES DEL RELLENO. «Coloca las ciudades» (requisito de 2026-08-11):
     //     a 25 km una casa mide menos de un píxel, así que en el suelo del 3D
     //     la ciudad es su MANCHA — la misma mancha parda que inkan las teselas
     //     hondas, pero dibujada aquí desde la geografía, en el hilo principal
@@ -2077,7 +2077,7 @@ export default function World3D({
       .replace('{ny}', String(plan.ny))
       + (mPerPx >= 1000 ? `${(mPerPx / 1000).toFixed(1)} km/px` : `${Math.round(mPerPx)} m/px`)
       + (done ? '' : ` · ${got.exact}/${got.needed}`)
-      // DEBUG (temporal, Luis 2026-08-12): el techo del plan, el contrato, y
+      // DEBUG (temporal, requisito de 2026-08-12): el techo del plan, el contrato, y
       // los contadores de sesión — «declinadas» creciendo = el canon de este
       // suelo no existe aún (el 2D no lo generó y el almacén no lo tiene).
       + (DEBUG_HUD
@@ -2757,7 +2757,7 @@ export default function World3D({
       // La cámara compartida trae el encuadre de donde venga el lector, y si
       // venía del 2D a treinta kilómetros esta vista abría con el morro
       // metido en un téxel: ahí no hay datos, sólo magnificación — y era el
-      // primer eslabón del atasco que Luis describió (arrancas cerca, se pide
+      // primer eslabón del atasco que se describió (arrancas cerca, se pide
       // comarca, te alejas y ya no levanta cabeza). El encuadre se respeta,
       // pero nunca por debajo del suelo honrado de esta vista.
       const fraction = Math.min(1, Math.max(
@@ -2924,7 +2924,7 @@ export default function World3D({
       // SIN el tampón de ríos de renderComposite: aquello estampa alfa POR
       // CELDA, así que un río medía una celda de gordo (19,6 km en un mundo
       // de 2048) hiciera lo que hiciera la cámara — la cinta gorda de las
-      // capturas de Luis. La base limpia se guarda para el relleno de la piel
+      // capturas de referencia. La base limpia se guarda para el relleno de la piel
       // de cerca, y la textura del mundo lleva los ríos dibujados por la MISMA
       // rutina de anchura-de-suelo que usan las teselas someras del satélite:
       // un solo idioma de río a todas las distancias.
@@ -3876,7 +3876,7 @@ export default function World3D({
         <div className="flex gap-1.5 items-center">
           <span className={`px-2 py-1 ${HUD} ${HUD_TEXT} tabular-nums`}>{ms ? `${ms} ms` : '—'}</span>
           {/* La chuleta de navegación va detrás del «?»; los avisos de pincel
-              siguen solos, que acompañan al gesto (Luis, 2026-08-12). */}
+              siguen solos, que acompañan al gesto (requisito de 2026-08-12). */}
           {!brushing ? (
             <>
               <button

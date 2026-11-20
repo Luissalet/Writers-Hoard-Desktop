@@ -790,7 +790,7 @@ export default function WorldView({
      * y para el almacén un mundo sin vínculo no persiste ni siembra nada:
      * cuarenta y una superteselas «guardadas» a la basura y «sembradas 0»
      * eternas, con cada sesión de la Forja regenerando lo que su vecina
-     * acababa de pagar (las capturas de Luis, 2026-08-12). El vínculo del
+     * acababa de pagar (las capturas de referencia, 2026-08-12). El vínculo del
      * prístino — y el respaldo por semilla dentro de `bindCanonWorld` — es
      * lo que enciende el bus entre sesiones de verdad.
      */
@@ -822,7 +822,7 @@ export default function WorldView({
     return regionDetail.places
       // LA CIUDAD NO SE DIBUJA DOS VECES. La comarca re-emite los pueblos del
       // MUNDO re-anclados a su retícula (~150 m de deriva), y esta capa los
-      // pintaba ADEMÁS del rótulo del mundo: la captura de Luis (2026-08-13),
+      // pintaba ADEMÁS del rótulo del mundo: la captura de referencia (2026-08-13),
       // «Pisfiisild» blanca y su copia marrón a un lado. Lo que viene del
       // mundo (worldId) ya lo dibuja la capa del mundo en su ancla de verdad;
       // aquí sólo entra lo que la comarca aporta de suyo.
@@ -982,7 +982,7 @@ export default function WorldView({
   /**
    * El grifo de los lugares aleatorios, LEÍDO de la lista de ediciones: manda
    * el último `placesEverywhere`, y sin ninguno está cerrado — el defecto que
-   * pidió Luis (2026-08-12: «no he pedido abadías, casas, monasterios»).
+   * pidió la persona usuaria (2026-08-12: «no he pedido abadías, casas, monasterios»).
    * Derivado y no guardado aparte, para que Ctrl+Z lo revierta como a
    * cualquier otra edición y el tick nunca pueda mentir.
    */
@@ -1361,7 +1361,7 @@ export default function WorldView({
     // realms and named seas stay as they were.
     //
     // What used to be here — a full rebuild scheduled 2.2 s after every stroke —
-    // is the freeze Luis reported. On a 2048-wide world that pass is nineteen
+    // is the reported freeze. On a 2048-wide world that pass is nineteen
     // seconds, and it fired every time he stopped moving the brush. The rebuild
     // now belongs to the effect above, which runs when the brush goes away.
     if (data && needsGeoRef.current) {
@@ -1610,7 +1610,7 @@ export default function WorldView({
   /**
    * BAJAR A UNA CIUDAD, que desde el 2026-08-15 es lo que hace pinchar en una.
    *
-   * Luis, textualmente: «el modal de la ciudad no lo veo necesariamente pero
+   * Petición textual: «el modal de la ciudad no lo veo necesariamente pero
    * como una acción secundaria para editar la ciudad». Así que el gesto
    * primario deja de abrir una ventana ENCIMA del mapa y pasa a llevarte
    * dentro del mapa — que es lo que el motor ya sabe hacer desde que el 3D
@@ -1651,7 +1651,7 @@ export default function WorldView({
      * mientras todo lo que DIBUJA el pueblo usa `settlementCellCenter`. Media
      * celda de un mundo de 2048 son 9,8 km, y el vuelo pide 2,17 km de vano
      * para una capital: al llegar, la ciudad estaba a 6,4 pantallas y la diana
-     * marcaba campo vacío al noroeste. Luis lo fotografió el 2026-08-16.
+     * marcaba campo vacío al noroeste. La captura lo documenta el 2026-08-16.
      *
      * La cuenta se fue a `region/townPlan.ts` porque dentro de un `.tsx` no
      * tiene banco posible sin montar React, y por eso llevaba ahí desde que
@@ -2442,7 +2442,7 @@ export default function WorldView({
           {/* El grifo del sembrado regional (granjas, abadías, ventas…). NO es
               un filtro de vista: escribe una edición `placesEverywhere` y el
               canon tocado se re-fragua — apagado, el mundo sólo tiene lo que
-              Luis puso. El pincel «Lugares» abre zonas concretas. */}
+              se colocaron. El pincel «Lugares» abre zonas concretas. */}
           {data && (
             <OverlayToggle
               active={randomPlacesOn}

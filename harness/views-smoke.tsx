@@ -589,7 +589,7 @@ declare global {
 async function preparar() {
   const t0 = performance.now();
   mundo = generateWorld({ ...DEFAULT_PARAMS, seed: 'banco-vistas', width: 256 });
-  // EL GRIFO ABIERTO. Desde la pasada 10 un mundo nace DESNUDO (Luis: «todo
+  // EL GRIFO ABIERTO. Desde la pasada 10 un mundo nace DESNUDO (Petición: «todo
   // lo que no sea geografía debe ser opción»), y estos casos retratan vistas
   // con capital, puerto, caminos y planos — el paisaje del grifo abierto.
   applyEdits(mundo, [{ kind: 'placesEverywhere', enabled: true }]);

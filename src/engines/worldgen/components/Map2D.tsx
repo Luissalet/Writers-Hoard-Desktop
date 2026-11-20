@@ -111,7 +111,7 @@ const CURVE_HANDLE_PX = 48;
 const BRUSH_MIN_KM = 0.15;
 const BRUSH_MAX_KM = 2500;
 
-/** HUD de depuración del suelo (TEMPORAL — lo pidió Luis el 2026-08-12 para
+/** HUD de depuración del suelo (TEMPORAL — se pidió el 2026-08-12 para
  *  cazar por qué el zoom se queda borroso en su máquina; quitar cuando el
  *  diagnóstico esté hecho: poner a false y borrar los bloques que lo leen). */
 const DEBUG_HUD = false;
@@ -1173,7 +1173,7 @@ export default function Map2D({
           // `?? ''`: un mundo SIN ediciones también es suelo hondo con
           // identidad de contenido — con `undefined` el servicio lo trataba
           // como somero (clave por revisión, sin almacén de entintadas): el
-          // `s:r3` del log de Luis del 2026-08-13, disco 0/0 y guardadas 0
+          // `s:r3` del log del 2026-08-13, disco 0/0 y guardadas 0
           // en el mundo recién abierto.
           edits: deep ? (q.canonEdits ?? '') : undefined,
         },
@@ -1208,7 +1208,7 @@ export default function Map2D({
      * 224, no 512. Aquella subida (2026-08-13) compraba «volver sobre tus
      * pasos sin pagar la cola» a cambio de ~134 MB de RGBA 256² EN EL HILO
      * PRINCIPAL — y ese apilamiento acabó en «RangeError: Array buffer
-     * allocation failed» en la máquina de Luis (2026-08-14). Desde F1 volver
+     * allocation failed» en la máquina de referencia (2026-08-14). Desde F1 volver
      * sobre tus pasos ya no paga la cola: lo paga el ALMACÉN DE ENTINTADAS,
      * en milisegundos y desde el disco. 224 teselas son ~59 MB y cubren dos
      * pantallas del nivel vigente más sus padres.
@@ -1743,7 +1743,7 @@ export default function Map2D({
           + `:rivers${showRivers ? 1 : 0}:canon${canonWorld ? worldId(canonWorld) : 0}`
         : `${worldId(world)}:${revision}:pending`;
       if (gen !== tileGeneration.current) {
-        // DEBUG (caza de olas, 2026-08-13): el log de Luis enseñó olas
+        // DEBUG (caza de olas, 2026-08-13): el registro de la sesión de referencia enseñó olas
         // completas de re-pedidos (+208.0 y +209.5) sin causa visible — esta
         // traza nombra QUÉ componente de la generación se movió. Quitar con
         // el resto del DEBUG cuando la caza cierre.
@@ -1793,7 +1793,7 @@ export default function Map2D({
         // supertesela del plan se genera en su propia sesión de la Forja — en
         // PARALELO — y las teselas llegan detrás por residencia o siembra.
         // Antes, la afinidad de sesión convertía el primer paseo en una fila
-        // india: EN VUELO 1 con quince cores parados (captura de Luis,
+        // india: EN VUELO 1 con quince cores parados (captura de referencia,
         // 2026-08-12). Deduplicado dentro del cliente; fuera de suelo hondo
         // no hace nada.
 
@@ -2583,7 +2583,7 @@ export default function Map2D({
               || (rank <= 1 && semantic.tier !== 'planetary')
               || (rank <= 2 && (semantic.tier === 'regional' || semantic.tier === 'local'))
               || semantic.tier === 'local')) {
-            // El rótulo CRECE con el zoom (Luis, 2026-08-12: «que siga
+            // El rótulo CRECE con el zoom (requisito de 2026-08-12: «que siga
             // apareciendo bien grande»): de lejos el tamaño de siempre; de
             // cerca hasta 19 px, que una capital a cuarenta kilómetros de
             // vano no puede anunciarse en letra de nota al pie.
@@ -2634,7 +2634,7 @@ export default function Map2D({
        * El canon emite TODO — cada casa, venta, vado, granja y majada — y este
        * bloque lo rotulaba todo en cuanto las teselas hondas entraban (z9):
        * a escala comarcal eso son cientos de rótulos de 9,5 px a la vez, y la
-       * ciudad que buscas desaparece entre ellos. Es la captura de Luis del
+       * ciudad que buscas desaparece entre ellos. Es la captura de referencia del
        * 2026-08-11 («aparecen mil mierdas»). Un mapa real deja entrar los
        * nombres por tamaño según te acercas.
        *
@@ -3565,7 +3565,7 @@ export default function Map2D({
       }
     }
 
-    // ---- HUD DE DEPURACIÓN (temporal, Luis 2026-08-12) ----------------------
+    // ---- HUD DE DEPURACIÓN (temporal, requisito de 2026-08-12) ----------------------
     // «Se ve borroso» y «todavía no ha llegado» se parecen mucho desde fuera:
     // este bloque dice qué nivel se está PIDIENDO, cuál es el techo del mundo,
     // cuántas teselas del plan han llegado, si el canon 2D está armado, y qué
@@ -4076,7 +4076,7 @@ export default function Map2D({
    */
   const movableAt = (sx: number, sy: number): Hit | null => {
     /**
-     * NADA SE COGE SI NO SE HA PEDIDO COGER (Luis, 2026-08-15).
+     * NADA SE COGE SI NO SE HA PEDIDO COGER (requisito de 2026-08-15).
      *
      * Esto no pedía modo: bastaba con que el puntero cayera a menos de diez
      * píxeles de un pueblo, una ruina o un rótulo. Diez píxeles es un pelo a
@@ -5319,7 +5319,7 @@ export default function Map2D({
     ? t('worldgen.map.brushWheelHint')
     : hasRadius(tool) ? t('worldgen.map.brushSizeHint') : '';
 
-  /** La chuleta de navegación, detrás del botón «?» (Luis, 2026-08-12: el
+  /** La chuleta de navegación, detrás del botón «?» (requisito de 2026-08-12: el
    *  rótulo permanente tapaba media esquina inferior). */
   const [hintsOpen, setHintsOpen] = useState(false);
 
@@ -5405,7 +5405,7 @@ export default function Map2D({
       {/* Los avisos de HERRAMIENTA se enseñan solos (son cortos y van con el
           gesto); la chuleta de navegación vive detrás del botón «?» — a
           pantalla completa tapaba media esquina, incluido el HUD de
-          depuración (Luis, 2026-08-12). */}
+          depuración (requisito de 2026-08-12). */}
       {(refusal || brushing || tool?.mode === 'move' || tool?.mode === 'labels' || tool?.mode === 'story') && (
         <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
           {refusal
