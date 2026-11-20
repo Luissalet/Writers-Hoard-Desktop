@@ -925,7 +925,7 @@ Si tienes padre e hijos en pantalla a la vez, hay que decidir quién manda en ca
 <a name="9"></a>
 ## 9 · Nitidez: DPR, snapping, overzoom
 
-Este apartado es directamente el problema que tienes abierto ("Luis no ha confirmado nitidez aún").
+Este apartado es directamente el problema que tienes abierto ("la nitidez sigue pendiente de confirmación").
 
 ### 9.1 devicePixelRatio: dónde entra y dónde NO
 

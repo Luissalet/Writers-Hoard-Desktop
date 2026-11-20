@@ -58,7 +58,7 @@ const WORLD_IDS = new WeakMap<WorldData, string>();
  * barata con el editado, y cualquier clon futuro con lo suyo. Un vínculo que
  * dependa de la identidad del objeto muere con el primer derivado — que es
  * exactamente como 41 superteselas «guardadas» acabaron en la basura mientras
- * «sembradas» marcaba 0 (capturas de Luis, 2026-08-12). La semilla + las
+ * «sembradas» marcaba 0 (capturas de referencia, 2026-08-12). La semilla + las
  * dimensiones identifican la fila igual de bien, y si dos filas duplicadas
  * colisionan, comparten caché de un canon IDÉNTICO — correcto también.
  */

@@ -252,7 +252,7 @@ function sepiaOf(theme: CartoTheme, hex: string): string {
  * anterior teñía sólo el soporte («una teja es una teja en cualquier lámina»)
  * y el resultado fue la lección #28: el plano salió de terracota sobre una
  * lámina que es tinta sobre pergamino, y bajar del atlas a un pueblo era un
- * cambio de medio. Luis eligió cohesión (2026-08-11): en el pergamino, el
+ * cambio de medio. Se eligió cohesión (2026-08-11): en el pergamino, el
  * pueblo es un grabado coloreado a mano de la MISMA plancha que la carta.
  */
 export function cityInk(theme?: CartoTheme): CityInk {

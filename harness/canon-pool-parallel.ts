@@ -117,7 +117,7 @@ const run = async () => {
   // ---- 3. dos familias, cero thrash: reconfigurar, jamás matar -------------
   // El funeral del pool viejo: familias alternando (hondas con el mundo del
   // canon; sábanas/miniatura con el editado) mataban sesiones calientes por
-  // hueco — 24-58 contextos por sesión de uso en los logs de Luis, y el
+  // hueco — 24-58 contextos por sesión de uso en los registros de la sesión de referencia, y el
   // renderer sin memoria de tanto clon. En la granja un obrero NUNCA muere
   // por hueco: como mucho se reconfigura, y con obreros de sobra la afinidad
   // deja a cada familia con los suyos.

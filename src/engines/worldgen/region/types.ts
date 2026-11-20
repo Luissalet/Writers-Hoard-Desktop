@@ -46,7 +46,7 @@ export interface RegionParams {
    * hoja. Es el DEFECTO para que ningún banco ni llamante directo cambie de
    * suelo por esta llave.
    *
-   * `auto` — lo que pide la aplicación (Luis, 2026-08-12: «no he pedido
+   * `auto` — lo que pide la aplicación (requisito de 2026-08-12: «no he pedido
    * abadías, casas, monasterios»): la política sale de la LISTA DE EDICIONES
    * de la petición (`sitesPolicyFrom`) — cerrado del todo sin ediciones,
    * abierto con el tick `placesEverywhere`, y por zonas con las pinceladas

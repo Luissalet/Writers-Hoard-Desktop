@@ -2,7 +2,7 @@
 // CORREDOR DEL BANCO DE RETENCIÓN DE TESELAS
 // ============================================================================
 // Monta `tile-retention.tsx` en un Chromium de verdad, baja con la RUEDA (el
-// gesto de Luis, no un setViewport de laboratorio) hasta el suelo hondo y
+// gesto registrado, no un setViewport de laboratorio) hasta el suelo hondo y
 // deja la cámara quieta. La vara: en el reposo ninguna coordenada del nivel
 // hondo renace, y el `setGeneration` del almacén no cambia. Si falla, el
 // informe trae la pila del que vació el almacén y las coordenadas renacidas
@@ -185,7 +185,7 @@ if (averias.length) console.log('\nAVERÍAS DE PÁGINA:\n' + averias.join('\n---
 
 // La vara, en tres varas:
 //  · el BUCLE de la captura: una coordenada que renace DESPUÉS de entregada
-//    (el z13(3490,955) de Luis, cinco vidas en cuatro segundos);
+//    (el z13(3490,955) de la sesión de referencia, cinco vidas en cuatro segundos);
 //  · el reposo tiene que ser MUDO: ni nacimientos ni cambios de generación
 //    con la cámara quieta;
 //  · y el plan tiene que haber PROGRESADO — un banco que no entrega nada no

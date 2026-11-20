@@ -68,7 +68,7 @@ const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
 /**
  * LA PUERTA DE LA APLICACIÓN LLEVA EL GRIFO PUESTO. `sites: 'auto'` hace que
  * la geografía humana lea la política de lugares del propio mundo
- * (`world.painted.sitesPolicy`): sin tick ni zonas, mundo desnudo — Luis,
+ * (`world.painted.sitesPolicy`): sin tick ni zonas, mundo desnudo — criterio del
  * 2026-08-13. Los bancos que quieran país habitado abren el grifo con la
  * edición `placesEverywhere` (o llaman a `buildHumanGeography` a pelo, cuyo
  * defecto sigue siendo 'everywhere'). La política entra en la CLAVE de la
@@ -1219,7 +1219,7 @@ function closestPointToOrigin(line: V[]): V {
  * DIBUJO, no con la ingeniería. Como aquí una capital mide 380 m de radio
  * nominal, «0,64·R0» son 243 m — y encima exigía además caminos por las dos
  * márgenes, que casi ninguna población tiene (0–3 caminos por ciudad). Sobre el
- * mundo de Luis el resultado fue exacto: 32 ciudades con cauce, 32 en modo
+ * mundo de referencia el resultado fue exacto: 32 ciudades con cauce, 32 en modo
  * orilla, CERO puentes en todo el planeta. Un mundo sin un solo puente.
  *
  * Un puente es una obra, y las obras tienen luces conocidas: el de Aviñón medía

@@ -850,7 +850,7 @@ export default function CartoMap({
           density: q.density,
           reliefAmount: q.reliefAmount,
           // `?? ''`: hondo sin ediciones sigue siendo contenido direccionable
-          // (ver la nota gemela en Map2D — el `s:r3` del log de Luis).
+          // (ver la nota gemela en Map2D — el `s:r3` del registro de la sesión de referencia).
           edits: deep ? (q.canonEdits ?? '') : undefined,
         });
         const promise = req.promise.then((res) => {

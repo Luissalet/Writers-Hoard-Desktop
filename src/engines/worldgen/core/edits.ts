@@ -433,7 +433,7 @@ export type WorldEdit =
    */
   | { kind: 'road'; pts: Pt[]; major: boolean; width?: number; pattern?: RoadPattern }
   /**
-   * EL GRIFO DE LOS LUGARES ALEATORIOS (Luis, 2026-08-12: «no he pedido
+   * EL GRIFO DE LOS LUGARES ALEATORIOS (requisito de 2026-08-12: «no he pedido
    * abadías, casas, monasterios»). El sembrado regional — granjas, aldeas,
    * abadías, molinos, torres, ventas, minas — está APAGADO por defecto en
    * todos los mundos; este edit lo abre para el mundo entero (el tick del
@@ -1520,7 +1520,7 @@ export function editCostClass(edits: WorldEdit[]): 'local' | 'global' {
  * `placesEverywhere` de la lista» (así Ctrl+Z lo revierte como a cualquier
  * otra edición), y las zonas se evalúan en orden de lista — la última
  * pincelada que pisa un punto decide, que es la semántica de pintar encima.
- * Sin ediciones de lugares: todo cerrado, que es el defecto que pidió Luis
+ * Sin ediciones de lugares: todo cerrado, que es el defecto que pidió la persona usuaria
  * (2026-08-12) para mundos nuevos Y viejos.
  */
 export interface SitesPolicy {
@@ -1570,9 +1570,9 @@ export function zoneAllowsWorld(
 export function sitesPolicyFrom(edits: readonly WorldEdit[] | undefined): SitesPolicy {
   // SIN EDICIÓN DE LUGARES, EL GRIFO ESTÁ ABIERTO. La primera versión hacía
   // lo contrario (ausencia = cerrado) y con ello VACIÓ todos los mundos que
-  // Luis ya tenía: sus ciudades y caminos existían porque el mundo se generó
+  // las ciudades y caminos ya existían porque el mundo se generó
   // cuando no había política, y una lista de ediciones antigua no lleva
-  // ninguna edición de lugares (Luis, 2026-08-13: «había mapas con ciudades
+  // ninguna edición de lugares (requisito de 2026-08-13: «había mapas con ciudades
   // y caminos ya. Los has borrado. Una cosa es lo que te pedí para NUEVOS
   // mundos… pero no te pedí que borrases lo existente»). La ausencia
   // significa LEGADO, no negativa: el mundo conserva exactamente el país con

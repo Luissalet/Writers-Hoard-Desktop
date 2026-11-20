@@ -1,7 +1,7 @@
 // ==========================================================================
 // Banco: BAJAR A UN PUEBLO — ¿aterriza la cámara donde está el pueblo?
 // ==========================================================================
-// Luis, 2026-08-16: «cuando pulso la ciudad, se centra en un sitio diferente».
+// requisito de 2026-08-16: «cuando pulso la ciudad, se centra en un sitio diferente».
 // La captura enseñaba la diana SIEMPRE al noroeste del punto de la ciudad, y
 // eso no es un desajuste cualquiera: el noroeste es exactamente donde cae la
 // ESQUINA de una celda respecto a su CENTRO.
@@ -69,7 +69,7 @@ const viejo = (s: { x: number; y: number }) => ({ u: s.x / world.width, v: s.y /
     peor === 0, `desfase máximo ${peor} celdas`);
 }
 
-// ── 2 · El banco reproduce el fallo que Luis fotografió ────────────────────
+// ── 2 · El banco reproduce el fallo que muestra la captura ────────────────────
 {
   const s = geo.settlements.find((x) => x.rank === 'capital') ?? geo.settlements[0];
   const f = townFrame(s, world);

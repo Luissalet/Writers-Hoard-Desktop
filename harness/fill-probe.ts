@@ -1,7 +1,7 @@
 // ============================================================================
 // SONDA VISUAL: el relleno de la piel de cerca del 3D, EN FRÍO
 // ============================================================================
-// «Coloca las ciudades» (Luis, 2026-08-11). Bajo el contrato consume, un canon
+// «Coloca las ciudades» (requisito de 2026-08-11). Bajo el contrato consume, un canon
 // frío declina todas las teselas hondas: lo que se ve en el suelo del 3D es
 // EXACTAMENTE este relleno — albedo ampliado + ríos a anchura de suelo +
 // mancha urbana + caminos. Esta sonda compone ese relleno con las mismas

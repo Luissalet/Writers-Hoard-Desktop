@@ -175,7 +175,7 @@ export function generateRegion(
   let nextPlaceId = hab.places.reduce((m, q) => Math.max(m, q.id), 0) + 1;
   // Los hitos naturales NOMBRADOS (Fuente de…, Salto de…) también piden
   // permiso: el accidente es geografía, su nombre es contenido inventado
-  // (Luis, 2026-08-13: «lo mismo con fuentes, puentes»). Sin política, todo
+  // (requisito de 2026-08-13: «lo mismo con fuentes, puentes»). Sin política, todo
   // — el defecto de los bancos.
   const permite = policy ? siteAllower(policy, g, world.width) : null;
   const marks = buildLandmarks(world, geo, g, t, natural.cover, streams, () => nextPlaceId++)

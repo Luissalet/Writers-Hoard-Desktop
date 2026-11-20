@@ -1009,7 +1009,7 @@ function lineDist(q: V, line: V[]): number {
  *
  * El recorte de la orilla usaba un solo semiplano colocado en la proyección
  * MEDIA de todo el cauce. Un río recto lo tolera; uno curvo, no: medido sobre
- * el mundo de Luis, el plano de corte se iba hasta 13,7 unidades (55 m) del
+ * el mundo de referencia, el plano de corte se iba hasta 13,7 unidades (55 m) del
  * agua de verdad, de modo que en unas ciudades la manzana se comía la orilla y
  * en otras quedaba una franja de nadie entre la última casa y el río. Un cauce
  * no es una recta y no hay que resumirlo como si lo fuera.
@@ -1472,7 +1472,7 @@ export function generateCity(params: CityParams): CityPlan {
    * agua igual en el Sena que en un arroyo. Mientras los dos números fueron el
    * mismo, cada prueba de «aquí no se construye» se escribió como un múltiplo
    * del ancho (1,5·, 1,6·, 0,8·, 5·…) — y al pasar el ancho a físico esos
-   * múltiplos crecieron con el río. Medido sobre el mundo de Luis: la casa más
+   * múltiplos crecieron con el río. Medido sobre el mundo de referencia: la casa más
    * cercana quedaba a 78 m de media de su propia orilla, en las 32 ciudades
    * fluviales, y ninguna tenía frente de agua. Un río ancho esterilizaba media
    * ciudad.
