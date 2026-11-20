@@ -3,16 +3,19 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import { fileURLToPath } from 'node:url'
 import {localToolReleasePlugin} from './scripts/local-tool-release-plugin'
 import { modelReaderRuntimePlugin } from './scripts/model-reader-runtime-plugin'
 import { wikiHostingPlugin } from './scripts/wiki-hosting-plugin'
+
+const root = fileURLToPath(new URL('./', import.meta.url))
 
 export default defineConfig({
   base: process.env.VITE_BASE_URL || '/',
   plugins: [react(), tailwindcss(), localToolPresencePlugin(), modelReaderRuntimePlugin(), localToolReleasePlugin(), wikiHostingPlugin()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(root, 'src'),
     },
   },
   build: {
@@ -22,10 +25,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         // The app itself…
-        main: path.resolve(__dirname, 'index.html'),
+        main: path.resolve(root, 'index.html'),
         // …and the standalone floating capture window the global Ctrl+Shift+N
         // opens (electron/main.ts loads dist/quick-note.html directly).
-        'quick-note': path.resolve(__dirname, 'quick-note.html'),
+        'quick-note': path.resolve(root, 'quick-note.html'),
       },
       output: {
         // three.js is only reachable from the lazy 3D view, and it is ~80% of

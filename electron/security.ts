@@ -112,6 +112,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // from external models. `aibridge:reply` closes a request main opened with
   // `webContents.send('aibridge:request')`; the quick-note window owns no data
   // and must never be able to serve or observe them.
+  'aibridge:ready': ['main'],
   'aibridge:reply': ['main'],
   'aibridge:getInfo': ['main'],
   'documents:call': ['main'],
