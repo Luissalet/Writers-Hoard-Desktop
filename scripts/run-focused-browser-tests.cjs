@@ -1,4 +1,5 @@
 const { app, BrowserWindow } = require('electron');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
@@ -38,35 +39,51 @@ async function main() {
   if (!entry.startsWith(path.join(root, 'tests') + path.sep)) throw new Error('Test file must be inside tests/');
   const entryUrl = '/' + path.relative(root, entry).split(path.sep).map(encodeURIComponent).join('/');
 
-  // Let Vite transform worker URLs/imports and serve public assets over the
-  // same HTTP origin as the renderer, as it does for the app.
-  const { createServer } = await import('vite');
-  const server = await createServer({
-    root,
-    configFile: path.join(root, 'vite.config.ts'),
-    mode: 'test',
-    base: '/',
-    cacheDir: path.join(directory, 'vite-cache'),
-    logLevel: 'error',
-    // Preserve the focused fixtures' existing renderer environment. Without a
-    // mode, the source-tool bootstrap leaves registration to the fixture.
-    define: { 'import.meta.env.DEV': 'false', 'import.meta.env.MODE': 'undefined' },
-    optimizeDeps: { entries: [entry.replaceAll(path.sep, '/')] },
-    server: { host, port: await freePort(), strictPort: true, hmr: false },
-    plugins: [{
-      name: 'focused-browser-test-page',
-      configureServer(devServer) {
-        devServer.middlewares.use(harnessPath, (_request, response) => {
-          response.setHeader('Content-Type', 'text/html; charset=utf-8');
-          response.end('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>');
-        });
-      },
-    }],
-  });
+  let phase = 'starting Vite';
+  const watchdog = setTimeout(() => {
+    console.error(`Focused browser tests timed out after ${timeoutMs} ms while ${phase}`);
+    // A stuck startup, navigation or close promise cannot complete cleanup.
+    app.exit(1);
+  }, timeoutMs);
 
+  let server;
   let win;
   try {
+    // Scope the cache to this checkout and fixture because their dependency
+    // paths and scan entries can differ even with the same lockfile.
+    const cacheKey = createHash('sha256')
+      .update(root).update('\0').update(entryUrl).update('\0')
+      .update(fs.readFileSync(path.join(root, 'package-lock.json')))
+      .digest('hex');
+    const cacheDir = path.join(os.tmpdir(), 'wh-focused-vite', cacheKey);
+
+    // Let Vite transform worker URLs/imports and serve public assets over the
+    // same HTTP origin as the renderer, as it does for the app.
+    const { createServer } = await import('vite');
+    server = await createServer({
+      root,
+      configFile: path.join(root, 'vite.config.ts'),
+      mode: 'test',
+      base: '/',
+      cacheDir,
+      logLevel: 'error',
+      // Preserve the focused fixtures' existing renderer environment. Without a
+      // mode, the source-tool bootstrap leaves registration to the fixture.
+      define: { 'import.meta.env.DEV': 'false', 'import.meta.env.MODE': 'undefined' },
+      optimizeDeps: { entries: [entry.replaceAll(path.sep, '/')] },
+      server: { host, port: await freePort(), strictPort: true, hmr: false },
+      plugins: [{
+        name: 'focused-browser-test-page',
+        configureServer(devServer) {
+          devServer.middlewares.use(harnessPath, (_request, response) => {
+            response.setHeader('Content-Type', 'text/html; charset=utf-8');
+            response.end('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>');
+          });
+        },
+      }],
+    });
     await server.listen();
+    phase = 'starting Electron';
     await app.whenReady();
     win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false } });
     win.webContents.on('console-message', details => {
@@ -76,8 +93,10 @@ async function main() {
     win.webContents.on('render-process-gone', (_event, details) => {
       rendererError = new Error(`Test renderer exited: ${details.reason} (${details.exitCode})`);
     });
+    phase = 'loading the test page';
     const { port } = server.httpServer.address();
     await win.loadURL(`http://${host}:${port}${harnessPath}`);
+    phase = 'running the test';
     await win.webContents.executeJavaScript(
       `globalThis.IS_REACT_ACT_ENVIRONMENT = true;
         void import(${JSON.stringify(entryUrl)})
@@ -85,8 +104,7 @@ async function main() {
           .then(tests => { window.__result = { ok: true, tests }; })
           .catch(error => { window.__result = { ok: false, error: error.stack || String(error) }; });`,
     );
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
+    while (true) {
       if (rendererError) throw rendererError;
       const result = await win.webContents.executeJavaScript('window.__result ?? null');
       if (result) {
@@ -96,10 +114,14 @@ async function main() {
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    throw new Error('Focused browser tests timed out');
   } finally {
-    if (win && !win.isDestroyed()) win.destroy();
-    await server.close();
+    phase = 'closing the test window and Vite';
+    try {
+      if (win && !win.isDestroyed()) win.destroy();
+      await server?.close();
+    } finally {
+      clearTimeout(watchdog);
+    }
   }
 }
 
