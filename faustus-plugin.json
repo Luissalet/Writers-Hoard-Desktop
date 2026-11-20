@@ -59,7 +59,8 @@
       "kind": "process",
       "opens_window": true,
       "executable": "node",
-      "argv": ["{WRITER_DIR}/scripts/dev-desktop.mjs"],
+      "argv": ["{WRITER_DIR}/scripts/dev-desktop.mjs", "--hub"],
+      "port_argument": "--bridge-port",
       "cwd": "{WRITER_DIR}",
       "readiness": {
         "url": "{APP_URL}/api/health",
@@ -86,6 +87,10 @@
     "production": {
       "handoffs": [
         {"accepts": "production-brief", "produces": ["scene-brief", "editable-report"], "skill": "writing-plans", "check": {"en": "Reread the chapter, world date and character details, or reopen the exported report and compare citations with its sources.", "es": "Relee el capítulo, la fecha del mundo y los detalles del personaje, o abre el informe exportado y coteja las citas con sus fuentes."}},
+        {"accepts": "production-brief", "produces": ["editorial-dossier"], "skill": "studio-writer-production-brief", "check": {"en": "Open the dossier and verify the brief, required details and story state are recorded.", "es": "Abre el expediente y verifica que recoge el encargo, los detalles obligatorios y el estado de la historia."}},
+        {"accepts": "editorial-dossier", "produces": ["manuscript"], "skill": "writing-plans", "check": {"en": "Reopen the chapter and compare the narrative with its dossier and target length.", "es": "Vuelve a abrir el capítulo y coteja el relato con el expediente y la extensión pedida."}},
+        {"accepts": "manuscript", "produces": ["reviewed-manuscript"], "skill": "manuscript-continuity-edit", "check": {"en": "Compare the manuscript with the dossier and state ledger. Return reproducible defects to writing and record the reviewed revision.", "es": "Coteja el manuscrito con el expediente y el libro de estado. Devuelve a redacción los defectos reproducibles y registra la revisión cotejada."}},
+        {"accepts": "reviewed-manuscript", "produces": ["pdf", "epub"], "skill": "manuscript-continuity-edit", "check": {"en": "Reopen the export and compare it with the reviewed manuscript. Check pagination and embedded fonts in PDF.", "es": "Abre la exportación y cotéjala con el manuscrito revisado. Comprueba la paginación y las fuentes incrustadas en el PDF."}},
         {"accepts": "research-dossier", "produces": ["editable-report"], "skill": "notes-from-templates", "check": {"en": "File it with wh_import_evidence (coaseReportId) so each claim keeps its quote; reopen the report and check that cited sources, links and tables survived export.", "es": "Archívalo con wh_import_evidence (coaseReportId) para que cada afirmación conserve su cita; abre el informe y comprueba que la exportación conserva las citas, los enlaces y las tablas."}},
         {"accepts": "data-table", "produces": ["editable-report"], "skill": "notes-from-templates", "check": {"en": "File it with wh_import_evidence (nightingale) and insert it with insertDataTable; reopen the chapter and check that the table cites its Nightingale source, version and rows.", "es": "Archívala con wh_import_evidence (nightingale) e insértala con insertDataTable; vuelve a abrir el capítulo y comprueba que la tabla cita su fuente de Nightingale, su versión y sus filas."}},
         {"accepts": "evidence-pack", "produces": ["editable-report"], "skill": "notes-from-templates", "check": {"en": "Call wh_get_research_evidence and check that every claim kept its source and verbatim quote; cite one with insertCitation and reread the paragraph.", "es": "Llama a wh_get_research_evidence y comprueba que cada afirmación conserva su fuente y su cita literal; cita una con insertCitation y relee el párrafo."}}
@@ -113,7 +118,7 @@
       ],
       "native_undo": true
     },
-    "note": "A desktop app: the port answers only while the AI bridge is switched on in Settings. The token lives under the user's profile, not in the repository folder. DATA_DIR is the app's own archive folder (the ZIP snapshots it rotates itself): a consistent copy of every project, small, never the live IndexedDB store or the media cache.",
+    "note": "A desktop app: the Hub launch enables the AI bridge on a new profile. Existing profiles keep their bridge setting. The token lives under the user's profile. DATA_DIR is the app's own archive folder, containing rotating project ZIP snapshots.",
     "absorbs": [
       "scheherazade",
       "borges",
@@ -136,7 +141,7 @@
       "data": "in-place selectable directory; no automatic migration"
     }
   },
-  "notes": "The Hub starts the repository's desktop launcher. Set up the source checkout first. Turn on the AI bridge in Settings when you want agents to connect. The source launcher and MCP adapter use the repository build.",
+  "notes": "Set up the source checkout before starting it from the Hub. The source launcher and MCP adapter use the repository build.",
   "provides": {
     "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates", "studio-writer-production-brief", "studio-writer-report"], "limit": 5}
   },

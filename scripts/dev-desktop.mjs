@@ -9,6 +9,10 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
 const require = createRequire(import.meta.url);
 const electronExecutable = require('electron');
+const args = process.argv.slice(2);
+const hubLaunch = args.includes('--hub');
+const bridgePortIndex = args.indexOf('--bridge-port');
+const bridgePort = bridgePortIndex === -1 ? undefined : Number(args[bridgePortIndex + 1]);
 
 let devServer;
 let electronProcess;
@@ -53,6 +57,9 @@ function shutdown(exitCode, terminateElectron) {
 }
 
 async function main() {
+  if (bridgePortIndex !== -1 && (!Number.isInteger(bridgePort) || bridgePort < 1024 || bridgePort > 65535)) {
+    throw new Error('Choose a bridge port between 1024 and 65535.');
+  }
   // Prepare the owned document executable before any renderer can use it.
   await new Promise((resolve, reject) => {
     const builder = spawn(process.execPath, [path.join(scriptDirectory, 'build-document-engine.mjs')], {
@@ -106,6 +113,8 @@ async function main() {
     cwd: projectRoot,
     env: {
       ...process.env,
+      ...(hubLaunch ? { WH_HUB_LAUNCH: '1' } : {}),
+      ...(bridgePort ? { WH_AIBRIDGE_PORT: String(bridgePort) } : {}),
       NODE_ENV: 'development',
       ELECTRON_RENDERER_URL: rendererUrl,
     },

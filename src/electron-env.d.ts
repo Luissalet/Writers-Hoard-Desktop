@@ -495,6 +495,7 @@ export interface ElectronAPI {
 
   /** Local AI bridge: see electron/aibridge/ and src/services/aiBridge/. */
   aiBridge: {
+    ready: () => Promise<void>;
     onRequest: (callback: (request: AiBridgeRequest) => void) => () => void;
     reply: (reply: AiBridgeReply) => Promise<void>;
     getInfo: () => Promise<AiBridgeInfo>;

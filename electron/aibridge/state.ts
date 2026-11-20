@@ -20,7 +20,7 @@ import { promises as fs } from 'node:fs';
 import { createKeyStore } from './keys';
 
 export interface BridgeConfig {
-  /** Master switch. Off by default: turning the port on is a deliberate act. */
+  /** Master switch. A new profile starts the bridge when explicitly launched by the Hub. */
   enabled: boolean;
   /** When false, only read-only tools are served. */
   writesEnabled: boolean;
@@ -91,8 +91,11 @@ export async function getBridgeConfig(): Promise<BridgeConfig> {
       enabled: raw.enabled === true,
       writesEnabled: raw.writesEnabled !== false,
     };
-  } catch {
-    cachedConfig = { ...DEFAULT_CONFIG };
+  } catch (error) {
+    cachedConfig = {
+      ...DEFAULT_CONFIG,
+      enabled: (error as NodeJS.ErrnoException).code === 'ENOENT' && process.env.WH_HUB_LAUNCH === '1',
+    };
   }
   return cachedConfig;
 }

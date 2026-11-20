@@ -173,6 +173,8 @@ const isDev = !app.isPackaged;
 // runs. Set before anything reads userData or takes the single-instance lock.
 if (process.env.WH_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.WH_USER_DATA_DIR));
 const headlessStudio = process.env.WH_HEADLESS === '1' && Boolean(process.env.WH_USER_DATA_DIR);
+const hubLaunch = process.env.WH_HUB_LAUNCH === '1';
+let awaitingHubRenderer = hubLaunch;
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || `${RENDERER_ORIGIN}/`;
 const PACKAGED_RENDERER_DIR = path.join(__dirname, '..', 'dist');
 // Development and the packaged app load the renderer from the same origin
@@ -1347,6 +1349,7 @@ async function aiBridgeInfo(): Promise<{
 
 /** Start or stop the listener to match the switch; never fatal. */
 async function syncAiBridgeNow(): Promise<void> {
+  if (awaitingHubRenderer) return;
   try {
     await syncAiBridge({
       version: app.getVersion(),
@@ -2097,6 +2100,12 @@ function registerIpc(): void {
 
   // ---- AI bridge -----------------------------------------------------------
   // The renderer answers relayed tool calls here; the rest is the settings UI.
+  ipcMain.handle('aibridge:ready', (event) => {
+    assertIpcSender(event, 'aibridge:ready');
+    if (!awaitingHubRenderer) return;
+    awaitingHubRenderer = false;
+    return syncAiBridgeNow();
+  });
   ipcMain.handle('aibridge:reply', (event, payload: unknown): void => {
     assertIpcSender(event, 'aibridge:reply');
     resolveBridgeReply(payload);
@@ -2414,7 +2423,7 @@ if (!gotLock) {
 
     // The bridge answers from the main window, so it needs a way to find it.
     setBridgeWindowResolver(() => mainWindow);
-    if (headlessStudio) await getBridgeToken();
+    if (headlessStudio || hubLaunch) await getBridgeToken();
     await syncAiBridgeNow();
 
     void createWindow();
