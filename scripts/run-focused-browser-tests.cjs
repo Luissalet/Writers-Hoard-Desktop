@@ -1,18 +1,34 @@
 const { app, BrowserWindow } = require('electron');
-const esbuild = require('esbuild');
 const fs = require('node:fs');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
-const { viteCssTextPlugin } = require('./esbuild-vite-css.cjs');
 
 // Same as run-critical-tests: SwiftShader keeps WebGL available headless, so
 // focused tests can mount the real 3D view instead of its 2D fallback.
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+// Keep the main process alive until the owned Vite listener has closed.
+app.on('window-all-closed', () => {});
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-focused-'));
-app.setPath('userData', path.join(directory, 'profile'));
+const profile = path.join(directory, 'profile');
+app.setPath('userData', profile);
+process.env.WH_USER_DATA_DIR = profile;
 const root = path.resolve(__dirname, '..');
+const host = '127.0.0.1';
+const harnessPath = '/__focused_browser_test__';
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, host, () => {
+      const { port } = probe.address();
+      probe.close(error => error ? reject(error) : resolve(port));
+    });
+  });
+}
 
 async function main() {
   const [file, exported, timeoutArgument] = process.argv.slice(2);
@@ -20,38 +36,71 @@ async function main() {
   if (!file || !/^[A-Za-z_$][\w$]*$/.test(exported ?? '') || !Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new Error('Usage: electron scripts/run-focused-browser-tests.cjs tests/file.browser.tsx exportedFunction [timeoutMs:1000..600000]');
   const entry = path.resolve(root, file);
   if (!entry.startsWith(path.join(root, 'tests') + path.sep)) throw new Error('Test file must be inside tests/');
-  await esbuild.build({
-    stdin: {
-      contents: `import {${exported} as run} from ${JSON.stringify(entry)}; globalThis.IS_REACT_ACT_ENVIRONMENT = true; run().then(tests => window.__result = {ok:true,tests}).catch(error => window.__result = {ok:false,error:error.stack || String(error)});`,
-      resolveDir: root,
-    },
-    bundle: true, platform: 'browser', format: 'iife', target: 'chrome130', jsx: 'automatic',
-    outfile: path.join(directory, 'test.js'), alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' }, plugins: [viteCssTextPlugin()],
-    define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.url': '"file:///focused-test.js"' },
-    logLevel: 'warning',
+  const entryUrl = '/' + path.relative(root, entry).split(path.sep).map(encodeURIComponent).join('/');
+
+  // Let Vite transform worker URLs/imports and serve public assets over the
+  // same HTTP origin as the renderer, as it does for the app.
+  const { createServer } = await import('vite');
+  const server = await createServer({
+    root,
+    configFile: path.join(root, 'vite.config.ts'),
+    mode: 'test',
+    base: '/',
+    cacheDir: path.join(directory, 'vite-cache'),
+    logLevel: 'error',
+    // Preserve the focused fixtures' existing renderer environment. Without a
+    // mode, the source-tool bootstrap leaves registration to the fixture.
+    define: { 'import.meta.env.DEV': 'false', 'import.meta.env.MODE': 'undefined' },
+    optimizeDeps: { entries: [entry.replaceAll(path.sep, '/')] },
+    server: { host, port: await freePort(), strictPort: true, hmr: false },
+    plugins: [{
+      name: 'focused-browser-test-page',
+      configureServer(devServer) {
+        devServer.middlewares.use(harnessPath, (_request, response) => {
+          response.setHeader('Content-Type', 'text/html; charset=utf-8');
+          response.end('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>');
+        });
+      },
+    }],
   });
-  fs.writeFileSync(path.join(directory, 'test.html'), '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script src="test.js"></script></body></html>');
-  await app.whenReady();
-  const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false } });
-  win.webContents.on('console-message', details => {
-    if (details.level === 'error') console.error(`${details.sourceId}:${details.lineNumber} ${details.message}`);
-  });
-  win.webContents.on('render-process-gone', (_event, details) => {
-    console.error(`Test renderer exited: ${details.reason} (${details.exitCode})`);
-    app.exit(1);
-  });
-  await win.loadFile(path.join(directory, 'test.html'));
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const result = await win.webContents.executeJavaScript('window.__result ?? null');
-    if (result) {
-      if (!result.ok) throw new Error(result.error);
-      for (const test of Array.isArray(result.tests) ? result.tests : [result.tests]) console.log(`PASS ${test}`);
-      app.exit(0);
-      return;
+
+  let win;
+  try {
+    await server.listen();
+    await app.whenReady();
+    win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+    win.webContents.on('console-message', details => {
+      if (details.level === 'error') console.error(`${details.sourceId}:${details.lineNumber} ${details.message}`);
+    });
+    let rendererError;
+    win.webContents.on('render-process-gone', (_event, details) => {
+      rendererError = new Error(`Test renderer exited: ${details.reason} (${details.exitCode})`);
+    });
+    const { port } = server.httpServer.address();
+    await win.loadURL(`http://${host}:${port}${harnessPath}`);
+    await win.webContents.executeJavaScript(
+      `globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        void import(${JSON.stringify(entryUrl)})
+          .then(module => module[${JSON.stringify(exported)}]())
+          .then(tests => { window.__result = { ok: true, tests }; })
+          .catch(error => { window.__result = { ok: false, error: error.stack || String(error) }; });`,
+    );
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (rendererError) throw rendererError;
+      const result = await win.webContents.executeJavaScript('window.__result ?? null');
+      if (result) {
+        if (!result.ok) throw new Error(result.error);
+        for (const test of Array.isArray(result.tests) ? result.tests : [result.tests]) console.log(`PASS ${test}`);
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
-    await new Promise(resolve => setTimeout(resolve, 50));
+    throw new Error('Focused browser tests timed out');
+  } finally {
+    if (win && !win.isDestroyed()) win.destroy();
+    await server.close();
   }
-  throw new Error('Focused browser tests timed out');
 }
-main().catch(error => { console.error(error.stack || error); app.exit(1); });
+
+main().then(() => app.exit(0)).catch(error => { console.error(error.stack || error); app.exit(1); });
