@@ -39,6 +39,7 @@
     "test:worldgen": "electron scripts/run-focused-browser-tests.cjs tests/worldgen-study.browser.ts testWorldgenStudy",
     "test:worldgen:large": "electron scripts/run-focused-browser-tests.cjs tests/worldgen-large-lifecycle.browser.ts testWorldgenLargeLifecycle 120000",
     "test:inworldmaps": "electron scripts/run-focused-browser-tests.cjs tests/in-world-maps.browser.ts testInWorldMapsBridge 400000",
+    "test:evidencepack": "electron scripts/run-focused-browser-tests.cjs tests/evidence-pack.browser.ts testEvidencePackBridge 300000",
     "test:engines": "electron scripts/run-engine-user-smoke.cjs",
     "test:packaged": "node scripts/smoke-packaged.mjs",
     "test:sd-live": "node scripts/run-sd-lora-refusal-tests.cjs && node scripts/run-sd-server-live.cjs",

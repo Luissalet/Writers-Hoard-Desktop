@@ -37,6 +37,7 @@ It is also the Writer plugin of the Hoard family. It absorbs the former interact
 
 **Investigation**
 - Research projects with graded and retractable sources, claims derived from recorded excerpts, chronology with contradictions, competing hypotheses, entity lookups against Wikidata and Markdown reports with a citation check. Private persons are never enriched.
+- Evidence packs from a research station (a Coase dossier through the Hub, or any pack of sources and quoted claims) are filed as sources whose claims keep their verbatim quote, ready to be cited in a chapter without rewriting it.
 
 **Publishing and export**
 - Offline wiki with named profiles, 20 palettes, terminal layouts, zoomable maps and local editions with a change list.

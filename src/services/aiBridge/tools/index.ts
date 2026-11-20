@@ -291,6 +291,7 @@ import {
   whSetTimelineEvidence,
 } from './narrativeCoverage';
 import { whDelete } from './deletion';
+import { whImportEvidence } from './evidenceImport';
 import {
   whAchMatrix,
   whAddClaim,
@@ -701,6 +702,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_grade_source: whGradeSource,
   wh_retract_source: whRetractSource,
   wh_bibliography: whBibliography,
+  wh_import_evidence: whImportEvidence,
   wh_list_claims: whListClaims,
   wh_add_claim: whAddClaim,
   wh_update_claim: whUpdateClaim,
