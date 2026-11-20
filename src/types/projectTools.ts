@@ -16,6 +16,17 @@ export interface EntityLink {
   updatedAt: number;
 }
 
+/** A table handed over by a data station (Nightingale), kept as it came so its figures are never retyped. */
+export interface CitationDataTable {
+  columns: string[];
+  rows: Array<Array<string | number | boolean | null>>;
+  /** Where it comes from (hoard://nightingale/chart/<id> or …/dataset/<name>), with the version and print of its rows. */
+  ref: string;
+  version?: number;
+  fingerprint?: string;
+  query?: string;
+}
+
 export interface Citation {
   id: string;
   projectId: string;
@@ -31,6 +42,8 @@ export interface Citation {
   tags: string[];
   /** Author-maintained evidence, never an automatic truth certification. */
   researchEvidence?: ResearchEvidence[];
+  /** The table a data station handed over with this source (wh_import_evidence nightingale). */
+  dataTable?: CitationDataTable;
   /**
    * Two-axis source grading (A–F reliability of the source, 1–6 credibility of
    * this information), shown as "B2". Missing on every citation written before

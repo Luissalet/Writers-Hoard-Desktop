@@ -27,8 +27,9 @@ export async function runFamilyCallMainTests(temporaryDirectory: string): Promis
     assert(!isIpcChannelAllowedForRole(channel, 'quick-note'), `the quick-note window can use ${channel}`);
   }
 
-  // ---- The allowlist: seven tools, three apps ---------------------------------------------------
-  assert(Object.keys(ALLOWED_CALLS).sort().join() === 'coase,prospero,scheherazade', 'only Coase, Prospero and Scheherazade may be called');
+  // ---- The allowlist: eight tools, four apps ----------------------------------------------------
+  assert(Object.keys(ALLOWED_CALLS).sort().join() === 'coase,nightingale,prospero,scheherazade', 'only Coase, Nightingale, Prospero and Scheherazade may be called');
+  assert(isAllowedCall('nightingale', 'data_handoff') && !isAllowedCall('nightingale', 'data_ingest'), 'Nightingale: read a chart or table handoff, nothing else');
   assert(isAllowedCall('coase', 'coase_report') && !isAllowedCall('coase', 'coase_create_case'), 'Coase: read a dossier report, nothing else');
   assert(isAllowedCall('prospero', 'cast_import_character') && isAllowedCall('prospero', 'production_from_storyboard'), 'Prospero: cast and production');
   assert(isAllowedCall('scheherazade', 'world_export') && isAllowedCall('scheherazade', 'world_import'), 'Scheherazade: world export and import');
@@ -45,7 +46,7 @@ export async function runFamilyCallMainTests(temporaryDirectory: string): Promis
     assert('error' in checkFamilyCall(bad), `request should have been refused: ${JSON.stringify(bad).slice(0, 80)}`);
   }
   assert('request' in checkFamilyCall({ app: 'scheherazade', tool: 'world_import', args: { data: { schema: 'hoard.world/1' } }, timeoutS: 120 }), 'a well-formed request is accepted');
-  passed.push('Family call: seven allowed tools on three apps, everything else refused before the network; args, files and timeout bounded');
+  passed.push('Family call: eight allowed tools on four apps, everything else refused before the network; args, files and timeout bounded');
 
   // ---- callApp: the hub proxy, every outcome ----------------------------------------------------
   const seen: Array<{ url: string; headers: Record<string, string>; body: string }> = [];

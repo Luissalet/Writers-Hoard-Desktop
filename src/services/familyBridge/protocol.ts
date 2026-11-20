@@ -23,9 +23,11 @@ export const ALLOWED_CALLS: Readonly<Record<string, readonly string[]>> = {
   scheherazade: ['world_export', 'world_import'],
   // Read only: a dossier report whose claims and quotes Writer files as cited research evidence.
   coase: ['coase_report'],
+  // Read only: a chart or table with its provenance, filed as a cited data table.
+  nightingale: ['data_handoff'],
 };
 
-export type FamilyCallApp = 'prospero' | 'scheherazade' | 'coase';
+export type FamilyCallApp = 'prospero' | 'scheherazade' | 'coase' | 'nightingale';
 
 /** The hub's own link store: "this record here came from / went to that record there". */
 export const REF_RELATIONS = ['sent_to', 'imported_from', 'derived_from'] as const;
@@ -72,7 +74,7 @@ export type FamilyCallResponse =
   | { ok: false; code: FamilyCallFailure; error: string; app?: string; tool?: string };
 
 /** Human labels for toasts and tool results. */
-export const APP_LABEL: Readonly<Record<FamilyCallApp, string>> = { prospero: 'Prospero', scheherazade: 'Scheherazade', coase: 'Coase' };
+export const APP_LABEL: Readonly<Record<FamilyCallApp, string>> = { prospero: 'Prospero', scheherazade: 'Scheherazade', coase: 'Coase', nightingale: 'Nightingale' };
 
 export function isFamilyCallApp(value: unknown): value is FamilyCallApp {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(ALLOWED_CALLS, value);
