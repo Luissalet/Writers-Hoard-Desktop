@@ -158,9 +158,14 @@ export async function testEvidencePackBridge(): Promise<string[]> {
     assert(withTable.includes('<table') && withTable.includes('<th') && withTable.includes('hypatia') && /<td[^>]*>(<p>)?5(<\/p>)?<\/td>/.test(withTable),
       `the table is in the chapter with Nightingale's figures: ${withTable}`);
     assert(withTable.includes('data-wh-citation') && withTable.includes(ngTable.sourceId), 'the table caption cites its source');
+    assert(/<\/table><p><span[^>]*data-wh-citation/.test(withTable), `by default the caption is the citation alone, not its title twice: ${withTable}`);
     assert(withTable.includes('Para dieciséis colores hay que pensar en el espacio.'), 'the text before it is unchanged');
     await undo('wh_edit_writing_editorial', inserted);
     assert((await db.writings.get(writingId))!.content === plain, 'undo takes the table out');
+    const captioned = await call('wh_edit_writing_editorial', { id: writingId, operation: { kind: 'insertDataTable', sourceId: ngTable.sourceId, caption: 'Fuente:' } });
+    const withCaption = (await db.writings.get(writingId))!.content;
+    assert(/<p>Fuente:(&nbsp;| )<span[^>]*data-wh-citation/.test(withCaption), `a caption goes before the citation, spaced: ${withCaption}`);
+    await undo('wh_edit_writing_editorial', captioned);
     out.push('insertDataTable puts the table in the chapter, cited, and undo takes it out');
 
     const same = await call('wh_import_evidence', { nightingale: { chart_id: 4 } });
