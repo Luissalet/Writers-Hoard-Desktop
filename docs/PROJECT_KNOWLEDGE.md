@@ -8,6 +8,21 @@ Use this as the current-state companion to `tasks/lessons.md`. The older
 `tasks/architecture-unified-app.md` is a design/migration plan; many of its
 ideas are now implemented, so it should not be treated as the current map.
 
+## Focused renderer tests
+
+The runner takes a test file, an exported function and an optional timeout in
+milliseconds.
+
+```sh
+npx electron scripts/run-focused-browser-tests.cjs tests/proofing-core.browser.ts testProofingCore
+```
+
+The runner starts Vite on a temporary loopback port and uses a temporary
+profile and cache. Module workers resolve from their source files and public
+assets use the renderer origin. The spelling test loads the Spanish Hunspell
+dictionaries and checks suggestions, formatting and undo. Fixtures still
+control local source-tool registration.
+
 ## AI subscription and external-client extension (2026-09-08)
 
 Desktop connections now include `claude-subscription` and `codex-subscription`.
