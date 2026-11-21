@@ -4,12 +4,14 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
+const { preparationTimeoutMs } = require('./focused-browser-deadline.cjs');
+const focusedPreparationMs = preparationTimeoutMs();
 const root = path.resolve(__dirname, '..');
 const tableContextCheck = spawnSync(process.execPath, ['scripts/run-editor-table-context-tests.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 150000 });
 if (tableContextCheck.status !== 0 || tableContextCheck.error) process.exit(tableContextCheck.status ?? 1);
 const liveContentCheck = spawnSync(process.execPath, ['tests/local-tool-live-content.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (liveContentCheck.status !== 0 || liveContentCheck.error) process.exit(liveContentCheck.status ?? 1);
-const autosaveCheck = spawnSync(process.execPath, ['tests/local-tool-autosave.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
+const autosaveCheck = spawnSync(process.execPath, ['tests/local-tool-autosave.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 + focusedPreparationMs });
 if (autosaveCheck.status !== 0 || autosaveCheck.error) process.exit(autosaveCheck.status ?? 1);
 const presenceCheck = spawnSync(process.execPath, ['tests/local-tool-presence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (presenceCheck.status !== 0 || presenceCheck.error) process.exit(presenceCheck.status ?? 1);
@@ -39,7 +41,7 @@ const finiteKernelsCheck = spawnSync(process.execPath, ['tests/worldgen-finite-k
 if (finiteKernelsCheck.status !== 0 || finiteKernelsCheck.error) process.exit(finiteKernelsCheck.status ?? 1);
 const finiteConsumersCheck = spawnSync(process.execPath, ['tests/worldgen-finite-consumers.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (finiteConsumersCheck.status !== 0 || finiteConsumersCheck.error) process.exit(finiteConsumersCheck.status ?? 1);
-const cartographyReaderCheck = spawnSync(process.execPath, ['tests/worldgen-cartography-reader.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
+const cartographyReaderCheck = spawnSync(process.execPath, ['tests/worldgen-cartography-reader.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 + 4 * focusedPreparationMs });
 if (cartographyReaderCheck.status !== 0 || cartographyReaderCheck.error) process.exit(cartographyReaderCheck.status ?? 1);
 const domainAnchorsCheck = spawnSync(process.execPath, ['--experimental-strip-types', '--test', 'tests/worldgen-domain-anchors.test.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (domainAnchorsCheck.status !== 0 || domainAnchorsCheck.error) process.exit(domainAnchorsCheck.status ?? 1);
@@ -726,7 +728,8 @@ const suites = [
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
 let checks = 0; const failed = [];
 for (const [file, exported, , runner = 'scripts/run-focused-browser-tests.cjs'] of suites) {
-  const result = spawnSync(electron, [runner, `tests/${file}`, exported, '300000'], { cwd: root, encoding: 'utf8', timeout: 330000, maxBuffer: 20 * 1024 * 1024, windowsHide: true });
+  const timeout = 330000 + (runner === 'scripts/run-focused-browser-tests.cjs' ? focusedPreparationMs : 0);
+  const result = spawnSync(electron, [runner, `tests/${file}`, exported, '300000'], { cwd: root, encoding: 'utf8', timeout, maxBuffer: 20 * 1024 * 1024, windowsHide: true });
   const log = `${result.stdout ?? ''}${result.stderr ?? ''}${result.error ? '\n' + result.error.stack : ''}`;
   const logPath = path.join(output, `${file}--${exported}.log`);
   fs.writeFileSync(logPath, log);

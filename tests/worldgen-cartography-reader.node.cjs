@@ -2,7 +2,8 @@
 // Canvas uses the existing focused runner. Native controls use the same private
 // file-bundle pattern with real CSS from the already-running local Vite server.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
-const root=path.resolve(__dirname,'..'),own=['tests/worldgen-fog-zones-canvas.browser.ts','tests/worldgen-fog-zones-render.browser.ts','tests/worldgen-cartography-reader.browser.ts','tests/worldgen-cartography-reader.node.cjs','scripts/run-focused-browser-tests.cjs','scripts/esbuild-vite-css.cjs','package.json','package-lock.json','tsconfig.json','tsconfig.app.json','tsconfig.node.json','vite.config.ts'];
+const {preparationTimeoutMs}=require('../scripts/focused-browser-deadline.cjs');
+const root=path.resolve(__dirname,'..'),own=['tests/worldgen-fog-zones-canvas.browser.ts','tests/worldgen-fog-zones-render.browser.ts','tests/worldgen-cartography-reader.browser.ts','tests/worldgen-cartography-reader.node.cjs','scripts/run-focused-browser-tests.cjs','scripts/focused-browser-deadline.cjs','scripts/focused-browser-vite.cjs','scripts/esbuild-vite-css.cjs','package.json','package-lock.json','tsconfig.json','tsconfig.app.json','tsconfig.node.json','vite.config.ts'];
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const walk=dir=>fs.readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name)).flatMap(e=>{assert(!e.isSymbolicLink(),'No linked Source inputs');const f=path.join(dir,e.name);return e.isDirectory()?walk(f):[f];});
 const snapshot=()=>[...walk(path.join(root,'src')),...own.map(f=>path.join(root,f))].map(f=>({path:path.relative(root,f).replaceAll('\\','/'),sha256:sha(f)})).sort((a,b)=>a.path.localeCompare(b.path));
@@ -12,7 +13,7 @@ if(!process.versions.electron){
   try{
    before=snapshot();fs.writeFileSync(path.join(directory,'INPUTS.json'),JSON.stringify(before,null,2));const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
    for(const[file,exported,prefix]of [['tests/worldgen-cartography-reader.browser.ts','testWorldgenCartographyReader','Cartography trace '],['tests/worldgen-cartography-reader.browser.ts','testWorldgenCartographyStory','Cartography story trace '],['tests/worldgen-fog-zones-canvas.browser.ts','testWorldgenFogZonesCanvas','Fog zones canvas trace '],['tests/worldgen-fog-zones-render.browser.ts','testWorldgenFogZonesRender','Fog zones render trace ']]){
-    const child=spawnSync(require(path.join(root,'node_modules/electron')),[path.join(root,'scripts/run-focused-browser-tests.cjs'),file,exported,'60000'],{cwd:root,env,windowsHide:true,encoding:'utf8',timeout:120000,maxBuffer:8*1024*1024});
+    const child=spawnSync(require(path.join(root,'node_modules/electron')),[path.join(root,'scripts/run-focused-browser-tests.cjs'),file,exported,'60000'],{cwd:root,env,windowsHide:true,encoding:'utf8',timeout:120000+preparationTimeoutMs(),maxBuffer:8*1024*1024});
     fs.writeFileSync(path.join(directory,exported+'-stdout.log'),child.stdout||'');fs.writeFileSync(path.join(directory,exported+'-stderr.log'),child.stderr||'');
     const line=(child.stdout||'').split(/\r?\n/).find(v=>v.startsWith('PASS '+prefix));let trace;if(line){trace=JSON.parse(line.slice(('PASS '+prefix).length));fs.writeFileSync(path.join(directory,exported+'-TRACE.json'),JSON.stringify(trace,null,2));}
     groups.push({exported,childExitCode:child.status,signal:child.signal,traceSHA:trace?sha(path.join(directory,exported+'-TRACE.json')):null});if(child.error)throw child.error;assert.equal(child.status,0,'Focused consumer failed; preserved logs');assert(trace,'Focused consumer must produce actual trace');
