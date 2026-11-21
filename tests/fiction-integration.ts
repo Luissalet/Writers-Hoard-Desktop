@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { configureFiction, fictionService, FictionService } from '../electron/fiction/service';
 import { BRIDGE_TOOLS } from '../src/services/aiBridge/manifest';
+import { SKILL_TOOL_NAMES } from '../electron/aibridge/skills';
 import { FICTION_TOOLS } from '../src/services/aiBridge/manifestFiction';
 import { getBridgeToken, setBridgeConfig } from '../electron/aibridge/state';
 import { startAiBridge, stopAiBridge } from '../electron/aibridge/server';
@@ -29,7 +30,9 @@ export async function runFictionIntegration(root: string, directory: string, por
   await assert.rejects(failedControl.setModule('fiction', true));
   assert.deepEqual((await failedControl.status()).enabled, []);
   assert.equal((await failedControl.status()).running, false);
-  assert.equal(FICTION_TOOLS.length, 24);
+  const controls = ['wh_story_modules', 'wh_story_module_set'];
+  const nativeNames = FICTION_TOOLS.map(tool => tool.name).filter(name => !controls.includes(name));
+  for (const name of controls) assert.ok(FICTION_TOOLS.some(tool => tool.name === name));
   assert.equal(new Set(BRIDGE_TOOLS.map(tool => tool.name)).size, BRIDGE_TOOLS.length);
   assert.equal((await engine.tool('story_worlds', {})).ok, false);
   await assert.rejects(fs.stat(dataDir));
@@ -50,8 +53,15 @@ export async function runFictionIntegration(root: string, directory: string, por
     assert.ok(reply.status < 400, JSON.stringify(result));
     return result;
   };
+  const skillsDir = path.join(directory, 'skills');
+  await fs.mkdir(skillsDir, { recursive: true });
+  await fs.writeFile(path.join(skillsDir, 'index.json'), JSON.stringify({ skills: [{ slug: 'fiction-fixture' }] }));
+  const expectedNames = [...BRIDGE_TOOLS.map(tool => tool.name), ...SKILL_TOOL_NAMES].sort();
   const mcp = spawn(process.env.WRITER_TEST_NODE || 'node', [path.join(root, 'dist-electron/aibridge/mcpStdio.cjs')], {
-    windowsHide: true, env: { ...process.env, WH_BRIDGE_URL: url, WH_BRIDGE_TOKEN: token }, stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: { ...process.env, WH_BRIDGE_URL: url, WH_BRIDGE_TOKEN: token, WH_BRIDGE_GROUPS: '',
+      WH_SKILLS_DIR: skillsDir, HOARD_SKILLS: '1' },
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
   let sequence = 0;
@@ -77,7 +87,7 @@ export async function runFictionIntegration(root: string, directory: string, por
   try {
     await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'writer-fiction-test', version: '1' } });
     const catalog = await rpc('tools/list');
-    assert.equal(catalog.tools.length, BRIDGE_TOOLS.length);
+    assert.deepEqual(catalog.tools.map((tool: { name: string }) => tool.name).sort(), expectedNames);
     for (const tool of FICTION_TOOLS) assert.ok(catalog.tools.some((item: { name: string }) => item.name === tool.name));
     assert.equal((await engine.status()).running, false);
     await apiCall('wh_story_module_set', { module: 'fiction', enabled: true });
@@ -96,7 +106,7 @@ export async function runFictionIntegration(root: string, directory: string, por
     const identity = await request('GET', '/api/writer-identity');
     assert.ok(identity.data_space_id);
     const nativeCatalog = await request('GET', '/api/agent/tools');
-    assert.deepEqual(nativeCatalog.tools.map((tool: { name: string }) => tool.name).sort(), FICTION_TOOLS.filter(tool => !['wh_story_modules', 'wh_story_module_set'].includes(tool.name)).map(tool => tool.name).sort());
+    assert.deepEqual(nativeCatalog.tools.map((tool: { name: string }) => tool.name).sort(), nativeNames.sort());
     assert.equal((await call('story_worlds')).worlds.length, 1);
     const place = await call('entity_upsert', { world: worldId, kind: 'location', name: 'Faro' });
     const person = await call('entity_upsert', { world: worldId, kind: 'character', name: 'Inés', summary: 'Capitana sintética', secrets: 'Secreto de prueba' });
@@ -153,10 +163,10 @@ export async function runFictionIntegration(root: string, directory: string, por
     await engine.setModule('fiction', false);
     stopAiBridge();
     const offlineCatalog = await rpc('tools/list');
-    assert.equal(offlineCatalog.tools.length, BRIDGE_TOOLS.length);
+    assert.deepEqual(offlineCatalog.tools.map((tool: { name: string }) => tool.name).sort(), expectedNames);
     assert.equal((await engine.status()).running, false);
-    return { catalog: BRIDGE_TOOLS.length, nativeTools: 19, controls: 2, allPassed: true,
-      checks: ['all OFF/no data access', 'actual Writer API and MCP stdio', 'all 19 native tool paths', 'native REST CRUD', 'optional voice/model through synthetic hub', 'internal world exchange', 'in-place restart', 'OFF joins worker process'] };
+    return { catalog: BRIDGE_TOOLS.length, nativeTools: nativeNames.length, controls: controls.length, allPassed: true,
+      checks: ['all OFF/no data access', 'actual Writer API and MCP stdio', 'native tool paths', 'native REST CRUD', 'optional voice/model through synthetic hub', 'internal world exchange', 'in-place restart', 'OFF joins worker process'] };
   } finally {
     mcp.stdin.end();
     await engine.close();

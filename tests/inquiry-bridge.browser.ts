@@ -111,7 +111,9 @@ export async function testInquiryBridge(): Promise<string[]> {
     // ---- Manifest: shape, flags, groups ------------------------------------
     const reads = ['wh_list_claims', 'wh_inquiry_timeline', 'wh_ach_matrix', 'wh_inquiry_report', 'wh_bibliography'];
     const writes = ['wh_grade_source', 'wh_retract_source', 'wh_add_claim', 'wh_update_claim', 'wh_add_hypothesis', 'wh_rate_hypothesis', 'wh_enrich_codex', 'wh_undo_enrichment', 'wh_search_library'];
-    for (const name of [...reads, ...writes]) {
+    const names = [...reads, ...writes];
+    const shared = ['wh_grade_source', 'wh_retract_source', 'wh_bibliography'];
+    for (const name of names) {
       const tool = getBridgeTool(name);
       assert(tool, `${name} is missing from the manifest`);
       assert(tool.group === 'research', `${name} is not in the research group`);
@@ -120,18 +122,20 @@ export async function testInquiryBridge(): Promise<string[]> {
       for (const required of tool.schema.required ?? []) assert(required in tool.schema.properties, `${name} requires "${required}" which it does not declare`);
       assert(tool.schema.additionalProperties === false, `${name} must reject unknown arguments`);
       assert(typeof TOOL_HANDLERS[name] === 'function', `${name} has no handler`);
-      const enginetool = !['wh_grade_source', 'wh_retract_source', 'wh_bibliography'].includes(name);
+      const enginetool = !shared.includes(name);
       assert(enginetool ? tool.engineId === 'inquiry' : tool.engineId === undefined, `${name} carries the wrong engine`);
       if (tool.writes && tool.engineId && tool.schema.properties.projectId) {
         assert(await codeOf(name, { projectId: OFF }) === 'engine-disabled', `${name} wrote into a project with the engine off`);
       }
     }
-    assert(BRIDGE_TOOLS.filter(tool => tool.engineId === 'inquiry').length === 11, 'eleven tools belong to the Investigation engine');
+    const expectedEngineNames = names.filter(name => !shared.includes(name)).sort();
+    const actualEngineNames = BRIDGE_TOOLS.filter(tool => tool.engineId === 'inquiry').map(tool => tool.name).sort();
+    assert(JSON.stringify(actualEngineNames) === JSON.stringify(expectedEngineNames), 'the Investigation engine matches its tool contract');
     assert(!BRIDGE_TOOLS.some(tool => /proven|prove/i.test(tool.name)), 'no tool claims to prove anything');
     assert(DELETABLE['inquiry-claim'] && DELETABLE['inquiry-hypothesis'], 'claims and hypotheses are deletable through wh_delete only');
     const deleteEnum = (getBridgeTool('wh_delete')!.schema.properties.type as { enum: string[] }).enum;
     assert(deleteEnum.includes('inquiry-claim') && deleteEnum.includes('inquiry-hypothesis'), 'wh_delete offers them');
-    passed.push('Bridge manifest: 14 tools, flags, research group, engine ids, strict schemas, engine guard, deletion registry');
+    passed.push('Bridge manifest: tool names, flags, research group, engine ids, strict schemas, engine guard, deletion registry');
 
     // ---- Grading ------------------------------------------------------------
     const graded = await call('wh_grade_source', { projectId: A, citationId: registry.citationId, reliability: 'B', credibility: 2 });
