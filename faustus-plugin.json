@@ -84,6 +84,10 @@
     ]
   },
   "x-family": {
+    "isolated_instance": {
+      "data_env": "WH_USER_DATA_DIR",
+      "port_env": "WH_AIBRIDGE_PORT"
+    },
     "production": {
       "handoffs": [
         {"accepts": "production-brief", "produces": ["scene-brief", "editable-report"], "skill": "writing-plans", "check": {"en": "Reread the chapter, world date and character details, or reopen the exported report and compare citations with its sources.", "es": "Relee el capítulo, la fecha del mundo y los detalles del personaje, o abre el informe exportado y coteja las citas con sus fuentes."}},
