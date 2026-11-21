@@ -40,6 +40,11 @@ async function serve() {
     server: { host, port: await freePort(), strictPort: true, hmr: false },
     plugins: [{
       name: 'focused-browser-test-page',
+      config(config) {
+        // Fixtures serve fixed sources. Disable the watcher after Vite merges
+        // the app config, since its merge discards inline null overrides.
+        config.server.watch = null;
+      },
       configureServer(devServer) {
         devServer.middlewares.use(harnessPath, (_request, response) => {
           response.setHeader('Content-Type', 'text/html; charset=utf-8');

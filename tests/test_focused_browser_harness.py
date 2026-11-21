@@ -32,7 +32,12 @@ exports.BrowserWindow = class {
 };
 """
 VITE = """
+const { strictEqual } = require('node:assert');
 exports.createServer = async config => {
+  // Simulate the app's watch options surviving Vite's non-null config merge.
+  config.server.watch = { ignored: ['**/native/bin/**'] };
+  for (const plugin of config.plugins) plugin.config?.(config);
+  strictEqual(config.server.watch, null, 'Focused fixtures must start without a recursive file watcher');
   const stall = Number(process.env.FOCUSED_VITE_STALL_MS);
   if (stall) {
     console.log('Vite worker entering synchronous startup');

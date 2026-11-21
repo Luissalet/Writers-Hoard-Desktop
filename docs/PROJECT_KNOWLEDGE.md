@@ -25,8 +25,11 @@ npx electron scripts/run-focused-browser-tests.cjs tests/proofing-core.browser.t
 ```
 
 Vite runs in a worker so synchronous startup work cannot block the Electron
-main process's watchdog. The runner uses a temporary loopback port and a
-separate temporary Electron profile for every run. Vite reuses optimized
+main process's watchdog. Focused fixtures serve a fixed source tree, so their
+Vite server disables recursive file watching to avoid filesystem contention
+during startup. The normal Vite configuration still verifies installed source
+releases. The runner uses a temporary loopback port and a separate temporary
+Electron profile for every run. Vite reuses optimized
 dependencies under `wh-focused-vite` in the system temporary directory for
 the same worktree, test file and lockfile contents. Module workers resolve from their source files
 and public assets use the renderer origin. The spelling test loads the Spanish
