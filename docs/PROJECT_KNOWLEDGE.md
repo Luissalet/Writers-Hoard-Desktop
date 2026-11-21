@@ -10,22 +10,31 @@ ideas are now implemented, so it should not be treated as the current map.
 
 ## Focused renderer tests
 
-The runner takes a test file, an exported function and an optional timeout in
-milliseconds (1,000 to 600,000, default 60,000). The budget covers Vite startup,
-Electron startup, page load, the test and shutdown. A timeout reports the phase
-and exits with an error.
+The runner takes a test file, an exported function and an optional execution
+timeout in milliseconds (1,000 to 600,000, default 60,000). The execution
+budget covers the fixture function and shutdown. Preparation has its own
+15-minute budget and includes Vite and Electron startup, navigation and the
+initial fixture import. It reports progress at phase changes and every 30
+seconds. Timeouts report the phase, elapsed time and budget. Set
+`WH_FOCUSED_PREP_TIMEOUT_MS` to a positive integer up to 3,600,000 to override
+the preparation budget. Callers with their own timeout need to allow both
+budgets.
 
 ```sh
 npx electron scripts/run-focused-browser-tests.cjs tests/proofing-core.browser.ts testProofingCore
 ```
 
-The runner starts Vite on a temporary loopback port and gives every run its
-own temporary Electron profile. Vite reuses optimized dependencies under
-`wh-focused-vite` in the system temporary directory for the same worktree,
-test file and lockfile contents. Module workers resolve from their source files
+Vite runs in a worker so synchronous startup work cannot block the Electron
+main process's watchdog. The runner uses a temporary loopback port and a
+separate temporary Electron profile for every run. Vite reuses optimized
+dependencies under `wh-focused-vite` in the system temporary directory for
+the same worktree, test file and lockfile contents. Module workers resolve from their source files
 and public assets use the renderer origin. The spelling test loads the Spanish
 Hunspell dictionaries and checks suggestions, formatting and undo. Fixtures
 still control local source-tool registration.
+
+The integration contract in `tests/test_focused_browser_harness.py` exercises
+this entry point in Node.js with controlled Electron and Vite doubles.
 
 ## AI subscription and external-client extension (2026-09-08)
 
