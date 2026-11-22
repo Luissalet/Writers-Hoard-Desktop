@@ -193,6 +193,13 @@ test('real own Rust engine completes native document lifecycle', { skip: !proces
   const output = path.join(temporary, 'prueba.docx');
   assert.equal((await executeDocumentTool('wh_document_save', { sessionId, path: output })).ok, true);
   assert.equal((await readFile(output)).subarray(0, 2).toString(), 'PK');
+  const newOutput = path.join(temporary, 'exclusive.docx');
+  const saved = await executeDocumentTool('wh_document_save_new', { sessionId, path: newOutput });
+  assert.equal(saved.ok, true, saved.error);
+  const undo = saved.result.undo;
+  assert.equal(undo.tool, 'wh_document_save_undo');
+  assert.equal((await executeDocumentTool(undo.tool, undo.arguments)).result.undone, true);
+  await assert.rejects(readFile(newOutput), { code: 'ENOENT' });
   assert.equal((await executeDocumentTool('wh_document_close', { sessionId })).ok, true);
   assert.equal((await executeDocumentTool('wh_document_inspect', { sessionId })).ok, false);
 });

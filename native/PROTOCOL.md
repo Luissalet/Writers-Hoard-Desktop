@@ -8,7 +8,7 @@ Success: `{ "id": 1, "ok": true, "result": { ... } }`.
 
 Error: `{ "id": 1, "ok": false, "error": { "code": "document_error", "message": "..." } }`.
 
-All state is held in the process. Session IDs include a process-instance nonce; after process failure previous IDs cannot address new sessions. Caller persists document archives as needed. Unknown session IDs return an error. No implicit file writes: `document.save` requires an explicit path; exports return bytes unless a path is explicitly supplied.
+All state is held in the process. Session IDs include a process-instance nonce; after process failure previous IDs cannot address new sessions. Caller persists document archives as needed. Unknown session IDs return an error. No implicit file writes: `document.save` and `document.saveNew` require an explicit path; exports return bytes unless a path is explicitly supplied. `document.saveNew` publishes the completed file only at a vacant path. Its opaque receipt can remove that output while this engine instance runs, provided the file still matches the saved revision.
 
 File outputs use a unique temporary file beside the explicit destination, flush/sync the complete bytes, then replace the destination by rename. A failed write preserves the previous output and cleans up the owned temporary file. The executable can be terminated during generation without truncating the previous destination. Password-protected Word packages opened with a password retain it in the session for later saves/byte exports; `file.encrypt` changes or clears it, and a save's explicit password override becomes the next default only after a successful save. Results of Word open/save/byte-export report `encrypted`; passwords are never included in results. Other formats remain their ordinary unencrypted formats.
 
@@ -20,6 +20,8 @@ File outputs use a unique temporary file beside the explicit destination, flush/
 | `document.openBytes` | `dataBase64`, `format`, `fileName?`, `password?`, `sessionId?` | Session metadata |
 | `document.importHtml` | `html`, `assets?` map of image src to base64, `sessionId?` | Session metadata |
 | `document.save` | `sessionId`, `path`, `password?` | Session metadata, path, bytes |
+| `document.saveNew` | `sessionId`, `path`, `password?` | Same metadata, plus `undo` with the tool and token |
+| `document.undoSave` | `token` | Whether the unchanged output was removed |
 | `document.exportBytes` | `sessionId`, `format`, `fileName?`, `password?` | mimeType, dataBase64, fileName |
 | `document.exportHtml` | `sessionId`, `includeRevisions?` (default false) | html (images embedded), assets (base64 map), includeRevisions, warnings |
 | `document.inspect` | `sessionId` | Session metadata, document, assets, passthrough, selection, undoDepth |

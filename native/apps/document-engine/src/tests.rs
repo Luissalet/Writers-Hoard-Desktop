@@ -423,6 +423,39 @@ fn session_ids_never_alias_after_engine_restart() {
 }
 
 #[test]
+fn exclusive_save_reopens_and_undoes_only_its_unchanged_output() {
+    let mut engine = DocumentEngine::default();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("draft.docx");
+    let original = engine.dispatch("document.new", &json!({"text":"Proof of reopening."})).unwrap();
+    let args = json!({"sessionId":original["sessionId"], "path":path});
+
+    std::fs::write(&path, b"preexisting").unwrap();
+    assert!(engine.dispatch("document.saveNew", &args).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"preexisting");
+    std::fs::remove_file(&path).unwrap();
+
+    let saved = engine.dispatch("document.saveNew", &args).unwrap();
+    assert_eq!(saved["undo"]["tool"], "wh_document_save_undo");
+    let receipt = &saved["undo"]["arguments"];
+    let reopened = engine.dispatch("document.open", &json!({"path":path})).unwrap();
+    let text = engine.dispatch("document.text", &json!({"sessionId":reopened["sessionId"]})).unwrap();
+    assert_eq!(text["text"], "Proof of reopening.");
+    assert!(engine.dispatch("document.undoSave", &json!({"token":"unissued"})).is_err());
+    assert!(path.is_file());
+    assert_eq!(engine.dispatch("document.undoSave", receipt).unwrap(), json!({"undone":true}));
+    assert!(!path.exists());
+
+    let saved_again = engine.dispatch("document.saveNew", &args).unwrap();
+    let receipt_again = &saved_again["undo"]["arguments"];
+    assert!(engine.dispatch("document.undoSave", receipt).is_err());
+    std::fs::write(&path, b"changed after saving").unwrap();
+    assert!(engine.dispatch("document.undoSave", receipt_again).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"changed after saving");
+    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+}
+
+#[test]
 fn writers_notes_page_breaks_presets_indent_and_marks_round_trip_through_docx() {
     let mut engine = DocumentEngine::default();
     let html = "<p data-wh-indent=\"2\" data-wh-line-height=\"1.5\" data-wh-paragraph-style=\"lead\"><strong>España</strong><sup data-footnote-id=\"nota-ñ\" data-footnote=\"Cuerpo español &amp; &quot;citas&quot;\" class=\"wh-footnote-ref\"></sup></p><div data-wh-page-break=\"true\" style=\"break-after:page\"></div>\n<p style=\"margin-inline-start:1.5em\">Página dos <sub>2</sub></p>";

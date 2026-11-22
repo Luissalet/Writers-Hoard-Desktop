@@ -10,12 +10,17 @@ use serde_json::{Value, json};
 use writer_doc::{Document, StoryRef, archive};
 use writer_engine::{Selection, Session};
 
+mod saved_outputs;
+use saved_outputs::SavedOutputs;
+
 const ACTIONS: &[&str] = &[
     "commands",
     "document.new",
     "document.open",
     "document.openBytes",
     "document.save",
+    "document.saveNew",
+    "document.undoSave",
     "document.importHtml",
     "document.exportHtml",
     "document.exportBytes",
@@ -43,6 +48,7 @@ fn empty_object() -> Value {
 
 pub struct DocumentEngine {
     sessions: HashMap<String, Session>,
+    saved_outputs: SavedOutputs,
     next_session: u64,
     instance: String,
 }
@@ -54,6 +60,7 @@ impl Default for DocumentEngine {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
         Self {
             sessions: HashMap::new(),
+            saved_outputs: SavedOutputs::default(),
             next_session: 0,
             instance: format!("{}-{now:x}-{}", std::process::id(), GENERATION.fetch_add(1, Ordering::Relaxed)),
         }
@@ -237,14 +244,21 @@ impl DocumentEngine {
                     json!({"mimeType":mime_type(format),"dataBase64":STANDARD.encode(bytes),"fileName":name,"encrypted":password.is_some() && writer_engine::io::can_encrypt(&format!("document.{format}"))}),
                 )
             }
-            "document.save" => {
+            "document.save" | "document.saveNew" => {
                 let path = required(args, "path")?;
                 let id = required(args, "sessionId")?.to_string();
                 let session = self.session(args)?;
                 let password = output_password(args, session);
                 let bytes = writer_engine::io::save_bytes_with(path, &session.doc, password)?;
                 let encrypted = password.is_some() && writer_engine::io::can_encrypt(path);
-                writer_engine::io::write_bytes_atomic(Path::new(path), &bytes)?;
+                let output = Path::new(path);
+                let receipt = if action == "document.saveNew" {
+                    Some(self.saved_outputs.create(output, &bytes)?)
+                } else {
+                    writer_engine::io::write_bytes_atomic(output, &bytes)?;
+                    None
+                };
+                let session = self.session(args)?;
                 if args.get("password").is_some() {
                     session.password = args.get("password").and_then(Value::as_str).filter(|s| !s.is_empty()).map(writer_engine::Password::new);
                 }
@@ -254,7 +268,14 @@ impl DocumentEngine {
                 result["path"] = json!(path);
                 result["bytes"] = json!(bytes.len());
                 result["encrypted"] = json!(encrypted);
+                if let Some(token) = receipt {
+                    result["undo"] = json!({"tool":"wh_document_save_undo","arguments":{"token":token}});
+                }
                 Ok(result)
+            }
+            "document.undoSave" => {
+                self.saved_outputs.undo(required(args, "token")?)?;
+                Ok(json!({"undone":true}))
             }
             "document.renderPage" => {
                 let session = self.session(args)?;
