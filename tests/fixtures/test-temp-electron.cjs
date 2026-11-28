@@ -57,6 +57,7 @@ const app = {
     if (event === 'window-all-closed') handlesLastWindow = true;
   },
   setPath(_name, profile) {
+    if (path.basename(profile) === 'launcher') return;
     fs.writeFileSync(process.env.WH_TEST_PROFILE_RECEIPT, path.dirname(profile));
     fs.mkdirSync(profile, { recursive: true });
     fs.writeFileSync(path.join(profile, 'fixture-data'), 'owned');
