@@ -56,7 +56,12 @@ exports.createServer = async config => {
 def focused_runner(tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    for name in ("run-focused-browser-tests.cjs", "focused-browser-deadline.cjs", "focused-browser-vite.cjs"):
+    for name in (
+        "run-focused-browser-tests.cjs",
+        "focused-browser-deadline.cjs",
+        "focused-browser-vite.cjs",
+        "test-temp-lifecycle.cjs",
+    ):
         shutil.copyfile(ROOT / "scripts" / name, scripts / name)
     for name, source in (("electron", ELECTRON), ("vite", VITE)):
         module = tmp_path / "node_modules" / name
@@ -69,14 +74,18 @@ def focused_runner(tmp_path):
         clean.pop("WH_FOCUSED_PREP_TIMEOUT_MS", None)
         clean.update(TEMP=str(tmp_path), TMP=str(tmp_path), TMPDIR=str(tmp_path))
         clean.update(env)
-        return subprocess.run(
+        result = subprocess.run(
             ["node", str(scripts / "run-focused-browser-tests.cjs"), "tests/fixture.ts", "testFixture", "1000"],
             cwd=tmp_path,
             env=clean,
             capture_output=True,
             encoding="utf-8",
             timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
+        leftovers = [path for path in tmp_path.glob("wh-focused-*") if path.name != "wh-focused-vite"]
+        assert not leftovers, result.stdout + result.stderr
+        return result
 
     return run
 

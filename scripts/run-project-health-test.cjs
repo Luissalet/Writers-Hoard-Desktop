@@ -2,16 +2,11 @@ const { app, BrowserWindow } = require('electron');
 const esbuild = require('esbuild');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
-const os = require('node:os');
+const { runTemporaryElectronTest } = require('./test-temp-lifecycle.cjs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
-const temporaryDirectory = fsSync.mkdtempSync(path.join(os.tmpdir(), 'writers-hoard-health-'));
-const isolatedUserData = path.join(temporaryDirectory, 'user-data');
-fsSync.mkdirSync(isolatedUserData, { recursive: true });
-app.setPath('userData', isolatedUserData);
-
-async function main() {
+async function main(temporaryDirectory) {
   const bundlePath = path.join(temporaryDirectory, 'health.js');
   const htmlPath = path.join(temporaryDirectory, 'health.html');
   const entryPath = path.resolve(__dirname, '..', 'tests', 'projectHealthRecovery.browser.ts');
@@ -68,11 +63,4 @@ async function main() {
   }
 }
 
-main()
-  .then(() => app.quit())
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-    app.exit(1);
-  })
-  .finally(() => fs.rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined));
+void runTemporaryElectronTest(app, 'writers-hoard-health-', 'user-data', main);

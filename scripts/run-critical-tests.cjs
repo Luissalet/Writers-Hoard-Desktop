@@ -2,8 +2,7 @@ const { app, BrowserWindow } = require('electron');
 const esbuild = require('esbuild');
 const { viteCssTextPlugin } = require('./esbuild-vite-css.cjs');
 const fs = require('node:fs/promises');
-const fsSync = require('node:fs');
-const os = require('node:os');
+const { runTemporaryElectronTest } = require('./test-temp-lifecycle.cjs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -11,13 +10,6 @@ const { pathToFileURL } = require('node:url');
 // shader pipeline used by Worldgen's 3D regional-detail overlay.
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
-
-const temporaryRoot = fsSync.realpathSync(os.tmpdir());
-const temporaryDirectory = fsSync.mkdtempSync(path.join(temporaryRoot, 'writers-hoard-critical-'));
-const isolatedUserData = path.join(temporaryDirectory, 'user-data');
-fsSync.mkdirSync(isolatedUserData, { recursive: true });
-// Must happen before app ready: no test may ever open the user's real profile.
-app.setPath('userData', isolatedUserData);
 
 /** A port the OS just handed out, released so Vite can bind it. */
 function freePort() {
@@ -31,7 +23,8 @@ function freePort() {
   });
 }
 
-async function main() {
+async function main(temporaryDirectory) {
+  await app.whenReady();
   const nativeBundlePath = path.join(temporaryDirectory, 'electron-security.cjs');
   await esbuild.build({
     entryPoints: [path.resolve(__dirname, '..', 'tests', 'electron-security.ts')],
@@ -288,20 +281,4 @@ async function main() {
   }
 }
 
-app.whenReady()
-  .then(main)
-  .then(() => app.exit(0))
-  .catch(error => {
-    console.error(error);
-    app.exit(1);
-  })
-  .finally(async () => {
-    if (temporaryDirectory) {
-      const resolvedDirectory = await fs.realpath(temporaryDirectory);
-      const relative = path.relative(temporaryRoot, resolvedDirectory);
-      if (resolvedDirectory !== path.resolve(temporaryDirectory) || !relative || relative.startsWith('..') || path.isAbsolute(relative) || !path.basename(relative).startsWith('writers-hoard-critical-')) {
-        throw new Error('Critical test cleanup is outside its temporary directory.');
-      }
-      await fs.rm(resolvedDirectory, { recursive: true, force: true }).catch(() => undefined);
-    }
-  });
+void runTemporaryElectronTest(app, 'writers-hoard-critical-', 'user-data', main);

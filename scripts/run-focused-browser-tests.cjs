@@ -1,7 +1,6 @@
 const { app, BrowserWindow } = require('electron');
 const { once } = require('node:events');
-const fs = require('node:fs');
-const os = require('node:os');
+const { runTemporaryElectronTest } = require('./test-temp-lifecycle.cjs');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const { preparationTimeoutMs, startDeadline } = require('./focused-browser-deadline.cjs');
@@ -10,13 +9,12 @@ const { preparationTimeoutMs, startDeadline } = require('./focused-browser-deadl
 // focused tests can mount the real 3D view instead of its 2D fallback.
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
-app.on('window-all-closed', () => {});
 
 const root = path.resolve(__dirname, '..');
 const host = '127.0.0.1';
 const harnessPath = '/__focused_browser_test__';
 
-async function main() {
+async function main(_temporaryDirectory, profile) {
   const [file, exported, timeoutArgument] = process.argv.slice(2);
   const timeoutMs = timeoutArgument === undefined ? 60000 : Number(timeoutArgument);
   if (!file || !/^[A-Za-z_$][\w$]*$/.test(exported ?? '') || !Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new Error('Usage: electron scripts/run-focused-browser-tests.cjs tests/file.browser.tsx exportedFunction [timeoutMs:1000..600000]');
@@ -25,12 +23,13 @@ async function main() {
   const entryUrl = '/' + path.relative(root, entry).split(path.sep).map(encodeURIComponent).join('/');
   const prepMs = preparationTimeoutMs();
 
-  const profile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wh-focused-')), 'profile');
-  app.setPath('userData', profile);
   process.env.WH_USER_DATA_DIR = profile;
 
-  const exit = code => app.exit(code);
-  const preparation = startDeadline('preparation', 'starting Vite', prepMs, exit, true);
+  let expire;
+  const expired = new Promise((_, reject) => {
+    expire = () => reject(new Error('Focused browser deadline exceeded'));
+  });
+  const preparation = startDeadline('preparation', 'starting Vite', prepMs, expire, true);
   let execution;
   let vite;
   let stopped;
@@ -52,10 +51,10 @@ async function main() {
         if (!closing) reject(new Error(`Focused browser Vite worker exited (${code})`));
       });
     });
-    const [port] = await Promise.race([once(vite, 'message'), viteFailure]);
+    const [port] = await Promise.race([once(vite, 'message'), viteFailure, expired]);
 
     preparation.phase('starting Electron');
-    await Promise.race([app.whenReady(), viteFailure]);
+    await Promise.race([app.whenReady(), viteFailure, expired]);
     win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false } });
     win.webContents.on('console-message', details => {
       if (details.level === 'error') console.error(`${details.sourceId}:${details.lineNumber} ${details.message}`);
@@ -65,7 +64,7 @@ async function main() {
         reject(new Error(`Test renderer exited: ${details.reason} (${details.exitCode})`));
       });
     });
-    const supervise = operation => Promise.race([operation, viteFailure, rendererFailure]);
+    const supervise = operation => Promise.race([operation, viteFailure, rendererFailure, expired]);
 
     preparation.phase('loading the test page');
     await supervise(win.loadURL(`http://${host}:${port}${harnessPath}`));
@@ -86,7 +85,7 @@ async function main() {
     ));
     if (!loaded.ok) throw new Error(loaded.error);
     console.log(`Focused browser preparation finished in ${preparation.stop()} ms`);
-    execution = startDeadline('tests', 'running the test', timeoutMs, exit);
+    execution = startDeadline('tests', 'running the test', timeoutMs, expire);
     const result = await supervise(win.webContents.executeJavaScript(
       `Promise.resolve().then(() => globalThis.__focusedTest())
         .then(tests => ({ ok: true, tests }))
@@ -99,9 +98,15 @@ async function main() {
     const deadline = execution ?? preparation;
     deadline.phase('closing the test window and Vite');
     try {
-      if (win && !win.isDestroyed()) win.destroy();
-      if (vite && vite.threadId !== -1) vite.postMessage('close');
-      viteExitCode = await stopped;
+      try {
+        if (win && !win.isDestroyed()) win.destroy();
+      } finally {
+        if (vite && vite.threadId !== -1) vite.postMessage('close');
+        viteExitCode = await Promise.race([stopped, expired]);
+      }
+    } catch (error) {
+      if (vite && vite.threadId !== -1) await vite.terminate();
+      throw error;
     } finally {
       executionDuration = deadline.stop();
     }
@@ -111,4 +116,4 @@ async function main() {
   for (const test of Array.isArray(tests) ? tests : [tests]) console.log(`PASS ${test}`);
 }
 
-main().then(() => app.exit(0)).catch(error => { console.error(error.stack || error); app.exit(1); });
+void runTemporaryElectronTest(app, 'wh-focused-', 'profile', main);

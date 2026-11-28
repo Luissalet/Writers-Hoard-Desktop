@@ -1,15 +1,13 @@
 const { app, BrowserWindow } = require('electron');
 const esbuild = require('esbuild');
 const fs = require('node:fs');
-const os = require('node:os');
+const { runTemporaryElectronTest } = require('./test-temp-lifecycle.cjs');
 const path = require('node:path');
 
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'writers-hoard-engines-'));
-// Set before app ready: this harness must never open the author's profile.
-app.setPath('userData', path.join(directory, 'profile'));
 const root = path.resolve(__dirname, '..');
 
-async function main() {
+async function main(directory) {
+  await app.whenReady();
   await esbuild.build({
     stdin: {
       contents: `import {testEngineUserSmoke} from './tests/engine-user-smoke.browser.tsx';
@@ -46,25 +44,25 @@ async function main() {
     show: false, width: 1280, height: 960,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
-  await win.loadFile(path.join(directory, 'smoke.html'));
-  const deadline = Date.now() + 90000;
-  while (Date.now() < deadline) {
-    const result = await win.webContents.executeJavaScript('window.__engineSmokeResult ?? null');
-    if (result) {
-      fs.writeFileSync(path.join(directory, 'results.json'), JSON.stringify(result, null, 2), 'utf8');
-      if (!result.ok) throw new Error(result.error || 'Engine render smoke failed');
-      for (const line of result.tests) console.log(`PASS ${line}`);
-      console.log(`\n${result.tests.length} engines mounted; isolated report: ${path.join(directory, 'results.json')}`);
-      console.log('Scope: empty/default UI rendering and lifecycle; workers are dormant, no generation or AI execution.');
-      app.exit(0);
-      return;
+  try {
+    await win.loadFile(path.join(directory, 'smoke.html'));
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      const result = await win.webContents.executeJavaScript('window.__engineSmokeResult ?? null');
+      if (result) {
+        console.log('Engine smoke result:', JSON.stringify(result));
+        if (!result.ok) throw new Error(result.error || 'Engine render smoke failed');
+        for (const line of result.tests) console.log(`PASS ${line}`);
+        console.log(`\n${result.tests.length} engines mounted`);
+        console.log('Scope: empty/default UI rendering and lifecycle; workers are dormant, no generation or AI execution.');
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    throw new Error('Engine render smoke timed out');
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
   }
-  throw new Error('Engine render smoke timed out');
 }
 
-app.whenReady().then(main).catch(error => {
-  console.error(error.stack || error);
-  app.exit(1);
-});
+void runTemporaryElectronTest(app, 'writers-hoard-engines-', 'profile', main);
