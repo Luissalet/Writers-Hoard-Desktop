@@ -119,9 +119,6 @@ On Windows, `setup.bat` performs the one-time setup and `run.bat` starts the app
 | `fetch:bin` | Download `yt-dlp` and `gallery-dl`, verified against pinned checksums |
 | `dist` / `dist:publish` | Build an installer / sign and publish a release |
 
-The focused browser and critical Electron harnesses remove their run-specific profiles before exiting, including after failed tests or timeouts.
-The engine rendering test prints its result as JSON so it can be retained with the test log.
-
 CI (`.github/workflows/ci.yml`) verifies, tests and builds on every push. Published Windows releases require code-signing credentials; local `npm run dist` builds unsigned installers.
 
 ## Data and licence
